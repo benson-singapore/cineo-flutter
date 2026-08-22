@@ -5,15 +5,19 @@ import '../app_lock/app_lock_service.dart';
 import '../app_lock/pin_setup_screen.dart';
 import '../app_lock/pin_verification_dialog.dart';
 import 'adult_source_settings.dart';
+import 'tmdb_settings.dart';
+import 'tmdb_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
   const SettingsScreen({
     super.key,
     required this.adultSourceSettings,
+    required this.tmdbSettings,
     this.appLockController,
   });
 
   final AdultSourceSettings adultSourceSettings;
+  final TMDBSettings tmdbSettings;
   final AppLockController? appLockController;
 
   @override
@@ -47,6 +51,27 @@ class SettingsScreen extends StatelessWidget {
               Text('隐私与安全', style: Theme.of(context).textTheme.labelLarge),
               const SizedBox(height: 8),
               _buildLockSettings(context),
+              const SizedBox(height: 24),
+              Text('数据增强', style: Theme.of(context).textTheme.labelLarge),
+              const SizedBox(height: 8),
+              Container(
+                decoration: BoxDecoration(
+                  color: Theme.of(context).colorScheme.surface,
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: ListTile(
+                  leading: const Icon(Icons.auto_awesome_outlined),
+                  title: const Text('TMDB 数据增强'),
+                  subtitle: const Text('管理海报、剧集资料和每集简介的数据服务'),
+                  trailing: const Icon(Icons.chevron_right_rounded),
+                  onTap: () => Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) =>
+                          TMDBSettingsScreen(settings: tmdbSettings),
+                    ),
+                  ),
+                ),
+              ),
             ],
           );
         },

@@ -17,6 +17,7 @@ import 'features/search/search_screen.dart';
 import 'features/search/category_browse_screen.dart';
 import 'features/settings/adult_source_settings.dart';
 import 'features/settings/settings_screen.dart';
+import 'features/settings/tmdb_settings.dart';
 import 'features/sources/source_list_screen.dart';
 
 void main() {
@@ -34,12 +35,14 @@ class CineoApp extends StatefulWidget {
 class _CineoAppState extends State<CineoApp> {
   final _appLockController = AppLockController();
   final _adultSourceSettings = AdultSourceSettings();
+  final _tmdbSettings = TMDBSettings();
   final _repository = createDemoLocalMediaRepository();
 
   @override
   void initState() {
     super.initState();
     unawaited(_adultSourceSettings.initialize());
+    unawaited(_tmdbSettings.initialize());
   }
 
   @override
@@ -61,6 +64,7 @@ class _CineoAppState extends State<CineoApp> {
           repository: _repository,
           appLockController: _appLockController,
           adultSourceSettings: _adultSourceSettings,
+          tmdbSettings: _tmdbSettings,
         ),
       ),
     );
@@ -73,11 +77,13 @@ class CineoShell extends StatefulWidget {
     required this.repository,
     required this.appLockController,
     required this.adultSourceSettings,
+    required this.tmdbSettings,
   });
 
   final LocalMediaRepository repository;
   final AppLockController appLockController;
   final AdultSourceSettings adultSourceSettings;
+  final TMDBSettings tmdbSettings;
 
   @override
   State<CineoShell> createState() => _CineoShellState();
@@ -378,6 +384,7 @@ class _CineoShellState extends State<CineoShell> {
         builder: (_) => SettingsScreen(
           adultSourceSettings: widget.adultSourceSettings,
           appLockController: widget.appLockController,
+          tmdbSettings: widget.tmdbSettings,
         ),
       ),
     );
