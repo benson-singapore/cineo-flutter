@@ -3,8 +3,10 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'core/models/media.dart';
+import 'core/models/tmdb_media.dart';
 import 'core/platform/picture_in_picture.dart';
 import 'core/theme/cineo_theme.dart';
+import 'data/remote/tmdb_client.dart';
 import 'data/repositories/local_media_repository.dart';
 import 'data/remote/media_category_adapter.dart';
 import 'features/app_lock/app_lock.dart';
@@ -270,6 +272,7 @@ class _CineoShellState extends State<CineoShell> {
             unawaited(_refresh());
           },
           onPlay: (option) => unawaited(_openPlayer(resolvedMedia, option)),
+          onLoadTmdbDetails: _loadTmdbDetails,
           onSearchOtherSources: (item) => widget.repository.searchOtherSources(
             item,
             includeAdult: widget.adultSourceSettings.showAdultSources,
@@ -282,6 +285,38 @@ class _CineoShellState extends State<CineoShell> {
       ),
     );
     await _refresh();
+  }
+
+  Future<TmdbMediaDetails?> _loadTmdbDetails(MediaItem media) async {
+    final token = await widget.tmdbSettings.readTokenForRequest();
+    if (token == null) return null;
+    final mediaType = media.kind == MediaKind.series
+        ? TmdbMediaType.tv
+        : TmdbMediaType.movie;
+    try {
+      final details = await TmdbClient(bearerToken: token).findDetails(
+        media.title,
+        type: mediaType,
+        year: media.year > 0 ? media.year : null,
+      );
+      _debugLog(
+        'tmdb_details phase=complete type=${mediaType.name} '
+        'matched=${details != null}',
+      );
+      return details;
+    } on TmdbApiException catch (error) {
+      _debugLog(
+        'tmdb_details phase=unavailable kind=${error.kind.name} '
+        'type=${mediaType.name}',
+      );
+      return null;
+    } on Object catch (error) {
+      _debugLog(
+        'tmdb_details phase=failed errorType=${error.runtimeType} '
+        'type=${mediaType.name}',
+      );
+      return null;
+    }
   }
 
   Future<void> _openPlayer(MediaItem media, PlaybackOption option) async {
