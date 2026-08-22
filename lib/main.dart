@@ -674,27 +674,14 @@ class _CineoShellState extends State<CineoShell> {
     ];
     return Scaffold(
       extendBody: true,
-      body: Stack(
-        fit: StackFit.expand,
-        children: [
-          IndexedStack(index: _selectedIndex, children: pages),
-          if (_selectedIndex == 1 && _showLibraryScrollToTop)
-            Positioned(
-              right: 16,
-              bottom: 16,
-              child: FloatingActionButton.small(
-                onPressed: _scrollLibraryToTop,
-                tooltip: '回到顶部',
-                child: const Icon(Icons.keyboard_arrow_up_rounded),
-              ),
-            ),
-        ],
-      ),
+      body: IndexedStack(index: _selectedIndex, children: pages),
       bottomNavigationBar: AnimatedBuilder(
         animation: widget.updateService,
         builder: (context, _) => _GlassBottomNavigation(
           selectedIndex: _selectedIndex,
           showUpdateBadge: widget.updateService.hasUpdate,
+          showScrollToTop: _selectedIndex == 1 && _showLibraryScrollToTop,
+          onScrollToTop: _scrollLibraryToTop,
           onDestinationSelected: (index) =>
               setState(() => _selectedIndex = index),
         ),
@@ -720,11 +707,15 @@ class _GlassBottomNavigation extends StatelessWidget {
     required this.selectedIndex,
     required this.onDestinationSelected,
     required this.showUpdateBadge,
+    required this.showScrollToTop,
+    required this.onScrollToTop,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
   final bool showUpdateBadge;
+  final bool showScrollToTop;
+  final VoidCallback onScrollToTop;
 
   static const _destinations = [
     _GlassNavigationDestination(
@@ -748,52 +739,80 @@ class _GlassBottomNavigation extends StatelessWidget {
   Widget build(BuildContext context) {
     final isIos = Theme.of(context).platform == TargetPlatform.iOS;
     const borderRadius = BorderRadius.all(Radius.circular(30));
+    final barHeight = isIos ? 64.0 : 68.0;
     return SafeArea(
       top: false,
       minimum: isIos
           ? const EdgeInsets.fromLTRB(16, 8, 16, 6)
           : const EdgeInsets.fromLTRB(20, 8, 20, 10),
-      child: ClipRRect(
-        borderRadius: borderRadius,
-        child: BackdropFilter(
-          filter: ImageFilter.blur(
-            sigmaX: isIos ? 26 : 18,
-            sigmaY: isIos ? 26 : 18,
-          ),
-          child: DecoratedBox(
-            decoration: BoxDecoration(
-              color: CineoColors.glass.withOpacity(isIos ? .78 : .9),
+      child: Stack(
+        clipBehavior: Clip.none,
+        children: [
+          SizedBox(
+            height: barHeight,
+            child: ClipRRect(
               borderRadius: borderRadius,
-              border: Border.all(
-                color: Colors.white.withOpacity(isIos ? .18 : .12),
-              ),
-              boxShadow: [
-                BoxShadow(
-                  color: Colors.black.withOpacity(isIos ? .3 : .38),
-                  blurRadius: isIos ? 30 : 26,
-                  offset: Offset(0, isIos ? 12 : 10),
+              child: BackdropFilter(
+                filter: ImageFilter.blur(
+                  sigmaX: isIos ? 26 : 18,
+                  sigmaY: isIos ? 26 : 18,
                 ),
-              ],
-            ),
-            child: SizedBox(
-              height: isIos ? 64 : 68,
-              child: Row(
-                children: List.generate(_destinations.length, (index) {
-                  final destination = _destinations[index];
-                  return Expanded(
-                    child: _GlassNavigationItem(
-                      destination: destination,
-                      selected: selectedIndex == index,
-                      showBadge: index == 2 && showUpdateBadge,
-                      onTap: () => onDestinationSelected(index),
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    color: CineoColors.glass.withOpacity(isIos ? .78 : .9),
+                    borderRadius: borderRadius,
+                    border: Border.all(
+                      color: Colors.white.withOpacity(isIos ? .18 : .12),
                     ),
-                  );
-                }),
+                    boxShadow: [
+                      BoxShadow(
+                        color: Colors.black.withOpacity(isIos ? .3 : .38),
+                        blurRadius: isIos ? 30 : 26,
+                        offset: Offset(0, isIos ? 12 : 10),
+                      ),
+                    ],
+                  ),
+                  child: Row(
+                    children: List.generate(_destinations.length, (index) {
+                      final destination = _destinations[index];
+                      return Expanded(
+                        child: _GlassNavigationItem(
+                          destination: destination,
+                          selected: selectedIndex == index,
+                          showBadge: index == 2 && showUpdateBadge,
+                          onTap: () => onDestinationSelected(index),
+                        ),
+                      );
+                    }),
+                  ),
+                ),
               ),
             ),
           ),
-        ),
+          if (showScrollToTop)
+            Positioned(
+              right: 0,
+              // Let the action sit closer to, and slightly overlap, the glass bar.
+              top: -32,
+              child: _ScrollToTopButton(onPressed: onScrollToTop),
+            ),
+        ],
       ),
+    );
+  }
+}
+
+class _ScrollToTopButton extends StatelessWidget {
+  const _ScrollToTopButton({required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return FloatingActionButton.small(
+      onPressed: onPressed,
+      tooltip: '回到顶部',
+      child: const Icon(Icons.keyboard_arrow_up_rounded),
     );
   }
 }
