@@ -10,6 +10,7 @@ class MediaDetailsScreen extends StatefulWidget {
     required this.favorite,
     required this.onFavoriteChanged,
     required this.onPlay,
+    this.initialEpisodeId,
     this.onSearchOtherSources,
     this.onOpenAlternative,
   });
@@ -18,6 +19,7 @@ class MediaDetailsScreen extends StatefulWidget {
   final bool favorite;
   final ValueChanged<bool> onFavoriteChanged;
   final ValueChanged<PlaybackOption> onPlay;
+  final String? initialEpisodeId;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
   final ValueChanged<MediaItem>? onOpenAlternative;
 
@@ -27,7 +29,7 @@ class MediaDetailsScreen extends StatefulWidget {
 
 class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   late bool _favorite = widget.favorite;
-  String? _selectedSourceId;
+  String? _selectedSourceName;
   Episode? _selectedEpisode;
   bool _searchingOtherSources = false;
 
@@ -35,15 +37,44 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
 
   List<PlaybackOption> get _sourceOptions {
     final seen = <String>{};
-    return _options.where((option) => seen.add(option.sourceId)).toList();
+    return _options.where((option) => seen.add(_lineName(option))).toList();
   }
 
-  String? get _activeSourceId =>
-      _selectedSourceId ??
-      (_sourceOptions.isEmpty ? null : _sourceOptions.first.sourceId);
+  String? get _activeSourceName =>
+      _selectedSourceName ??
+      (_sourceOptions.isEmpty ? null : _lineName(_sourceOptions.first));
 
-  List<PlaybackOption> get _activeOptions =>
-      _options.where((option) => option.sourceId == _activeSourceId).toList();
+  List<PlaybackOption> get _activeOptions => _options
+      .where((option) => _lineName(option) == _activeSourceName)
+      .toList();
+
+  List<Episode> get _activeEpisodes {
+    final episodesWithLines = widget.media.episodes
+        .where((episode) => episode.playbackOption != null)
+        .toList();
+    if (episodesWithLines.isEmpty) return widget.media.episodes;
+
+    final activeName = _activeSourceName;
+    if (activeName == null) return const [];
+    return episodesWithLines
+        .where((episode) => _lineName(episode.playbackOption!) == activeName)
+        .toList();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    final initialEpisodeId = widget.initialEpisodeId;
+    if (initialEpisodeId == null) return;
+    for (final episode in widget.media.episodes) {
+      final option = episode.playbackOption;
+      if (episode.id == initialEpisodeId || option?.id == initialEpisodeId) {
+        _selectedEpisode = episode;
+        if (option != null) _selectedSourceName = _lineName(option);
+        break;
+      }
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -152,25 +183,31 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           const _InlineEmpty(message: '暂无可用播放来源')
         else ...[
           _SourceSelector(
-            options: _sourceOptions,
-            selectedSourceId: _activeSourceId,
-            onChanged: (value) => setState(() => _selectedSourceId = value),
+            sourceNames: _sourceOptions.map(_lineName).toList(),
+            selectedSourceName: _activeSourceName,
+            onChanged: (value) => setState(() {
+              _selectedSourceName = value;
+              _selectedEpisode = null;
+            }),
           ),
-          const SizedBox(height: 12),
-          _PlaybackList(options: _activeOptions, onPlay: widget.onPlay),
         ],
         if (media.episodes.isNotEmpty) ...[
           const SizedBox(height: 28),
           _sectionTitle('剧集'),
           const SizedBox(height: 12),
           _EpisodeList(
-            episodes: media.episodes,
+            episodes: _activeEpisodes,
             selectedEpisode: _selectedEpisode,
             onSelected: (episode) {
               setState(() => _selectedEpisode = episode);
-              if (episode.playbackOption != null) widget.onPlay(episode.playbackOption!);
+              if (episode.playbackOption != null) {
+                widget.onPlay(episode.playbackOption!);
+              }
             },
           ),
+        ] else if (_activeOptions.isNotEmpty) ...[
+          const SizedBox(height: 12),
+          _PlaybackList(options: _activeOptions, onPlay: widget.onPlay),
         ],
         if (widget.onSearchOtherSources != null) ...[
           const SizedBox(height: 28),
@@ -223,6 +260,11 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   }
 }
 
+String _lineName(PlaybackOption option) {
+  final name = option.quality.trim();
+  return name.isEmpty ? '播放源' : name;
+}
+
 class _MediaImage extends StatelessWidget {
   const _MediaImage({required this.url, required this.aspectRatio});
 
@@ -250,27 +292,27 @@ class _MediaImage extends StatelessWidget {
 
 class _SourceSelector extends StatelessWidget {
   const _SourceSelector({
-    required this.options,
-    required this.selectedSourceId,
+    required this.sourceNames,
+    required this.selectedSourceName,
     required this.onChanged,
   });
 
-  final List<PlaybackOption> options;
-  final String? selectedSourceId;
+  final List<String> sourceNames;
+  final String? selectedSourceName;
   final ValueChanged<String> onChanged;
 
   @override
   Widget build(BuildContext context) {
     return DropdownButtonFormField<String>(
-      value: selectedSourceId,
+      value: selectedSourceName,
       decoration: const InputDecoration(
         labelText: '选择来源',
         prefixIcon: Icon(Icons.dns_outlined),
       ),
-      items: options
-          .map((option) => DropdownMenuItem(
-                value: option.sourceId,
-                child: Text(option.label, overflow: TextOverflow.ellipsis),
+      items: sourceNames
+          .map((name) => DropdownMenuItem(
+                value: name,
+                child: Text(name, overflow: TextOverflow.ellipsis),
               ))
           .toList(),
       onChanged: (value) {
@@ -325,16 +367,189 @@ class _EpisodeList extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Wrap(
-      spacing: 8,
-      runSpacing: 8,
-      children: episodes
-          .map((episode) => ChoiceChip(
-                label: Text('第${episode.number}集'),
-                selected: selectedEpisode?.id == episode.id,
-                onSelected: (_) => onSelected(episode),
-              ))
-          .toList(),
+    return _EpisodePicker(
+      episodes: episodes,
+      selectedEpisode: selectedEpisode,
+      onSelected: onSelected,
+    );
+  }
+}
+
+/// Formats an episode using the source label when it contains a usable number.
+/// MacCMS labels are inconsistent, so the model number remains the fallback.
+String formatEpisodeLabel(Episode episode) {
+  final candidates = <String>[
+    episode.playbackOption?.label ?? '',
+    episode.title,
+  ];
+  final markedNumberPattern = RegExp(r'第\s*0*(\d+)\s*(?:集|话|期)');
+  final plainNumberPattern = RegExp(r'^0*(\d+)$');
+  for (final candidate in candidates) {
+    if (candidate.contains('正片')) return '正片';
+    final match = markedNumberPattern.firstMatch(candidate.trim()) ??
+        plainNumberPattern.firstMatch(candidate.trim());
+    final value = int.tryParse(match?.group(1) ?? '');
+    if (value != null && value > 0) return '第$value集';
+  }
+  if (episode.number > 0) return '第${episode.number}集';
+  return episode.title.trim().isEmpty ? '正片' : episode.title.trim();
+}
+
+class _EpisodePicker extends StatefulWidget {
+  const _EpisodePicker({
+    required this.episodes,
+    required this.selectedEpisode,
+    required this.onSelected,
+  });
+
+  final List<Episode> episodes;
+  final Episode? selectedEpisode;
+  final ValueChanged<Episode> onSelected;
+
+  @override
+  State<_EpisodePicker> createState() => _EpisodePickerState();
+}
+
+class _EpisodePickerState extends State<_EpisodePicker> {
+  final _scrollController = ScrollController();
+  bool _ascending = true;
+  bool _showBackToTop = false;
+
+  List<Episode> get _sortedEpisodes {
+    final result = [...widget.episodes];
+    result.sort((a, b) {
+      final comparison = a.number.compareTo(b.number);
+      return _ascending ? comparison : -comparison;
+    });
+    return result;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController.addListener(_handleScroll);
+    _scheduleSelectedEpisodeScroll();
+  }
+
+  @override
+  void didUpdateWidget(covariant _EpisodePicker oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedEpisode?.id != widget.selectedEpisode?.id ||
+        oldWidget.episodes.length != widget.episodes.length) {
+      _scheduleSelectedEpisodeScroll();
+    }
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_handleScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _handleScroll() {
+    final shouldShow =
+        _scrollController.hasClients && _scrollController.offset > 180;
+    if (shouldShow != _showBackToTop && mounted) {
+      setState(() => _showBackToTop = shouldShow);
+    }
+  }
+
+  void _scheduleSelectedEpisodeScroll() {
+    final selectedId = widget.selectedEpisode?.id;
+    if (selectedId == null) return;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final index =
+          _sortedEpisodes.indexWhere((episode) => episode.id == selectedId);
+      if (index < 0) return;
+      final rows = (index / 3).floor();
+      final target = (rows * 52).toDouble();
+      final maxExtent = _scrollController.position.maxScrollExtent;
+      _scrollController.animateTo(
+        target > maxExtent ? maxExtent : target,
+        duration: const Duration(milliseconds: 240),
+        curve: Curves.easeOut,
+      );
+    });
+  }
+
+  void _toggleOrder() {
+    setState(() => _ascending = !_ascending);
+    _scheduleSelectedEpisodeScroll();
+  }
+
+  void _backToTop() {
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 240),
+      curve: Curves.easeOut,
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (widget.episodes.isEmpty) {
+      return const _InlineEmpty(message: '当前线路暂无剧集');
+    }
+    final episodes = _sortedEpisodes;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text('${episodes.length} 集',
+                style: const TextStyle(color: CineoColors.textSecondary)),
+            const Spacer(),
+            TextButton.icon(
+              onPressed: _toggleOrder,
+              icon:
+                  Icon(_ascending ? Icons.south_rounded : Icons.north_rounded),
+              label: Text(_ascending ? '正序' : '倒序'),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        SizedBox(
+          height: 292,
+          child: Stack(
+            children: [
+              GridView.builder(
+                controller: _scrollController,
+                padding: const EdgeInsets.only(right: 4, bottom: 52),
+                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                  maxCrossAxisExtent: 128,
+                  mainAxisExtent: 44,
+                  crossAxisSpacing: 8,
+                  mainAxisSpacing: 8,
+                ),
+                itemCount: episodes.length,
+                itemBuilder: (context, index) {
+                  final episode = episodes[index];
+                  return ChoiceChip(
+                    key: ValueKey(episode.id),
+                    label: Text(formatEpisodeLabel(episode)),
+                    selected: widget.selectedEpisode?.id == episode.id,
+                    onSelected: (_) => widget.onSelected(episode),
+                  );
+                },
+              ),
+              if (_showBackToTop)
+                Positioned(
+                  right: 4,
+                  bottom: 4,
+                  child: FloatingActionButton.small(
+                    heroTag: null,
+                    tooltip: '回到顶部',
+                    onPressed: _backToTop,
+                    child: const Icon(Icons.vertical_align_top_rounded),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      ],
     );
   }
 }
