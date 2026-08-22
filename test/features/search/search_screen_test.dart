@@ -260,6 +260,35 @@ void main() {
     expect(find.text('重复'), findsOneWidget);
   });
 
+  testWidgets('shows a scroll-to-top action for the library and returns home',
+      (tester) async {
+    await tester.pumpWidget(
+      buildSubject(
+        items: const [],
+        libraryMode: true,
+        onBrowse: (_, page) async => PagedMedia(
+          items: List.generate(30, (index) => media('片库资源$index')),
+          page: page,
+          pageCount: 1,
+          total: 30,
+          limit: 30,
+          hasMore: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('回到顶部'), findsNothing);
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -900));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('回到顶部'), findsOneWidget);
+    await tester.tap(find.byTooltip('回到顶部'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('回到顶部'), findsNothing);
+  });
+
   testWidgets(
       'pulling down refreshes the current library page without blanking it',
       (tester) async {

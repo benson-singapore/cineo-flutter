@@ -79,4 +79,29 @@ void main() {
     expect(find.text('远程首屏'), findsOneWidget);
     expect(find.text('首页预览'), findsNothing);
   });
+
+  testWidgets('shows a scroll-to-top action after scrolling and returns home',
+      (tester) async {
+    await tester.pumpWidget(buildSubject(
+      onLoad: (page) async => PagedMedia(
+        items: List.generate(30, (index) => media('资源$index')),
+        page: page,
+        pageCount: 1,
+        total: 30,
+        limit: 30,
+        hasMore: false,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('回到顶部'), findsNothing);
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -900));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('回到顶部'), findsOneWidget);
+    await tester.tap(find.byTooltip('回到顶部'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('回到顶部'), findsNothing);
+  });
 }

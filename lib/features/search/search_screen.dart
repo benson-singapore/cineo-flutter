@@ -59,6 +59,7 @@ class _SearchScreenState extends State<SearchScreen>
   int _searchPage = 0;
   int _browsePage = 0;
   int _revision = 0;
+  bool _showScrollToTop = false;
   final Map<String, _SubcategoryBrowseState> _subcategoryBrowse = {};
   late UnifiedMediaType _selectedType;
 
@@ -66,7 +67,9 @@ class _SearchScreenState extends State<SearchScreen>
   void initState() {
     super.initState();
     _selectedType = widget.initialCategory?.type ?? UnifiedMediaType.all;
-    _scrollController.addListener(_onScroll);
+    _scrollController
+      ..addListener(_onScroll)
+      ..addListener(_updateScrollToTopVisibility);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadCurrentBrowse();
     });
@@ -94,6 +97,25 @@ class _SearchScreenState extends State<SearchScreen>
     } else if (_query.trim().isNotEmpty && _hasMoreSearch && !_isSearching) {
       _loadSearchPage(_searchPage + 1, _query.trim());
     }
+  }
+
+  void _updateScrollToTopVisibility() {
+    if (!_scrollController.hasClients) return;
+    final shouldShow = _scrollController.offset > 360;
+    if (shouldShow != _showScrollToTop && mounted) {
+      setState(() => _showScrollToTop = shouldShow);
+    }
+  }
+
+  Future<void> _scrollToTop() async {
+    if (!_scrollController.hasClients || _scrollController.offset <= 0) {
+      return;
+    }
+    await _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   List<UnifiedCategory> get _visibleCategories {
@@ -525,6 +547,13 @@ class _SearchScreenState extends State<SearchScreen>
           ),
         ),
       ),
+      floatingActionButton: _showScrollToTop
+          ? FloatingActionButton.small(
+              onPressed: _scrollToTop,
+              tooltip: '回到顶部',
+              child: const Icon(Icons.keyboard_arrow_up_rounded),
+            )
+          : null,
     );
   }
 

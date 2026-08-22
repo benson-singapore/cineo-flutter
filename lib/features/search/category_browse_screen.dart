@@ -34,12 +34,15 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
   bool _hasMore = false;
   int _page = 0;
   int _revision = 0;
+  bool _showScrollToTop = false;
 
   @override
   void initState() {
     super.initState();
     _items = widget.initialItems;
-    _scrollController.addListener(_onScroll);
+    _scrollController
+      ..addListener(_onScroll)
+      ..addListener(_updateScrollToTopVisibility);
     if (widget.onLoad != null) {
       WidgetsBinding.instance.addPostFrameCallback((_) => _load());
     }
@@ -60,6 +63,25 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
       return;
     }
     _loadPage(_page + 1, revision: _revision);
+  }
+
+  void _updateScrollToTopVisibility() {
+    if (!_scrollController.hasClients) return;
+    final shouldShow = _scrollController.offset > 360;
+    if (shouldShow != _showScrollToTop && mounted) {
+      setState(() => _showScrollToTop = shouldShow);
+    }
+  }
+
+  Future<void> _scrollToTop() async {
+    if (!_scrollController.hasClients || _scrollController.offset <= 0) {
+      return;
+    }
+    await _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
   }
 
   Future<void> _load({bool preserveItems = false}) async {
@@ -199,6 +221,13 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
                     ),
                   ),
       ),
+      floatingActionButton: _showScrollToTop
+          ? FloatingActionButton.small(
+              onPressed: _scrollToTop,
+              tooltip: '回到顶部',
+              child: const Icon(Icons.keyboard_arrow_up_rounded),
+            )
+          : null,
     );
   }
 }
