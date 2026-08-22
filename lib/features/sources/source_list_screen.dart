@@ -401,7 +401,7 @@ class _SourceListScreenState extends State<SourceListScreen> {
                     tabs: [
                       Tab(text: '收藏源 ${favoriteSources.length}'),
                       Tab(text: '普通源 ${regularSources.length}'),
-                      Tab(text: '成人源 ${adultSources.length}'),
+                      if (adultVisible) Tab(text: '成人源 ${adultSources.length}'),
                     ],
                   ),
                 ),
