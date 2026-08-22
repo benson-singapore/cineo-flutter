@@ -29,7 +29,7 @@ class ProfileScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('我的')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 124),
         children: [
           _ProfileHeader(lockEnabled: lockEnabled),
           const SizedBox(height: 28),

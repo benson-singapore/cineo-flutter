@@ -519,6 +519,7 @@ class _SearchScreenState extends State<SearchScreen>
                 ..._buildResults(query)
               else
                 ..._buildBrowse(),
+              const SliverToBoxAdapter(child: SizedBox(height: 92)),
             ],
           ),
         ),
