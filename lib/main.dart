@@ -5,6 +5,7 @@ import 'package:flutter/material.dart';
 import 'core/models/media.dart';
 import 'core/theme/cineo_theme.dart';
 import 'data/repositories/local_media_repository.dart';
+import 'data/remote/media_category_adapter.dart';
 import 'features/app_lock/app_lock.dart';
 import 'features/home/home_screen.dart';
 import 'features/library/library_screen.dart';
@@ -85,6 +86,11 @@ class _CineoShellState extends State<CineoShell> {
   List<MediaItem> _continueWatching = const [];
   List<String> _searchHistory = const [];
   Map<String, double> _progressByMediaId = const {};
+  List<UnifiedCategory> _categories = const [];
+  UnifiedCategory _selectedCategory = const UnifiedCategory(
+    type: UnifiedMediaType.all,
+    sourceCategoryIds: [],
+  );
   bool _loading = true;
   String? _errorMessage;
   int _selectedIndex = 0;
@@ -104,13 +110,17 @@ class _CineoShellState extends State<CineoShell> {
     }
     try {
       final results = await Future.wait([
-        widget.repository.featured(),
+        widget.repository.browseDefaultSourceCategories(
+          _selectedCategory.sourceCategoryIds,
+        ),
         widget.repository.watchHistory(),
         widget.repository.searchHistory(),
+        widget.repository.defaultSourceCategories(),
       ]);
       final items = results[0] as List<MediaItem>;
       final progress = results[1] as List<WatchProgress>;
       final history = results[2] as List<String>;
+      final categories = results[3] as List<UnifiedCategory>;
       final byId = <String, MediaItem>{
         for (final item in items) item.id: item,
       };
@@ -126,6 +136,10 @@ class _CineoShellState extends State<CineoShell> {
           for (final entry in progress) entry.mediaId: entry.fraction,
         };
         _searchHistory = history;
+        _categories = categories;
+        if (!categories.any((category) => category.type == _selectedCategory.type)) {
+          _selectedCategory = categories.first;
+        }
         _loading = false;
       });
     } catch (_) {
@@ -137,24 +151,48 @@ class _CineoShellState extends State<CineoShell> {
     }
   }
 
+  Future<void> _selectCategory(UnifiedCategory category) async {
+    if (_selectedCategory.type == category.type) return;
+    setState(() => _selectedCategory = category);
+    await _refresh();
+  }
+
   Future<void> _recordSearch(String query) async {
     await widget.repository.addSearchHistory(query);
     await _refresh();
   }
 
   Future<void> _openMedia(MediaItem media) async {
-    final favorite = await widget.repository.isFavorite(media.id);
+    MediaItem resolvedMedia = media;
+    try {
+      resolvedMedia = await widget.repository.loadDetails(media) ?? media;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('详情加载失败，请检查视频源连通性')),
+        );
+      }
+    }
+    final favorite = await widget.repository.isFavorite(resolvedMedia.id);
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => MediaDetailsScreen(
-          media: media,
+          media: resolvedMedia,
           favorite: favorite,
           onFavoriteChanged: (isFavorite) {
-            unawaited(widget.repository.setFavorite(media.id, isFavorite));
+            unawaited(widget.repository.setFavorite(resolvedMedia.id, isFavorite));
             unawaited(_refresh());
           },
-          onPlay: (option) => unawaited(_openPlayer(media, option)),
+          onPlay: (option) => unawaited(_openPlayer(resolvedMedia, option)),
+          onSearchOtherSources: (item) => widget.repository.searchOtherSources(
+            item,
+            includeAdult: widget.adultSourceSettings.showAdultSources,
+          ),
+          onOpenAlternative: (alternative) {
+            Navigator.of(context).pop();
+            unawaited(_openMedia(alternative));
+          },
         ),
       ),
     );
@@ -177,6 +215,7 @@ class _CineoShellState extends State<CineoShell> {
           media: media,
           option: option,
           initialPosition: position,
+          episodeId: option.id,
           onProgressChanged: (progress) =>
               unawaited(widget.repository.saveProgress(progress)),
         ),
@@ -222,6 +261,7 @@ class _CineoShellState extends State<CineoShell> {
       MaterialPageRoute(
         builder: (_) => SettingsScreen(
           adultSourceSettings: widget.adultSourceSettings,
+          appLockController: widget.appLockController,
         ),
       ),
     );
@@ -234,6 +274,9 @@ class _CineoShellState extends State<CineoShell> {
         items: _items,
         continueWatching: _continueWatching,
         progressByMediaId: _progressByMediaId,
+        categories: _categories,
+        selectedCategory: _selectedCategory.type,
+        onCategorySelected: (category) => unawaited(_selectCategory(category)),
         isLoading: _loading,
         errorMessage: _errorMessage,
         onRetry: _refresh,
@@ -244,6 +287,9 @@ class _CineoShellState extends State<CineoShell> {
         history: _searchHistory,
         onSearch: (query) => unawaited(_recordSearch(query)),
         onOpenMedia: (media) => unawaited(_openMedia(media)),
+        categories: _categories,
+        onRemoteSearch: (query, categoryIds) =>
+            widget.repository.searchDefaultSource(query, categoryIds: categoryIds),
       ),
       ProfileScreen(
         appLockController: widget.appLockController,

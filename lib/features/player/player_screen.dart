@@ -13,12 +13,14 @@ class PlayerScreen extends StatefulWidget {
     required this.option,
     required this.initialPosition,
     required this.onProgressChanged,
+    this.episodeId,
   });
 
   final MediaItem media;
   final PlaybackOption option;
   final Duration initialPosition;
   final ValueChanged<WatchProgress> onProgressChanged;
+  final String? episodeId;
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -56,6 +58,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!_controller.value.isInitialized) return;
     widget.onProgressChanged(WatchProgress(
       mediaId: widget.media.id,
+      episodeId: widget.episodeId,
       position: _controller.value.position,
       duration: _controller.value.duration,
       updatedAt: DateTime.now(),

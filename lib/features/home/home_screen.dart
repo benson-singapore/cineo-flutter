@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
 import '../../core/theme/cineo_theme.dart';
+import '../../data/remote/media_category_adapter.dart';
 import '../../shared/widgets/content_state_view.dart';
 import '../../shared/widgets/media_image.dart';
 import '../../shared/widgets/media_rail.dart';
@@ -16,6 +17,9 @@ class HomeScreen extends StatelessWidget {
     this.errorMessage,
     this.onRetry,
     this.progressByMediaId = const {},
+    this.categories = const [],
+    this.selectedCategory = UnifiedMediaType.all,
+    this.onCategorySelected,
   });
 
   final List<MediaItem> items;
@@ -25,6 +29,9 @@ class HomeScreen extends StatelessWidget {
   final String? errorMessage;
   final VoidCallback? onRetry;
   final Map<String, double> progressByMediaId;
+  final List<UnifiedCategory> categories;
+  final UnifiedMediaType selectedCategory;
+  final ValueChanged<UnifiedCategory>? onCategorySelected;
 
   @override
   Widget build(BuildContext context) {
@@ -46,6 +53,14 @@ class HomeScreen extends StatelessWidget {
             else ...[
               SliverToBoxAdapter(
                   child: _HeroBanner(media: items.first, onTap: onOpenMedia)),
+              if (categories.length > 1)
+                SliverToBoxAdapter(
+                  child: _CategoryStrip(
+                    categories: categories,
+                    selected: selectedCategory,
+                    onSelected: onCategorySelected,
+                  ),
+                ),
               if (continueWatching.isNotEmpty)
                 MediaRail(
                   title: '继续观看',
@@ -120,6 +135,40 @@ class HomeScreen extends StatelessWidget {
       }
     }
     return rails;
+  }
+}
+
+class _CategoryStrip extends StatelessWidget {
+  const _CategoryStrip({
+    required this.categories,
+    required this.selected,
+    required this.onSelected,
+  });
+
+  final List<UnifiedCategory> categories;
+  final UnifiedMediaType selected;
+  final ValueChanged<UnifiedCategory>? onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 54,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
+        scrollDirection: Axis.horizontal,
+        itemCount: categories.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, index) {
+          final category = categories[index];
+          final isSelected = category.type == selected;
+          return ChoiceChip(
+            label: Text(category.type.label),
+            selected: isSelected,
+            onSelected: (_) => onSelected?.call(category),
+          );
+        },
+      ),
+    );
   }
 }
 

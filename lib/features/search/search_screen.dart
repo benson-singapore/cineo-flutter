@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
 import '../../core/theme/cineo_theme.dart';
+import '../../data/remote/media_category_adapter.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
@@ -10,12 +11,17 @@ class SearchScreen extends StatefulWidget {
     required this.history,
     required this.onSearch,
     required this.onOpenMedia,
+    this.onRemoteSearch,
+    this.categories = const [],
   });
 
   final List<MediaItem> items;
   final List<String> history;
   final ValueChanged<String> onSearch;
   final ValueChanged<MediaItem> onOpenMedia;
+  final Future<List<MediaItem>> Function(String query, List<String> categoryIds)?
+      onRemoteSearch;
+  final List<UnifiedCategory> categories;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -27,6 +33,9 @@ class _SearchScreenState extends State<SearchScreen> {
   final _localHistory = <String>[];
   String _query = '';
   String? _errorMessage;
+  List<MediaItem>? _remoteResults;
+  bool _isSearching = false;
+  UnifiedMediaType _selectedType = UnifiedMediaType.all;
 
   @override
   void dispose() {
@@ -45,10 +54,17 @@ class _SearchScreenState extends State<SearchScreen> {
         .toList(growable: false);
   }
 
-  List<MediaItem> get _results {
+  List<MediaItem> get _localResults {
     final query = _query.trim().toLowerCase();
     if (query.isEmpty) return const [];
     return widget.items.where((media) {
+      if (_selectedType == UnifiedMediaType.movie && media.kind != MediaKind.movie) return false;
+      if ((_selectedType == UnifiedMediaType.series ||
+              _selectedType == UnifiedMediaType.variety ||
+              _selectedType == UnifiedMediaType.animation) &&
+          media.kind != MediaKind.series) {
+        return false;
+      }
       final searchable = [
         media.title,
         media.description,
@@ -58,12 +74,13 @@ class _SearchScreenState extends State<SearchScreen> {
     }).toList(growable: false);
   }
 
-  void _submit([String? value]) {
+  Future<void> _submit([String? value]) async {
     final query = (value ?? _queryController.text).trim();
     if (query.isEmpty) {
       setState(() {
         _query = '';
         _errorMessage = null;
+        _remoteResults = null;
       });
       return;
     }
@@ -71,6 +88,7 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _query = query;
       _errorMessage = null;
+      _remoteResults = null;
       _localHistory
         ..remove(query)
         ..insert(0, query);
@@ -82,10 +100,42 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       widget.onSearch(query);
+      if (widget.onRemoteSearch != null) {
+        setState(() => _isSearching = true);
+        final category = _categoryFor(_selectedType);
+        final results = await widget.onRemoteSearch!(query, category.sourceCategoryIds);
+        if (!mounted || _query != query) return;
+        setState(() {
+          _remoteResults = results;
+          _isSearching = false;
+        });
+      }
     } catch (_) {
+      if (!mounted) return;
       setState(() {
+        _isSearching = false;
         _errorMessage = '搜索暂时不可用，请稍后重试';
       });
+    }
+  }
+
+  UnifiedCategory _categoryFor(UnifiedMediaType type) {
+    return widget.categories.firstWhere(
+      (category) => category.type == type,
+      orElse: () => const UnifiedCategory(
+        type: UnifiedMediaType.all,
+        sourceCategoryIds: [],
+      ),
+    );
+  }
+
+  void _selectType(UnifiedMediaType type) {
+    setState(() {
+      _selectedType = type;
+      _remoteResults = null;
+    });
+    if (_query.trim().isNotEmpty) {
+      _submit(_query);
     }
   }
 
@@ -94,6 +144,7 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _query = '';
       _errorMessage = null;
+      _remoteResults = null;
     });
     _focusNode.requestFocus();
   }
@@ -129,6 +180,26 @@ class _SearchScreenState extends State<SearchScreen> {
                 onClear: _clearQuery,
               )),
             ),
+            if (widget.categories.length > 1)
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: 48,
+                  child: ListView.separated(
+                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: widget.categories.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 8),
+                    itemBuilder: (_, index) {
+                      final category = widget.categories[index];
+                      return ChoiceChip(
+                        label: Text(category.type.label),
+                        selected: category.type == _selectedType,
+                        onSelected: (_) => _selectType(category.type),
+                      );
+                    },
+                  ),
+                ),
+              ),
             if (_errorMessage != null)
               SliverToBoxAdapter(
                   child: _ErrorState(
@@ -146,7 +217,15 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   List<Widget> _buildResults(String query) {
-    final results = _results;
+    if (_isSearching) {
+      return const [
+        SliverFillRemaining(
+          hasScrollBody: false,
+          child: Center(child: CircularProgressIndicator()),
+        ),
+      ];
+    }
+    final results = _remoteResults ?? _localResults;
     if (results.isEmpty) {
       return [
         const SliverFillRemaining(

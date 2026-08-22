@@ -10,12 +10,16 @@ class MediaDetailsScreen extends StatefulWidget {
     required this.favorite,
     required this.onFavoriteChanged,
     required this.onPlay,
+    this.onSearchOtherSources,
+    this.onOpenAlternative,
   });
 
   final MediaItem media;
   final bool favorite;
   final ValueChanged<bool> onFavoriteChanged;
   final ValueChanged<PlaybackOption> onPlay;
+  final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
+  final ValueChanged<MediaItem>? onOpenAlternative;
 
   @override
   State<MediaDetailsScreen> createState() => _MediaDetailsScreenState();
@@ -25,6 +29,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   late bool _favorite = widget.favorite;
   String? _selectedSourceId;
   Episode? _selectedEpisode;
+  bool _searchingOtherSources = false;
 
   List<PlaybackOption> get _options => widget.media.playbackOptions;
 
@@ -161,11 +166,55 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           _EpisodeList(
             episodes: media.episodes,
             selectedEpisode: _selectedEpisode,
-            onSelected: (episode) => setState(() => _selectedEpisode = episode),
+            onSelected: (episode) {
+              setState(() => _selectedEpisode = episode);
+              if (episode.playbackOption != null) widget.onPlay(episode.playbackOption!);
+            },
+          ),
+        ],
+        if (widget.onSearchOtherSources != null) ...[
+          const SizedBox(height: 28),
+          OutlinedButton.icon(
+            onPressed: _searchingOtherSources ? null : _searchOtherSources,
+            icon: _searchingOtherSources
+                ? const SizedBox.square(
+                    dimension: 18,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  )
+                : const Icon(Icons.travel_explore_outlined),
+            label: Text(_searchingOtherSources ? '正在搜索其他站点...' : '在其他站点查找'),
           ),
         ],
       ],
     );
+  }
+
+  Future<void> _searchOtherSources() async {
+    final finder = widget.onSearchOtherSources;
+    if (finder == null) return;
+    setState(() => _searchingOtherSources = true);
+    try {
+      final matches = await finder(widget.media);
+      if (!mounted) return;
+      await showModalBottomSheet<void>(
+        context: context,
+        showDragHandle: true,
+        builder: (context) => _OtherSourcesSheet(
+          matches: matches,
+          onOpen: (media) {
+            Navigator.of(context).pop();
+            widget.onOpenAlternative?.call(media);
+          },
+        ),
+      );
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('其他站点暂时无法完成搜索')),
+      );
+    } finally {
+      if (mounted) setState(() => _searchingOtherSources = false);
+    }
   }
 
   Widget _sectionTitle(String title) {
@@ -306,6 +355,53 @@ class _InlineEmpty extends StatelessWidget {
       ),
       child: Text(message,
           style: const TextStyle(color: CineoColors.textSecondary)),
+    );
+  }
+}
+
+class _OtherSourcesSheet extends StatelessWidget {
+  const _OtherSourcesSheet({required this.matches, required this.onOpen});
+
+  final List<MediaItem> matches;
+  final ValueChanged<MediaItem> onOpen;
+
+  @override
+  Widget build(BuildContext context) {
+    if (matches.isEmpty) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(24, 8, 24, 40),
+        child: Text('已搜索所有已启用的视频源，暂未找到匹配内容。'),
+      );
+    }
+    final grouped = <String, List<MediaItem>>{};
+    for (final media in matches) {
+      grouped.putIfAbsent(media.sourceId ?? '其他来源', () => []).add(media);
+    }
+    return SafeArea(
+      child: ListView(
+        shrinkWrap: true,
+        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+        children: [
+          Text('其他站点结果', style: Theme.of(context).textTheme.titleLarge),
+          const SizedBox(height: 8),
+          ...grouped.entries.expand((entry) => [
+                Padding(
+                  padding: const EdgeInsets.only(top: 16, bottom: 4),
+                  child: Text('来源 ${entry.key}',
+                      style: const TextStyle(color: CineoColors.textSecondary)),
+                ),
+                ...entry.value.map(
+                  (media) => ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    title: Text(media.title),
+                    subtitle: Text(media.category ?? '视频资源'),
+                    trailing: const Icon(Icons.chevron_right_rounded),
+                    onTap: () => onOpen(media),
+                  ),
+                ),
+              ]),
+        ],
+      ),
     );
   }
 }
