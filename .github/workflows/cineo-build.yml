@@ -17,13 +17,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout requested revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
         with:
           flutter-version: '3.13.9'
           cache: true
+
+      - name: Select Java 17
+        run: |
+          echo "JAVA_HOME=$JAVA_HOME_17_X64" >> "$GITHUB_ENV"
+          echo "$JAVA_HOME_17_X64/bin" >> "$GITHUB_PATH"
+          java -version
 
       - name: Set up Android signing
         env:
@@ -67,7 +73,7 @@ jobs:
           flutter build apk --release --build-name "${VERSION_NAME}" --build-number "${BUILD_NUMBER}"
 
       - name: Upload APK
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: cineo-android-${{ github.ref_name }}
           path: build/app/outputs/flutter-apk/app-release.apk
@@ -78,7 +84,7 @@ jobs:
     runs-on: macos-latest
     steps:
       - name: Checkout requested revision
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
 
       - name: Set up Flutter
         uses: subosito/flutter-action@v2
@@ -102,7 +108,7 @@ jobs:
           zip -qry Cineo-unsigned.ipa Payload
 
       - name: Upload unsigned IPA
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v5
         with:
           name: cineo-ios-unsigned-${{ github.ref_name }}
           path: build/ios/unsigned-ipa/Cineo-unsigned.ipa
