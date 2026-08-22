@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
+import '../../core/models/paged_media.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../data/remote/media_category_adapter.dart';
 import 'category_browse_screen.dart';
@@ -22,9 +23,9 @@ class SearchScreen extends StatefulWidget {
   final List<String> history;
   final ValueChanged<String> onSearch;
   final ValueChanged<MediaItem> onOpenMedia;
-  final Future<List<MediaItem>> Function(
-      String query, List<String> categoryIds)? onRemoteSearch;
-  final Future<List<MediaItem>> Function(List<String> categoryIds)?
+  final Future<PagedMedia> Function(
+      String query, List<String> categoryIds, int page)? onRemoteSearch;
+  final Future<PagedMedia> Function(List<String> categoryIds, int page)?
       onBrowseCategory;
   final List<UnifiedCategory> categories;
   final UnifiedCategory? initialCategory;
@@ -37,19 +38,27 @@ class _SearchScreenState extends State<SearchScreen> {
   final _queryController = TextEditingController();
   final _focusNode = FocusNode();
   final _localHistory = <String>[];
+  final _scrollController = ScrollController();
   String _query = '';
   String? _errorMessage;
-  List<MediaItem>? _remoteResults;
-  List<MediaItem>? _browseResults;
+  String? _paginationError;
+  List<MediaItem> _remoteResults = const [];
+  List<MediaItem> _browseResults = const [];
   bool _isSearching = false;
   bool _isBrowsing = false;
-  int _browseRevision = 0;
+  bool _isLoadingMore = false;
+  bool _hasMoreSearch = false;
+  bool _hasMoreBrowse = false;
+  int _searchPage = 0;
+  int _browsePage = 0;
+  int _revision = 0;
   late UnifiedMediaType _selectedType;
 
   @override
   void initState() {
     super.initState();
     _selectedType = widget.initialCategory?.type ?? UnifiedMediaType.all;
+    _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadBrowse();
     });
@@ -59,7 +68,21 @@ class _SearchScreenState extends State<SearchScreen> {
   void dispose() {
     _queryController.dispose();
     _focusNode.dispose();
+    _scrollController.dispose();
     super.dispose();
+  }
+
+  void _onScroll() {
+    if (!_scrollController.hasClients ||
+        _scrollController.position.extentAfter > 360 ||
+        _isLoadingMore) {
+      return;
+    }
+    if (_query.trim().isEmpty && _hasMoreBrowse && !_isBrowsing) {
+      _loadBrowsePage(_browsePage + 1);
+    } else if (_query.trim().isNotEmpty && _hasMoreSearch && !_isSearching) {
+      _loadSearchPage(_searchPage + 1, _query.trim());
+    }
   }
 
   List<UnifiedCategory> get _visibleCategories {
@@ -115,32 +138,97 @@ class _SearchScreenState extends State<SearchScreen> {
         .hasMatch(text);
   }
 
+  Future<PagedMedia> _browsePageRequest(
+      List<String> categoryIds, int page) async {
+    final callback = widget.onBrowseCategory;
+    if (callback == null) {
+      final items = _localBrowse(_selectedType);
+      return _localPage(items, page);
+    }
+    return callback(categoryIds, page);
+  }
+
+  Future<PagedMedia> _searchPageRequest(
+      String query, List<String> categoryIds, int page) async {
+    final callback = widget.onRemoteSearch;
+    if (callback == null) {
+      return _localPage(_localResults, page);
+    }
+    return callback(query, categoryIds, page);
+  }
+
+  PagedMedia _localPage(List<MediaItem> items, int page) {
+    return PagedMedia(
+      items: page == 1 ? items : const [],
+      page: page,
+      pageCount: 1,
+      total: items.length,
+      limit: items.length,
+      hasMore: false,
+    );
+  }
+
+  List<MediaItem> _appendUnique(List<MediaItem> current, List<MediaItem> next) {
+    final seen = current.map((item) => item.id).toSet();
+    return [
+      ...current,
+      ...next.where((item) => seen.add(item.id)),
+    ];
+  }
+
   Future<void> _loadBrowse() async {
-    final revision = ++_browseRevision;
+    final revision = ++_revision;
     if (mounted) {
       setState(() {
         _isBrowsing = true;
         _errorMessage = null;
-        _browseResults = null;
+        _paginationError = null;
+        _browseResults = const [];
+        _browsePage = 0;
+        _hasMoreBrowse = false;
+      });
+    }
+    await _loadBrowsePage(1, revision: revision);
+  }
+
+  Future<void> _loadBrowsePage(int page, {int? revision}) async {
+    final activeRevision = revision ?? _revision;
+    if (page == 1 && !_isBrowsing) {
+      setState(() => _isBrowsing = true);
+    }
+    if (page > 1) {
+      if (_isLoadingMore || !_hasMoreBrowse) return;
+      setState(() {
+        _isLoadingMore = true;
+        _paginationError = null;
       });
     }
     try {
       final category = _categoryFor(_selectedType);
-      final results = widget.onBrowseCategory == null
-          ? _localBrowse(_selectedType)
-          : await widget.onBrowseCategory!(category.sourceCategoryIds);
-      if (!mounted || revision != _browseRevision || _query.trim().isNotEmpty) {
+      final result = await _browsePageRequest(category.sourceCategoryIds, page);
+      if (!mounted || activeRevision != _revision || _query.trim().isNotEmpty) {
         return;
       }
       setState(() {
-        _browseResults = results;
+        _browseResults = page == 1
+            ? _appendUnique(const [], result.items)
+            : _appendUnique(_browseResults, result.items);
+        _browsePage = result.page;
+        _hasMoreBrowse = result.hasMore;
         _isBrowsing = false;
+        _isLoadingMore = false;
+        _paginationError = null;
       });
     } catch (_) {
-      if (!mounted || revision != _browseRevision) return;
+      if (!mounted || activeRevision != _revision) return;
       setState(() {
-        _isBrowsing = false;
-        _errorMessage = '资源库加载失败，请检查默认视频源后重试';
+        if (page == 1) {
+          _isBrowsing = false;
+          _errorMessage = '资源库加载失败，请检查默认视频源后重试';
+        } else {
+          _isLoadingMore = false;
+          _paginationError = '下一页加载失败';
+        }
       });
     }
   }
@@ -154,7 +242,11 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _query = query;
       _errorMessage = null;
-      _remoteResults = null;
+      _paginationError = null;
+      _remoteResults = const [];
+      _searchPage = 0;
+      _hasMoreSearch = false;
+      _revision++;
       _localHistory
         ..remove(query)
         ..insert(0, query);
@@ -166,21 +258,53 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       widget.onSearch(query);
-      final search = widget.onRemoteSearch;
-      if (search == null) return;
       setState(() => _isSearching = true);
-      final category = _categoryFor(_selectedType);
-      final results = await search(query, category.sourceCategoryIds);
-      if (!mounted || _query != query) return;
-      setState(() {
-        _remoteResults = results;
-        _isSearching = false;
-      });
+      await _loadSearchPage(1, query, revision: _revision);
     } catch (_) {
       if (!mounted) return;
       setState(() {
         _isSearching = false;
         _errorMessage = '搜索暂时不可用，请稍后重试';
+      });
+    }
+  }
+
+  Future<void> _loadSearchPage(int page, String query, {int? revision}) async {
+    final activeRevision = revision ?? _revision;
+    if (page > 1) {
+      if (_isLoadingMore || !_hasMoreSearch) return;
+      setState(() {
+        _isLoadingMore = true;
+        _paginationError = null;
+      });
+    }
+    try {
+      final category = _categoryFor(_selectedType);
+      final result =
+          await _searchPageRequest(query, category.sourceCategoryIds, page);
+      if (!mounted ||
+          activeRevision != _revision ||
+          _query.trim() != query.trim()) return;
+      setState(() {
+        _remoteResults = page == 1
+            ? _appendUnique(const [], result.items)
+            : _appendUnique(_remoteResults, result.items);
+        _searchPage = result.page;
+        _hasMoreSearch = result.hasMore;
+        _isSearching = false;
+        _isLoadingMore = false;
+        _paginationError = null;
+      });
+    } catch (_) {
+      if (!mounted || activeRevision != _revision) return;
+      setState(() {
+        if (page == 1) {
+          _isSearching = false;
+          _errorMessage = '搜索暂时不可用，请稍后重试';
+        } else {
+          _isLoadingMore = false;
+          _paginationError = '下一页加载失败';
+        }
       });
     }
   }
@@ -198,8 +322,10 @@ class _SearchScreenState extends State<SearchScreen> {
   void _selectType(UnifiedMediaType type) {
     setState(() {
       _selectedType = type;
-      _remoteResults = null;
+      _remoteResults = const [];
       _errorMessage = null;
+      _paginationError = null;
+      _revision++;
     });
     if (_query.trim().isNotEmpty) {
       _submit(_query);
@@ -213,7 +339,9 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _query = '';
       _errorMessage = null;
-      _remoteResults = null;
+      _paginationError = null;
+      _remoteResults = const [];
+      _revision++;
     });
     _loadBrowse();
     _focusNode.requestFocus();
@@ -233,6 +361,7 @@ class _SearchScreenState extends State<SearchScreen> {
         top: false,
         child: CustomScrollView(
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+          controller: _scrollController,
           slivers: [
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
@@ -248,7 +377,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       if (leftSubmittedSearch) {
                         _query = '';
                         _errorMessage = null;
-                        _remoteResults = null;
+                        _remoteResults = const [];
                       }
                     });
                     if (leftSubmittedSearch) _loadBrowse();
@@ -329,7 +458,7 @@ class _SearchScreenState extends State<SearchScreen> {
                       fontWeight: FontWeight.w700,
                     ),
               ),
-              if (browse != null) ...[
+              ...[
                 const SizedBox(width: 8),
                 Text('${browse.length}',
                     style: const TextStyle(color: CineoColors.textSecondary)),
@@ -338,14 +467,14 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ),
       ),
-      if (_isBrowsing && browse == null)
+      if (_isBrowsing && browse.isEmpty)
         const SliverToBoxAdapter(
           child: Padding(
             padding: EdgeInsets.symmetric(vertical: 64),
             child: Center(child: CircularProgressIndicator()),
           ),
         )
-      else if (browse == null || browse.isEmpty)
+      else if (browse.isEmpty)
         const SliverFillRemaining(
           hasScrollBody: false,
           child: _EmptyState(
@@ -373,6 +502,13 @@ class _SearchScreenState extends State<SearchScreen> {
             ),
           ),
         ),
+      if (_isLoadingMore || _paginationError != null)
+        SliverToBoxAdapter(
+            child: _PaginationFooter(
+          loading: _isLoadingMore,
+          error: _paginationError,
+          onRetry: () => _loadBrowsePage(_browsePage + 1),
+        )),
     ];
   }
 
@@ -387,7 +523,9 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       ];
     }
-    final results = _remoteResults ?? _localResults;
+    final results = _remoteResults.isNotEmpty || widget.onRemoteSearch != null
+        ? _remoteResults
+        : _localResults;
     if (results.isEmpty) {
       return const [
         SliverFillRemaining(
@@ -423,6 +561,13 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ),
       ),
+      if (_isLoadingMore || _paginationError != null)
+        SliverToBoxAdapter(
+            child: _PaginationFooter(
+          loading: _isLoadingMore,
+          error: _paginationError,
+          onRetry: () => _loadSearchPage(_searchPage + 1, query),
+        )),
     ];
   }
 }
@@ -612,6 +757,39 @@ class _EmptyState extends StatelessWidget {
                 textAlign: TextAlign.center,
                 style: const TextStyle(color: CineoColors.textSecondary)),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+class _PaginationFooter extends StatelessWidget {
+  const _PaginationFooter({
+    required this.loading,
+    required this.error,
+    required this.onRetry,
+  });
+
+  final bool loading;
+  final String? error;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    if (loading) {
+      return const Padding(
+        padding: EdgeInsets.fromLTRB(20, 8, 20, 28),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (error == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
+      child: Center(
+        child: OutlinedButton.icon(
+          onPressed: onRetry,
+          icon: const Icon(Icons.refresh_rounded),
+          label: Text(error!),
         ),
       ),
     );

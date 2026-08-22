@@ -10,6 +10,7 @@ import '../../shared/widgets/media_rail.dart';
 typedef HomeRailSeeAllCallback = void Function(
   String title,
   List<MediaItem> items,
+  List<String> categoryIds,
 );
 
 class HomeScreen extends StatelessWidget {
@@ -24,6 +25,7 @@ class HomeScreen extends StatelessWidget {
     this.progressByMediaId = const {},
     this.categories = const [],
     this.selectedCategory = UnifiedMediaType.all,
+    this.selectedSourceCategoryIds = const [],
     this.onCategorySelected,
     this.onSeeAll,
   });
@@ -37,7 +39,9 @@ class HomeScreen extends StatelessWidget {
   final Map<String, double> progressByMediaId;
   final List<UnifiedCategory> categories;
   final UnifiedMediaType selectedCategory;
+  final List<String> selectedSourceCategoryIds;
   final ValueChanged<UnifiedCategory>? onCategorySelected;
+
   final HomeRailSeeAllCallback? onSeeAll;
 
   @override
@@ -82,7 +86,11 @@ class HomeScreen extends StatelessWidget {
                 showDescription: true,
                 onSeeAll: onSeeAll == null
                     ? null
-                    : () => onSeeAll!.call('为你推荐', items),
+                    : () => _notifySeeAll(
+                          '为你推荐',
+                          items,
+                          _selectedCategoryIds,
+                        ),
               ),
               ..._categoryRails(),
               const SliverToBoxAdapter(child: SizedBox(height: 40)),
@@ -98,6 +106,30 @@ class HomeScreen extends StatelessWidget {
     if (errorMessage != null) return ContentState.error;
     if (items.isEmpty) return ContentState.empty;
     return null;
+  }
+
+  List<String> get _selectedCategoryIds {
+    if (selectedSourceCategoryIds.isNotEmpty) {
+      return _stableNonEmptyIds(selectedSourceCategoryIds);
+    }
+
+    // This fallback keeps the current shell useful while it still passes only
+    // the selected enum. Once migrated, selectedSourceCategoryIds is the
+    // authoritative value supplied by the parent.
+    for (final category in categories) {
+      if (category.type == selectedCategory) {
+        return _stableNonEmptyIds(category.sourceCategoryIds);
+      }
+    }
+    return const [];
+  }
+
+  void _notifySeeAll(
+    String title,
+    List<MediaItem> initialItems,
+    List<String> categoryIds,
+  ) {
+    onSeeAll?.call(title, initialItems, categoryIds);
   }
 
   SliverAppBar _buildTopBar(BuildContext context) {
@@ -141,13 +173,30 @@ class HomeScreen extends StatelessWidget {
             onOpenMedia: onOpenMedia,
             onSeeAll: onSeeAll == null
                 ? null
-                : () => onSeeAll!.call(genre, categoryItems),
+                : () => _notifySeeAll(
+                      genre,
+                      categoryItems,
+                      _stableNonEmptyIds(
+                        categoryItems.map((item) => item.categoryId),
+                      ),
+                    ),
           ),
         );
         if (rails.length == 3) return rails;
       }
     }
     return rails;
+  }
+
+  List<String> _stableNonEmptyIds(Iterable<String?> ids) {
+    final seen = <String>{};
+    final result = <String>[];
+    for (final id in ids) {
+      final value = id?.trim();
+      if (value == null || value.isEmpty || !seen.add(value)) continue;
+      result.add(value);
+    }
+    return List.unmodifiable(result);
   }
 }
 

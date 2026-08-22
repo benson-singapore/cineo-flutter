@@ -323,6 +323,7 @@ class _CineoShellState extends State<CineoShell> {
   Future<void> _openCategoryBrowse(
     String title,
     List<MediaItem> initialItems,
+    List<String> categoryIds,
   ) {
     return Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -330,9 +331,10 @@ class _CineoShellState extends State<CineoShell> {
           title: title,
           initialItems: initialItems,
           onOpenMedia: (media) => unawaited(_openMedia(media)),
-          onLoad: title == '为你推荐'
-              ? () => widget.repository.browseDefaultSource()
-              : null,
+          onLoad: (page) => widget.repository.browseDefaultSourcePage(
+            categoryIds: categoryIds,
+            page: page,
+          ),
         ),
       ),
     );
@@ -390,13 +392,14 @@ class _CineoShellState extends State<CineoShell> {
         progressByMediaId: _progressByMediaId,
         categories: _categories,
         selectedCategory: _selectedCategory.type,
+        selectedSourceCategoryIds: _selectedCategory.sourceCategoryIds,
         onCategorySelected: (category) => unawaited(_selectCategory(category)),
         isLoading: _loading,
         errorMessage: _errorMessage,
         onRetry: _refresh,
         onOpenMedia: (media) => unawaited(_openMedia(media)),
-        onSeeAll: (title, items) =>
-            unawaited(_openCategoryBrowse(title, items)),
+        onSeeAll: (title, items, categoryIds) =>
+            unawaited(_openCategoryBrowse(title, items, categoryIds)),
       ),
       SearchScreen(
         items: _items,
@@ -404,10 +407,17 @@ class _CineoShellState extends State<CineoShell> {
         onSearch: (query) => unawaited(_recordSearch(query)),
         onOpenMedia: (media) => unawaited(_openMedia(media)),
         categories: _categories,
-        onRemoteSearch: (query, categoryIds) => widget.repository
-            .searchDefaultSource(query, categoryIds: categoryIds),
-        onBrowseCategory: (categoryIds) =>
-            widget.repository.browseDefaultSourceCategories(categoryIds),
+        onRemoteSearch: (query, categoryIds, page) =>
+            widget.repository.searchDefaultSourcePage(
+          query,
+          categoryIds: categoryIds,
+          page: page,
+        ),
+        onBrowseCategory: (categoryIds, page) =>
+            widget.repository.browseDefaultSourcePage(
+          categoryIds: categoryIds,
+          page: page,
+        ),
       ),
       ProfileScreen(
         appLockController: widget.appLockController,
