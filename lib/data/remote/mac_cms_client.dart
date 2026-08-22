@@ -42,7 +42,15 @@ class MacCmsClient {
     String? category,
     int page = 1,
   }) async {
-    final parameters = <String, String>{'ac': 'list', 'pg': '$page'};
+    // MacCMS `list` responses often omit poster fields. `videolist` returns
+    // the full records needed for browse cards, including `vod_pic`. Some
+    // source CDNs incorrectly reuse a cached `list` response for this route,
+    // so each content request carries a cache-busting marker.
+    final parameters = <String, String>{
+      'ac': 'videolist',
+      'pg': '$page',
+      '_': '${DateTime.now().microsecondsSinceEpoch}',
+    };
     if (query != null && query.trim().isNotEmpty) {
       parameters['wd'] = query.trim();
     }
@@ -267,6 +275,8 @@ class MacCmsClient {
     try {
       final request = await client.getUrl(uri);
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
+      request.headers.set(HttpHeaders.pragmaHeader, 'no-cache');
       final response = await request.close();
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('站点返回 HTTP ${response.statusCode}', uri: uri);

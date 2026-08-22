@@ -14,7 +14,7 @@ void main() {
     baseUrl: 'https://media.example.test/api.php/provide/vod/',
   );
 
-  test('builds an encoded MacCMS search request and parses list media',
+  test('builds an encoded MacCMS videolist search request and parses media',
       () async {
     late Uri requestedUri;
     final client = MacCmsClient(fetcher: (uri) async {
@@ -37,8 +37,9 @@ void main() {
 
     final items = await client.list(source, query: '示例 剧集');
 
-    expect(requestedUri.queryParameters['ac'], 'list');
+    expect(requestedUri.queryParameters['ac'], 'videolist');
     expect(requestedUri.queryParameters['wd'], '示例 剧集');
+    expect(requestedUri.queryParameters['_'], isNotEmpty);
     expect(items, hasLength(1));
     expect(items.single.id, 'family:42');
     expect(items.single.remoteId, '42');
