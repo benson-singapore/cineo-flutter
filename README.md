@@ -211,10 +211,11 @@ dart format lib test
 make help
 ```
 
-先打开 `Makefile` 顶部，只修改这一行：
+先打开 `Makefile` 顶部，维护公开版本和内部构建号：
 
 ```make
-VERSION := 1.0.0+1
+VERSION := 1.0.3
+BUILD_NUMBER := 4
 ```
 
 以后每次只执行一条命令：
@@ -223,11 +224,15 @@ VERSION := 1.0.0+1
 make publish
 ```
 
-`VERSION` 必须包含应用版本和构建号，格式为 `主版本.次版本.修订版本+构建号`，例如 `1.2.0+12`。
+`VERSION` 是公开版本号，格式为 `主版本.次版本.修订版本`，例如 `1.0.3`；`BUILD_NUMBER` 是 Android/iOS 内部构建号，必须为正整数。
 
-`make publish` 会自动拉取远程 `main` 的最新提交，将本地已经提交的最新代码推送到 GitHub；如果 `VERSION` 与 `pubspec.yaml` 不同，会自动更新版本并提交。随后它会把 `v1.2.0+12` 这样的 tag 移动到最新提交并推送。GitHub Actions 监听 `v*` tag，收到 tag 推送后自动构建。即使版本号没有变化，也会把 tag 移动到最新代码后重新构建。
+`make publish` 会自动拉取远程 `main` 的最新提交，将版本同步到 `pubspec.yaml`，提交并推送 `main`，然后创建 `v1.0.3` 这样的 tag。GitHub Actions 监听 `v*` tag，收到 tag 推送后自动构建并发布到对应的 GitHub Release。
 
-如果当前工作区有除 `Makefile` 以外的未提交文件，命令会停止，避免把未完成的修改发布出去。
+如果要沿用当前公开版本重新打包，必须明确执行 `make publish REBUILD=1`；此时会移动同名 tag 并更新 Release 附件。新版本发布不会覆盖已有 tag。
+
+历史上的 `v1.0.0+1`、`v1.0.0+2`、`v1.0.0+3` tag 保留不变；从 `v1.0.3` 开始，公开版本 tag 不再包含 `+构建号`。Flutter 内部仍使用 `pubspec.yaml` 中的 `1.0.3+4`，其中 `+4` 仅作为 Android/iOS 构建号。
+
+如果当前工作区有除 `Makefile` 和目标更新说明以外的未提交文件，命令会停止，避免把未完成的修改发布出去。
 
 `make android` 首次运行会在 `android/app/release/cineo-release.keystore` 生成一个本地 Android 自签名证书，并在 `android/key.properties` 保存构建配置。这两个文件已加入 `.gitignore`，不会提交到仓库。请务必备份 keystore 和密码；以后更新 Android 应用必须继续使用同一个 keystore，否则系统会把它识别为不同的应用，无法覆盖升级。
 
@@ -261,7 +266,7 @@ make ios
 
 ## 版本信息
 
-当前应用版本定义在 `pubspec.yaml`：`1.0.0+1`。发布前请同步更新版本号、应用签名、包名以及对应平台的商店配置。
+当前应用版本定义在 `pubspec.yaml`，格式为 `公开版本+内部构建号`，例如 `1.0.3+4`。发布前请同步更新版本号、应用签名、包名以及对应平台的商店配置。
 
 ## 许可证
 
