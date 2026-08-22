@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
@@ -31,7 +33,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     return openDatabase(
       resolvedPath,
-      version: 5,
+      version: 6,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -81,6 +83,7 @@ class LocalMediaRepository implements MediaRepository {
             updated_at INTEGER NOT NULL
           )
         ''');
+        await _createMediaSnapshotsTable(database);
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -118,6 +121,7 @@ class LocalMediaRepository implements MediaRepository {
             )
           ''');
         }
+        if (oldVersion < 6) await _createMediaSnapshotsTable(database);
       },
     );
   }
@@ -151,10 +155,44 @@ class LocalMediaRepository implements MediaRepository {
 
   @override
   Future<MediaItem?> getById(String id) async {
+    final rows = await (await _db).query(
+      'media_snapshots',
+      where: 'media_id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
+    if (rows.isNotEmpty) return _mediaFromSnapshotRow(rows.single);
     for (final media in catalog) {
       if (media.id == id) return media;
     }
-    return null;
+    return _restoreLegacySnapshot(id);
+  }
+
+  Future<MediaItem?> _restoreLegacySnapshot(String mediaId) async {
+    final separator = mediaId.indexOf(':');
+    if (separator < 1 || separator == mediaId.length - 1) return null;
+    final sourceId = mediaId.substring(0, separator);
+    final remoteId = mediaId.substring(separator + 1);
+    final sourceRows = await (await _db).query(
+      'sources',
+      where: 'id = ? AND enabled = 1',
+      whereArgs: [sourceId],
+      limit: 1,
+    );
+    if (sourceRows.isEmpty) return null;
+    final source = _sourceFromRow(sourceRows.single);
+    if (source.type != MediaSourceType.macCmsApi &&
+        source.type != MediaSourceType.jsonApi) {
+      return null;
+    }
+    try {
+      final media = await _macCmsClient.detail(source, remoteId);
+      if (media == null) return null;
+      await _saveMediaSnapshot(media, database: await _db);
+      return media;
+    } catch (_) {
+      return null;
+    }
   }
 
   @override
@@ -163,13 +201,10 @@ class LocalMediaRepository implements MediaRepository {
       'favorites',
       orderBy: 'created_at DESC',
     );
-    final mediaById = {
-      for (final media in catalog) media.id: media,
-    };
-    return rows
-        .map((row) => mediaById[row['media_id'] as String])
-        .whereType<MediaItem>()
-        .toList();
+    final items = await Future.wait(
+      rows.map((row) => getById(row['media_id'] as String)),
+    );
+    return items.whereType<MediaItem>().toList(growable: false);
   }
 
   @override
@@ -185,13 +220,14 @@ class LocalMediaRepository implements MediaRepository {
   }
 
   @override
-  Future<void> setFavorite(String mediaId, bool isFavorite) async {
+  Future<void> setFavorite(MediaItem media, bool isFavorite) async {
     final database = await _db;
     if (isFavorite) {
+      await _saveMediaSnapshot(media, database: database);
       await database.insert(
         'favorites',
         {
-          'media_id': mediaId,
+          'media_id': media.id,
           'created_at': DateTime.now().millisecondsSinceEpoch,
         },
         conflictAlgorithm: ConflictAlgorithm.replace,
@@ -200,7 +236,7 @@ class LocalMediaRepository implements MediaRepository {
       await database.delete(
         'favorites',
         where: 'media_id = ?',
-        whereArgs: [mediaId],
+        whereArgs: [media.id],
       );
     }
   }
@@ -215,9 +251,11 @@ class LocalMediaRepository implements MediaRepository {
   }
 
   @override
-  Future<void> saveProgress(WatchProgress progress) async {
+  Future<void> saveProgress(WatchProgress progress, {MediaItem? media}) async {
     final episodeKey = progress.episodeId ?? '';
-    await (await _db).insert(
+    final database = await _db;
+    if (media != null) await _saveMediaSnapshot(media, database: database);
+    await database.insert(
       'progress',
       {
         'progress_key': '${progress.mediaId}:$episodeKey',
@@ -645,6 +683,85 @@ class LocalMediaRepository implements MediaRepository {
   }
 
   bool get _databaseInitialized => true;
+
+  Future<void> _createMediaSnapshotsTable(DatabaseExecutor database) {
+    return database.execute('''
+      CREATE TABLE media_snapshots (
+        media_id TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        description TEXT NOT NULL,
+        year INTEGER NOT NULL,
+        kind INTEGER NOT NULL,
+        poster_url TEXT NOT NULL,
+        backdrop_url TEXT NOT NULL,
+        genres_json TEXT NOT NULL,
+        rating REAL NOT NULL,
+        duration_ms INTEGER NOT NULL,
+        source_id TEXT,
+        source_name TEXT,
+        remote_id TEXT,
+        category TEXT,
+        category_id TEXT,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
+  Future<void> _saveMediaSnapshot(
+    MediaItem media, {
+    required DatabaseExecutor database,
+  }) {
+    return database.insert(
+      'media_snapshots',
+      {
+        'media_id': media.id,
+        'title': media.title,
+        'description': media.description,
+        'year': media.year,
+        'kind': media.kind.index,
+        'poster_url': media.posterUrl,
+        'backdrop_url': media.backdropUrl,
+        'genres_json': jsonEncode(media.genres),
+        'rating': media.rating,
+        'duration_ms': media.duration.inMilliseconds,
+        'source_id': media.sourceId,
+        'source_name': media.sourceName,
+        'remote_id': media.remoteId,
+        'category': media.category,
+        'category_id': media.categoryId,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  MediaItem _mediaFromSnapshotRow(Map<String, Object?> row) {
+    final kindIndex = row['kind'] as int;
+    final kind = kindIndex >= 0 && kindIndex < MediaKind.values.length
+        ? MediaKind.values[kindIndex]
+        : MediaKind.movie;
+    final decodedGenres = jsonDecode(row['genres_json'] as String);
+    final genres = decodedGenres is List
+        ? decodedGenres.whereType<String>().toList(growable: false)
+        : const <String>[];
+    return MediaItem(
+      id: row['media_id'] as String,
+      title: row['title'] as String,
+      description: row['description'] as String,
+      year: row['year'] as int,
+      kind: kind,
+      posterUrl: row['poster_url'] as String,
+      backdropUrl: row['backdrop_url'] as String,
+      genres: genres,
+      rating: (row['rating'] as num).toDouble(),
+      duration: Duration(milliseconds: row['duration_ms'] as int),
+      sourceId: row['source_id'] as String?,
+      sourceName: row['source_name'] as String?,
+      remoteId: row['remote_id'] as String?,
+      category: row['category'] as String?,
+      categoryId: row['category_id'] as String?,
+    );
+  }
 
   WatchProgress _progressFromRow(Map<String, Object?> row) {
     return WatchProgress(

@@ -5,7 +5,8 @@ import '../app_lock/app_lock_controller.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({
-    this.onOpenLibrary,
+    this.onOpenFavorites,
+    this.onOpenHistory,
     this.onOpenSources,
     this.onOpenSettings,
     this.onOpenAppLock,
@@ -14,7 +15,8 @@ class ProfileScreen extends StatelessWidget {
     super.key,
   });
 
-  final VoidCallback? onOpenLibrary;
+  final VoidCallback? onOpenFavorites;
+  final VoidCallback? onOpenHistory;
   final VoidCallback? onOpenSources;
   final VoidCallback? onOpenSettings;
   final VoidCallback? onOpenAppLock;
@@ -38,9 +40,9 @@ class ProfileScreen extends StatelessWidget {
               _ProfileTile(
                   icon: Icons.bookmark_outline,
                   title: '我的收藏',
-                  onTap: onOpenLibrary),
+                  onTap: onOpenFavorites),
               _ProfileTile(
-                  icon: Icons.history, title: '播放历史', onTap: onOpenLibrary),
+                  icon: Icons.history, title: '播放历史', onTap: onOpenHistory),
             ],
           ),
           const SizedBox(height: 24),

@@ -32,6 +32,7 @@ Widget _subject({
   List<HomeCategoryRail> categoryRails = const [],
   Future<void> Function()? onRefresh,
   List<MediaItem> continueWatching = const [],
+  List<MediaItem> favorites = const [],
   ValueChanged<MediaItem>? onContinueWatching,
 }) {
   return MaterialApp(
@@ -39,6 +40,7 @@ Widget _subject({
     home: HomeScreen(
       items: items,
       continueWatching: continueWatching,
+      favorites: favorites,
       onOpenMedia: (_) {},
       onContinueWatching: onContinueWatching,
       categoryRails: categoryRails,
@@ -95,6 +97,35 @@ void main() {
     );
     expect(hero.width, 800);
     expect(hero.height, closeTo(800 * 4 / 3, .1));
+  });
+
+  testWidgets('shows all favorite media below continue watching',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final favorites = [
+      _media('favorite-1', '收藏一'),
+      _media('favorite-2', '收藏二'),
+    ];
+
+    await tester.pumpWidget(
+      _subject(
+        items: [_media('featured', '首页资源')],
+        continueWatching: [_media('resume', '继续观看资源')],
+        favorites: favorites,
+        onSeeAll: (_, __, ___) {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.scrollUntilVisible(
+      find.text('我的收藏'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.text('我的收藏'), findsOneWidget);
+    expect(find.text('收藏一'), findsOneWidget);
+    expect(find.text('收藏二'), findsOneWidget);
   });
 
   testWidgets('fixed short drama rail sends its source category id',

@@ -5,24 +5,25 @@ import '../../core/theme/cineo_theme.dart';
 import '../../data/repositories/media_repository.dart';
 import '../../shared/widgets/media_image.dart';
 
+enum LibraryContentMode { favorites, history }
+
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
     super.key,
     required this.repository,
+    required this.mode,
     this.onMediaTap,
   });
 
   final MediaRepository repository;
+  final LibraryContentMode mode;
   final ValueChanged<MediaItem>? onMediaTap;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
 }
 
-class _LibraryScreenState extends State<LibraryScreen>
-    with SingleTickerProviderStateMixin {
-  late final TabController _tabController =
-      TabController(length: 3, vsync: this);
+class _LibraryScreenState extends State<LibraryScreen> {
   List<MediaItem> _favorites = const [];
   List<_HistoryEntry> _history = const [];
   bool _loading = true;
@@ -34,23 +35,24 @@ class _LibraryScreenState extends State<LibraryScreen>
     _load();
   }
 
-  @override
-  void dispose() {
-    _tabController.dispose();
-    super.dispose();
-  }
-
   Future<void> _load() async {
     setState(() {
       _loading = true;
       _error = null;
     });
     try {
-      final results = await Future.wait([
-        widget.repository.favorites(),
-        widget.repository.watchHistory(),
-      ]);
-      final progress = results[1] as List<WatchProgress>;
+      if (widget.mode == LibraryContentMode.favorites) {
+        final favorites = await widget.repository.favorites();
+        if (!mounted) return;
+        setState(() {
+          _favorites = favorites;
+          _history = const [];
+          _loading = false;
+        });
+        return;
+      }
+
+      final progress = await widget.repository.watchHistory();
       final media = <String, MediaItem>{};
       for (final item in await Future.wait(
         progress.map((entry) => widget.repository.getById(entry.mediaId)),
@@ -59,7 +61,7 @@ class _LibraryScreenState extends State<LibraryScreen>
       }
       if (!mounted) return;
       setState(() {
-        _favorites = results[0] as List<MediaItem>;
+        _favorites = const [];
         _history = [
           for (final entry in progress)
             if (media[entry.mediaId] != null)
@@ -80,7 +82,9 @@ class _LibraryScreenState extends State<LibraryScreen>
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('我的片单'),
+        title: Text(
+          widget.mode == LibraryContentMode.favorites ? '我的收藏' : '播放历史',
+        ),
         actions: [
           IconButton(
             tooltip: '刷新',
@@ -88,38 +92,19 @@ class _LibraryScreenState extends State<LibraryScreen>
             icon: const Icon(Icons.refresh_rounded),
           ),
         ],
-        bottom: TabBar(
-          controller: _tabController,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          tabs: const [
-            Tab(icon: Icon(Icons.bookmark_outline), text: '收藏'),
-            Tab(icon: Icon(Icons.play_circle_outline), text: '继续观看'),
-            Tab(icon: Icon(Icons.history_rounded), text: '播放历史'),
-          ],
-        ),
       ),
       body: _loading
           ? const Center(child: CircularProgressIndicator())
           : _error != null
               ? _ErrorState(message: '本地数据加载失败', onRetry: _load)
-              : TabBarView(
-                  controller: _tabController,
-                  children: [
-                    _MediaGrid(
+              : widget.mode == LibraryContentMode.favorites
+                  ? _MediaGrid(
                       items: _favorites,
                       emptyTitle: '还没有收藏内容',
                       emptyIcon: Icons.bookmark_border,
                       onTap: widget.onMediaTap,
-                    ),
-                    _HistoryList(
-                      entries: _history
-                          .where((entry) => !entry.progress.isComplete)
-                          .toList(),
-                      onTap: widget.onMediaTap,
-                    ),
-                    _HistoryList(entries: _history, onTap: widget.onMediaTap),
-                  ],
-                ),
+                    )
+                  : _HistoryList(entries: _history, onTap: widget.onMediaTap),
     );
   }
 }

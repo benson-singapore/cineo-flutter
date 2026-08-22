@@ -19,6 +19,7 @@ class HomeScreen extends StatelessWidget {
     super.key,
     required this.items,
     required this.continueWatching,
+    this.favorites = const [],
     required this.onOpenMedia,
     this.isLoading = false,
     this.isRefreshing = false,
@@ -33,6 +34,7 @@ class HomeScreen extends StatelessWidget {
 
   final List<MediaItem> items;
   final List<MediaItem> continueWatching;
+  final List<MediaItem> favorites;
   final ValueChanged<MediaItem> onOpenMedia;
   final bool isLoading;
   final bool isRefreshing;
@@ -88,6 +90,12 @@ class HomeScreen extends StatelessWidget {
                     title: '继续观看',
                     items: continueWatching,
                     progressByMediaId: progressByMediaId,
+                    onOpenMedia: onOpenMedia,
+                  ),
+                if (favorites.isNotEmpty)
+                  MediaRail(
+                    title: '我的收藏',
+                    items: favorites,
                     onOpenMedia: onOpenMedia,
                   ),
                 ..._fixedCategoryRails(),

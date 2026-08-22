@@ -115,6 +115,7 @@ class _CineoShellState extends State<CineoShell> {
   List<MediaItem> _items = const [];
   List<HomeCategoryRail> _homeCategoryRails = const [];
   List<MediaItem> _continueWatching = const [];
+  List<MediaItem> _favorites = const [];
   List<String> _searchHistory = const [];
   Map<String, double> _progressByMediaId = const {};
   List<UnifiedCategory> _categories = const [];
@@ -159,17 +160,23 @@ class _CineoShellState extends State<CineoShell> {
       );
       final progressFuture = widget.repository.watchHistory();
       final historyFuture = widget.repository.searchHistory();
+      final favoritesFuture = widget.repository.favorites();
       final results = await Future.wait([
         railsFuture,
         progressFuture,
         historyFuture,
+        favoritesFuture,
       ]);
       final rails = results[0] as List<HomeCategoryRail>;
       final items = rails.expand((rail) => rail.items).toList(growable: false);
       final progress = results[1] as List<WatchProgress>;
       final history = results[2] as List<String>;
+      final favorites = results[3] as List<MediaItem>;
+      final historyMedia = await Future.wait(
+        progress.map((entry) => widget.repository.getById(entry.mediaId)),
+      );
       final byId = <String, MediaItem>{
-        for (final item in items) item.id: item,
+        for (final item in historyMedia.whereType<MediaItem>()) item.id: item,
       };
       if (!mounted || revision != _refreshRevision) return;
       stopwatch.stop();
@@ -188,6 +195,7 @@ class _CineoShellState extends State<CineoShell> {
             if (!entry.isComplete && byId[entry.mediaId] != null)
               byId[entry.mediaId]!,
         ];
+        _favorites = favorites;
         _progressByMediaId = {
           for (final entry in progress) entry.mediaId: entry.fraction,
         };
@@ -266,8 +274,7 @@ class _CineoShellState extends State<CineoShell> {
           initialEpisodeId: recentEpisodeId.isEmpty ? null : recentEpisodeId,
           favorite: favorite,
           onFavoriteChanged: (isFavorite) {
-            unawaited(
-                widget.repository.setFavorite(resolvedMedia.id, isFavorite));
+            unawaited(widget.repository.setFavorite(resolvedMedia, isFavorite));
             unawaited(_refresh());
           },
           onPlay: (option) => unawaited(_openPlayer(resolvedMedia, option)),
@@ -420,7 +427,7 @@ class _CineoShellState extends State<CineoShell> {
               ? () => unawaited(_enterPictureInPicture())
               : null,
           onProgressChanged: (progress) =>
-              unawaited(widget.repository.saveProgress(progress)),
+              unawaited(widget.repository.saveProgress(progress, media: media)),
         ),
       ),
     );
@@ -481,11 +488,12 @@ class _CineoShellState extends State<CineoShell> {
     );
   }
 
-  Future<void> _openLibrary() async {
+  Future<void> _openLibrary(LibraryContentMode mode) async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => LibraryScreen(
           repository: widget.repository,
+          mode: mode,
           onMediaTap: (media) => unawaited(_openMedia(media)),
         ),
       ),
@@ -532,6 +540,7 @@ class _CineoShellState extends State<CineoShell> {
       HomeScreen(
         items: _items,
         continueWatching: _continueWatching,
+        favorites: _favorites,
         progressByMediaId: _progressByMediaId,
         categoryRails: _homeCategoryRails,
         isLoading: _loading,
@@ -566,7 +575,10 @@ class _CineoShellState extends State<CineoShell> {
       ),
       ProfileScreen(
         appLockController: widget.appLockController,
-        onOpenLibrary: () => unawaited(_openLibrary()),
+        onOpenFavorites: () =>
+            unawaited(_openLibrary(LibraryContentMode.favorites)),
+        onOpenHistory: () =>
+            unawaited(_openLibrary(LibraryContentMode.history)),
         onOpenSources: () => unawaited(_openSources()),
         onOpenAppLock: () => unawaited(_openPinSetup()),
         onLockNow: () => unawaited(widget.appLockController.lock()),
