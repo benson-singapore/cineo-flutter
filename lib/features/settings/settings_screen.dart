@@ -10,7 +10,7 @@ import 'tmdb_settings.dart';
 import 'tmdb_disk_cache_controller.dart';
 import 'tmdb_settings_screen.dart';
 
-class SettingsScreen extends StatelessWidget {
+class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     required this.adultSourceSettings,
@@ -25,71 +25,124 @@ class SettingsScreen extends StatelessWidget {
   final AppLockController? appLockController;
 
   @override
+  State<SettingsScreen> createState() => _SettingsScreenState();
+}
+
+class _SettingsScreenState extends State<SettingsScreen> {
+  final _searchController = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('通用设置')),
-      body: AnimatedBuilder(
-        animation: adultSourceSettings,
-        builder: (context, _) {
-          if (!adultSourceSettings.initialized) {
-            return const Center(
-              child: CircularProgressIndicator(),
-            );
-          }
-          return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 12, 16, 48),
-            children: [
-              const _SettingsSectionLabel(
-                title: '内容显示',
-              ),
-              _SettingsPanel(
-                child: SwitchListTile.adaptive(
-                  contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-                  secondary: const _SettingsIcon(
-                    icon: Icons.explicit_rounded,
-                    color: Color(0xFFE94865),
-                  ),
-                  title: const Text('显示成人标记的视频源'),
-                  subtitle: const Text('关闭时仍会保存配置，但不会在来源管理中展示'),
-                  value: adultSourceSettings.showAdultSources,
-                  onChanged: (value) => _onAdultSourcesChanged(context, value),
+      body: SafeArea(
+        bottom: false,
+        child: AnimatedBuilder(
+          animation: widget.adultSourceSettings,
+          builder: (context, _) {
+            if (!widget.adultSourceSettings.initialized) {
+              return const Center(
+                child: CircularProgressIndicator(),
+              );
+            }
+            return ListView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 128),
+              children: [
+                Text(
+                  '设置',
+                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0,
+                      ),
                 ),
-              ),
-              const SizedBox(height: 28),
-              const _SettingsSectionLabel(
-                title: '隐私与安全',
-              ),
-              _buildLockSettings(context),
-              const SizedBox(height: 28),
-              const _SettingsSectionLabel(
-                title: '数据增强',
-              ),
-              _SettingsPanel(
-                child: ListTile(
-                  contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-                  leading: const _SettingsIcon(
-                    icon: Icons.auto_awesome_rounded,
-                    color: Color(0xFF5B82F5),
-                  ),
-                  title: const Text('TMDB 数据增强'),
-                  subtitle: const Text('管理海报、剧集资料和每集简介的数据服务'),
-                  trailing: const Icon(Icons.chevron_right_rounded,
-                      color: CineoColors.textSecondary),
-                  onTap: () => Navigator.of(context).push(
-                    MaterialPageRoute(
-                      builder: (_) => TMDBSettingsScreen(
-                        settings: tmdbSettings,
-                        cacheController: tmdbCacheController,
+                const SizedBox(height: 6),
+                Text(
+                  '管理内容、隐私与本地媒体体验',
+                  style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                        color: CineoColors.textSecondary,
+                      ),
+                ),
+                const SizedBox(height: 20),
+                _SettingsSearchField(
+                  controller: _searchController,
+                  query: _query,
+                  onChanged: (value) => setState(() => _query = value.trim()),
+                  onClear: () {
+                    _searchController.clear();
+                    setState(() => _query = '');
+                  },
+                ),
+                const SizedBox(height: 28),
+                if (_matches('媒体服务 tmdb 数据增强 海报 剧集 简介')) ...[
+                  const _SettingsSectionLabel(title: '媒体服务'),
+                  _SettingsPanel(
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
+                      leading: const _SettingsIcon(
+                        icon: Icons.auto_awesome_rounded,
+                        color: Color(0xFF5B82F5),
+                      ),
+                      title: const Text('TMDB 数据增强'),
+                      subtitle: const Text('管理海报、剧集资料和每集简介的数据服务'),
+                      trailing: const Icon(Icons.chevron_right_rounded,
+                          color: CineoColors.textSecondary),
+                      onTap: () => Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => TMDBSettingsScreen(
+                            settings: widget.tmdbSettings,
+                            cacheController: widget.tmdbCacheController,
+                          ),
+                        ),
                       ),
                     ),
                   ),
-                ),
-              ),
-            ],
-          );
-        },
+                  const SizedBox(height: 28),
+                ],
+                if (_matches('内容访问 成人 标记 视频源 显示 隐藏')) ...[
+                  const _SettingsSectionLabel(title: '内容访问'),
+                  _SettingsPanel(
+                    child: SwitchListTile.adaptive(
+                      contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
+                      secondary: const _SettingsIcon(
+                        icon: Icons.explicit_rounded,
+                        color: Color(0xFFE94865),
+                      ),
+                      title: const Text('显示成人标记的视频源'),
+                      subtitle: const Text('关闭时仍会保存配置，但不会在来源管理中展示'),
+                      value: widget.adultSourceSettings.showAdultSources,
+                      onChanged: (value) =>
+                          _onAdultSourcesChanged(context, value),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                ],
+                if (_matches('隐私 安全 应用锁 pin 密码 宽限期 立即锁定')) ...[
+                  const _SettingsSectionLabel(title: '隐私与安全'),
+                  _buildLockSettings(context),
+                ],
+                if (!_hasMatches) const _SettingsEmptySearchState(),
+              ],
+            );
+          },
+        ),
       ),
     );
+  }
+
+  bool get _hasMatches =>
+      _matches('媒体服务 tmdb 数据增强 海报 剧集 简介') ||
+      _matches('内容访问 成人 标记 视频源 显示 隐藏') ||
+      _matches('隐私 安全 应用锁 pin 密码 宽限期 立即锁定');
+
+  bool _matches(String keywords) {
+    if (_query.isEmpty) return true;
+    return keywords.toLowerCase().contains(_query.toLowerCase());
   }
 
   Future<void> _onAdultSourcesChanged(
@@ -97,10 +150,10 @@ class SettingsScreen extends StatelessWidget {
     bool value,
   ) async {
     if (!value) {
-      await adultSourceSettings.setShowAdultSources(false);
+      await widget.adultSourceSettings.setShowAdultSources(false);
       return;
     }
-    final controller = appLockController;
+    final controller = widget.appLockController;
     if (controller == null) {
       _showMessage(context, '应用锁尚未接入，请先设置应用锁');
       return;
@@ -114,12 +167,12 @@ class SettingsScreen extends StatelessWidget {
       builder: (context) => PinVerificationDialog(controller: controller),
     );
     if (verified == true) {
-      await adultSourceSettings.setShowAdultSources(true);
+      await widget.adultSourceSettings.setShowAdultSources(true);
     }
   }
 
   Widget _buildLockSettings(BuildContext context) {
-    final controller = appLockController;
+    final controller = widget.appLockController;
     if (controller == null) {
       return const _SettingsPanel(
         child: ListTile(
@@ -138,7 +191,7 @@ class SettingsScreen extends StatelessWidget {
         child: Column(
           children: [
             ListTile(
-              contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+              contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
               leading: const _SettingsIcon(
                 icon: Icons.lock_rounded,
                 color: Color(0xFFE94865),
@@ -160,7 +213,7 @@ class SettingsScreen extends StatelessWidget {
             if (controller.hasPin) ...[
               const _SettingsPanelDivider(),
               ListTile(
-                contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+                contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
                 leading: const _SettingsIcon(
                   icon: Icons.timer_outlined,
                   color: Color(0xFF40A7F5),
@@ -172,7 +225,7 @@ class SettingsScreen extends StatelessWidget {
               ),
               const _SettingsPanelDivider(),
               ListTile(
-                contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
+                contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
                 leading: const _SettingsIcon(
                   icon: Icons.lock_clock_rounded,
                   color: Color(0xFFFF9F43),
@@ -216,6 +269,66 @@ class SettingsScreen extends StatelessWidget {
   void _showMessage(BuildContext context, String message) {
     ScaffoldMessenger.of(context)
         .showSnackBar(SnackBar(content: Text(message)));
+  }
+}
+
+class _SettingsSearchField extends StatelessWidget {
+  const _SettingsSearchField({
+    required this.controller,
+    required this.query,
+    required this.onChanged,
+    required this.onClear,
+  });
+
+  final TextEditingController controller;
+  final String query;
+  final ValueChanged<String> onChanged;
+  final VoidCallback onClear;
+
+  @override
+  Widget build(BuildContext context) {
+    return TextField(
+      controller: controller,
+      onChanged: onChanged,
+      textInputAction: TextInputAction.search,
+      decoration: InputDecoration(
+        hintText: '搜索设置',
+        prefixIcon: const Icon(Icons.search_rounded),
+        suffixIcon: query.isEmpty
+            ? null
+            : IconButton(
+                tooltip: '清除搜索',
+                onPressed: onClear,
+                icon: const Icon(Icons.close_rounded),
+              ),
+      ),
+    );
+  }
+}
+
+class _SettingsEmptySearchState extends StatelessWidget {
+  const _SettingsEmptySearchState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.only(top: 34),
+      child: Column(
+        children: [
+          Icon(Icons.manage_search_rounded,
+              size: 34, color: CineoColors.textSecondary.withOpacity(.8)),
+          const SizedBox(height: 10),
+          const Text('没有匹配的设置项'),
+          const SizedBox(height: 4),
+          Text(
+            '试试“应用锁”、“TMDB”或“成人标记”',
+            style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                  color: CineoColors.textSecondary,
+                ),
+          ),
+        ],
+      ),
+    );
   }
 }
 

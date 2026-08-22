@@ -48,7 +48,7 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: const Text('TMDB 设置')),
+      appBar: AppBar(title: const Text('TMDB 数据增强')),
       body: AnimatedBuilder(
         animation: _settings,
         builder: (context, _) {
@@ -64,7 +64,7 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
   Widget _buildBody(BuildContext context) {
     final theme = Theme.of(context);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+      padding: const EdgeInsets.fromLTRB(20, 14, 20, 44),
       children: [
         Row(
           children: [
@@ -102,8 +102,7 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
       decoration: BoxDecoration(
         color: CineoColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: CineoColors.divider),
+        borderRadius: BorderRadius.circular(28),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -262,16 +261,19 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         const SizedBox(height: 24),
-        Text('本地缓存', style: Theme.of(context).textTheme.titleLarge),
-        const SizedBox(height: 8),
+        Text(
+          '本地缓存',
+          style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                color: CineoColors.textSecondary,
+                fontWeight: FontWeight.w700,
+              ),
+        ),
+        const SizedBox(height: 9),
         Container(
           padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
           decoration: BoxDecoration(
             color: Theme.of(context).colorScheme.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(
-              color: Theme.of(context).colorScheme.outlineVariant,
-            ),
+            borderRadius: BorderRadius.circular(28),
           ),
           child: child,
         ),
@@ -364,7 +366,6 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
   }
 
   Widget _buildStatus(BuildContext context) {
-    final colorScheme = Theme.of(context).colorScheme;
     final configured = _settings.configured;
     return Container(
       padding: const EdgeInsets.all(16),
@@ -372,8 +373,7 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
         color: configured
             ? CineoColors.primaryContainer.withOpacity(.45)
             : CineoColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: colorScheme.outlineVariant),
+        borderRadius: BorderRadius.circular(24),
       ),
       child: Row(
         children: [
@@ -409,7 +409,7 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
       padding: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: colorScheme.errorContainer,
-        borderRadius: BorderRadius.circular(8),
+        borderRadius: BorderRadius.circular(20),
       ),
       child: Row(
         children: [

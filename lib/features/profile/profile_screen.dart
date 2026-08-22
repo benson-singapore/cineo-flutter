@@ -27,54 +27,74 @@ class ProfileScreen extends StatelessWidget {
   Widget build(BuildContext context) {
     final lockEnabled = appLockController?.hasPin ?? false;
     return Scaffold(
-      appBar: AppBar(title: const Text('我的')),
-      body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 8, 16, 124),
-        children: [
-          _ProfileHeader(lockEnabled: lockEnabled),
-          const SizedBox(height: 28),
-          _Section(
-            title: '本地内容',
-            icon: Icons.video_library_outlined,
-            children: [
-              _ProfileTile(
-                  icon: Icons.bookmark_outline,
-                  title: '我的收藏',
-                  onTap: onOpenFavorites),
-              _ProfileTile(
-                  icon: Icons.history, title: '播放历史', onTap: onOpenHistory),
-            ],
-          ),
-          const SizedBox(height: 24),
-          _Section(
-            title: '应用设置',
-            icon: Icons.tune_outlined,
-            children: [
-              _ProfileTile(
-                  icon: Icons.link, title: '视频源管理', onTap: onOpenSources),
-              _ProfileTile(
-                  icon: Icons.lock_outline,
-                  title: lockEnabled ? '修改应用锁' : '设置应用锁',
-                  onTap: onOpenAppLock),
-              if (lockEnabled)
-                _ProfileTile(
-                    icon: Icons.lock_clock, title: '立即锁定', onTap: onLockNow),
-              _ProfileTile(
-                  icon: Icons.settings_outlined,
-                  title: '通用设置',
-                  onTap: onOpenSettings),
-            ],
-          ),
-          const SizedBox(height: 24),
-          Center(
-            child: Text(
-              'Cineo · 本地优先媒体中心',
-              style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                    color: CineoColors.textSecondary,
+      body: SafeArea(
+        bottom: false,
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(20, 18, 20, 128),
+          children: [
+            Text(
+              '我的',
+              style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                    fontWeight: FontWeight.w800,
+                    letterSpacing: 0,
                   ),
             ),
-          ),
-        ],
+            const SizedBox(height: 20),
+            _ProfileHeader(lockEnabled: lockEnabled),
+            const SizedBox(height: 28),
+            _Section(
+              title: '本地内容',
+              children: [
+                _ProfileTile(
+                    icon: Icons.bookmark_outline,
+                    color: const Color(0xFFFF9F43),
+                    title: '我的收藏',
+                    onTap: onOpenFavorites),
+                _ProfileTile(
+                    icon: Icons.history,
+                    color: const Color(0xFF5B82F5),
+                    title: '播放历史',
+                    onTap: onOpenHistory),
+              ],
+            ),
+            const SizedBox(height: 24),
+            _Section(
+              title: '应用设置',
+              children: [
+                _ProfileTile(
+                    icon: Icons.link,
+                    color: const Color(0xFF35B885),
+                    title: '视频源管理',
+                    onTap: onOpenSources),
+                _ProfileTile(
+                    icon: Icons.lock_outline,
+                    color: const Color(0xFFE94865),
+                    title: lockEnabled ? '修改应用锁' : '设置应用锁',
+                    onTap: onOpenAppLock),
+                if (lockEnabled)
+                  _ProfileTile(
+                      icon: Icons.lock_clock,
+                      color: const Color(0xFFE94865),
+                      title: '立即锁定',
+                      onTap: onLockNow),
+                _ProfileTile(
+                    icon: Icons.settings_outlined,
+                    color: const Color(0xFF8087F4),
+                    title: '通用设置',
+                    onTap: onOpenSettings),
+              ],
+            ),
+            const SizedBox(height: 24),
+            Center(
+              child: Text(
+                'Cineo · 本地优先媒体中心',
+                style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: CineoColors.textSecondary,
+                    ),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
@@ -91,8 +111,7 @@ class _ProfileHeader extends StatelessWidget {
       padding: const EdgeInsets.fromLTRB(20, 20, 16, 20),
       decoration: BoxDecoration(
         color: CineoColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: CineoColors.divider),
+        borderRadius: BorderRadius.circular(28),
       ),
       child: Row(
         children: [
@@ -124,11 +143,9 @@ class _ProfileHeader extends StatelessWidget {
 }
 
 class _Section extends StatelessWidget {
-  const _Section(
-      {required this.title, required this.icon, required this.children});
+  const _Section({required this.title, required this.children});
 
   final String title;
-  final IconData icon;
   final List<Widget> children;
 
   @override
@@ -137,54 +154,73 @@ class _Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 10),
-          child: Row(
-            children: [
-              Icon(icon, size: 18, color: CineoColors.primary),
-              const SizedBox(width: 8),
-              Text(
-                title,
-                style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                      color: CineoColors.primaryLight,
-                      fontWeight: FontWeight.w700,
-                    ),
-              ),
-            ],
+          padding: const EdgeInsets.only(left: 8, bottom: 9),
+          child: Text(
+            title,
+            style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                  color: CineoColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
           ),
         ),
         Container(
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
             color: CineoColors.surface,
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: CineoColors.divider),
+            borderRadius: BorderRadius.circular(28),
           ),
-          child: Column(children: children),
+          child: Column(
+            children: [
+              for (var index = 0; index < children.length; index++) ...[
+                children[index],
+                if (index != children.length - 1) const _ProfilePanelDivider(),
+              ],
+            ],
+          ),
         ),
       ],
     );
   }
 }
 
+class _ProfilePanelDivider extends StatelessWidget {
+  const _ProfilePanelDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.only(left: 68),
+      child: Divider(height: 1, color: CineoColors.divider),
+    );
+  }
+}
+
 class _ProfileTile extends StatelessWidget {
-  const _ProfileTile({required this.icon, required this.title, this.onTap});
+  const _ProfileTile({
+    required this.icon,
+    required this.color,
+    required this.title,
+    this.onTap,
+  });
 
   final IconData icon;
+  final Color color;
   final String title;
   final VoidCallback? onTap;
 
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      minVerticalPadding: 12,
+      contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
+      minVerticalPadding: 10,
       leading: DecoratedBox(
         decoration: BoxDecoration(
-          color: CineoColors.surfaceElevated,
-          borderRadius: BorderRadius.circular(8),
+          color: color,
+          borderRadius: BorderRadius.circular(12),
         ),
         child: Padding(
           padding: const EdgeInsets.all(9),
-          child: Icon(icon, color: CineoColors.primaryLight, size: 20),
+          child: Icon(icon, color: Colors.white, size: 20),
         ),
       ),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
