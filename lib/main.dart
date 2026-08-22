@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'core/models/media.dart';
+import 'core/platform/picture_in_picture.dart';
 import 'core/theme/cineo_theme.dart';
 import 'data/repositories/local_media_repository.dart';
 import 'data/remote/media_category_adapter.dart';
@@ -13,6 +14,7 @@ import 'features/media_details/media_details_screen.dart';
 import 'features/player/player_screen.dart';
 import 'features/profile/profile.dart';
 import 'features/search/search_screen.dart';
+import 'features/search/category_browse_screen.dart';
 import 'features/settings/adult_source_settings.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/sources/source_list_screen.dart';
@@ -82,6 +84,8 @@ class CineoShell extends StatefulWidget {
 }
 
 class _CineoShellState extends State<CineoShell> {
+  static const _pictureInPicture = PictureInPictureService();
+
   List<MediaItem> _items = const [];
   List<MediaItem> _continueWatching = const [];
   List<String> _searchHistory = const [];
@@ -95,11 +99,18 @@ class _CineoShellState extends State<CineoShell> {
   String? _errorMessage;
   int _selectedIndex = 0;
   int _refreshRevision = 0;
+  bool _pictureInPictureAvailable = false;
 
   @override
   void initState() {
     super.initState();
     _refresh();
+    unawaited(_loadPlatformCapabilities());
+  }
+
+  Future<void> _loadPlatformCapabilities() async {
+    final available = await _pictureInPicture.isAvailable();
+    if (mounted) setState(() => _pictureInPictureAvailable = available);
   }
 
   Future<void> _refresh() async {
@@ -230,11 +241,22 @@ class _CineoShellState extends State<CineoShell> {
       }
     }
     final favorite = await widget.repository.isFavorite(resolvedMedia.id);
+    final history = await widget.repository.watchHistory();
+    final recentEpisodeId = history
+        .where((entry) => entry.mediaId == resolvedMedia.id)
+        .map((entry) => entry.episodeId)
+        .whereType<String>()
+        .firstWhere(
+          (episodeId) => resolvedMedia.playbackOptions
+              .any((option) => option.id == episodeId),
+          orElse: () => '',
+        );
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => MediaDetailsScreen(
           media: resolvedMedia,
+          initialEpisodeId: recentEpisodeId.isEmpty ? null : recentEpisodeId,
           favorite: favorite,
           onFavoriteChanged: (isFavorite) {
             unawaited(
@@ -258,27 +280,62 @@ class _CineoShellState extends State<CineoShell> {
 
   Future<void> _openPlayer(MediaItem media, PlaybackOption option) async {
     final history = await widget.repository.watchHistory();
-    final position = history
-        .where((entry) => entry.mediaId == media.id)
-        .map((entry) => entry.position)
-        .fold<Duration>(
-          Duration.zero,
-          (latest, value) => value > latest ? value : latest,
-        );
+    final episodePositions = <String, Duration>{
+      for (final entry in history)
+        if (entry.mediaId == media.id && entry.episodeId != null)
+          entry.episodeId!: entry.position,
+    };
+    final lineName = option.quality.trim();
+    final lineEpisodes = media.playbackOptions
+        .where((candidate) => candidate.quality.trim() == lineName)
+        .toList(growable: false);
     if (!mounted) return;
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => PlayerScreen(
           media: media,
           option: option,
-          initialPosition: position,
+          episodes: lineEpisodes,
+          initialPosition: episodePositions[option.id] ?? Duration.zero,
+          initialPositions: episodePositions,
           episodeId: option.id,
+          pictureInPictureAvailable: _pictureInPictureAvailable,
+          onPictureInPicture: _pictureInPictureAvailable
+              ? () => unawaited(_enterPictureInPicture())
+              : null,
           onProgressChanged: (progress) =>
               unawaited(widget.repository.saveProgress(progress)),
         ),
       ),
     );
     await _refresh();
+  }
+
+  Future<void> _enterPictureInPicture() async {
+    final entered = await _pictureInPicture.enter();
+    if (!entered && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('当前设备无法进入画中画模式')),
+      );
+    }
+  }
+
+  Future<void> _openCategoryBrowse(
+    String title,
+    List<MediaItem> initialItems,
+  ) {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => CategoryBrowseScreen(
+          title: title,
+          initialItems: initialItems,
+          onOpenMedia: (media) => unawaited(_openMedia(media)),
+          onLoad: title == '为你推荐'
+              ? () => widget.repository.browseDefaultSource()
+              : null,
+        ),
+      ),
+    );
   }
 
   Future<void> _openLibrary() async {
@@ -338,6 +395,8 @@ class _CineoShellState extends State<CineoShell> {
         errorMessage: _errorMessage,
         onRetry: _refresh,
         onOpenMedia: (media) => unawaited(_openMedia(media)),
+        onSeeAll: (title, items) =>
+            unawaited(_openCategoryBrowse(title, items)),
       ),
       SearchScreen(
         items: _items,
@@ -347,6 +406,8 @@ class _CineoShellState extends State<CineoShell> {
         categories: _categories,
         onRemoteSearch: (query, categoryIds) => widget.repository
             .searchDefaultSource(query, categoryIds: categoryIds),
+        onBrowseCategory: (categoryIds) =>
+            widget.repository.browseDefaultSourceCategories(categoryIds),
       ),
       ProfileScreen(
         appLockController: widget.appLockController,
