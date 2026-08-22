@@ -31,7 +31,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     return openDatabase(
       resolvedPath,
-      version: 4,
+      version: 5,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -73,6 +73,14 @@ class LocalMediaRepository implements MediaRepository {
             updated_at INTEGER NOT NULL
           )
         ''');
+        await database.execute('''
+          CREATE TABLE media_source_preferences (
+            media_key TEXT PRIMARY KEY,
+            source_id TEXT NOT NULL,
+            remote_id TEXT NOT NULL,
+            updated_at INTEGER NOT NULL
+          )
+        ''');
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -99,6 +107,16 @@ class LocalMediaRepository implements MediaRepository {
           await database.execute(
             'ALTER TABLE sources ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0',
           );
+        }
+        if (oldVersion < 5) {
+          await database.execute('''
+            CREATE TABLE media_source_preferences (
+              media_key TEXT PRIMARY KEY,
+              source_id TEXT NOT NULL,
+              remote_id TEXT NOT NULL,
+              updated_at INTEGER NOT NULL
+            )
+          ''');
         }
       },
     );
@@ -533,6 +551,74 @@ class LocalMediaRepository implements MediaRepository {
     if (sourceRows.isEmpty) return item;
     return _macCmsClient.detail(
         _sourceFromRow(sourceRows.single), item.remoteId!);
+  }
+
+  /// Resolves the most recently selected source for this title. Preferences
+  /// store only source and remote IDs, never stream URLs or credentials.
+  Future<MediaItem?> preferredSourceFor(
+    MediaItem media, {
+    required bool includeAdult,
+  }) async {
+    final rows = await (await _db).query(
+      'media_source_preferences',
+      where: 'media_key = ?',
+      whereArgs: [_mediaSourcePreferenceKey(media)],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+
+    final sourceId = rows.single['source_id'] as String;
+    final sourceRows = await (await _db).query(
+      'sources',
+      where: 'id = ? AND enabled = 1',
+      whereArgs: [sourceId],
+      limit: 1,
+    );
+    if (sourceRows.isEmpty) return null;
+    final source = _sourceFromRow(sourceRows.single);
+    if (source.isAdult && !includeAdult) return null;
+    if (source.type != MediaSourceType.macCmsApi &&
+        source.type != MediaSourceType.jsonApi) {
+      return null;
+    }
+
+    try {
+      return await _macCmsClient.detail(
+          source, rows.single['remote_id'] as String);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<void> savePreferredSource(
+    MediaItem media,
+    MediaItem selectedMedia,
+  ) async {
+    final sourceId = selectedMedia.sourceId?.trim();
+    final remoteId = selectedMedia.remoteId?.trim();
+    if (sourceId == null ||
+        sourceId.isEmpty ||
+        remoteId == null ||
+        remoteId.isEmpty) {
+      return;
+    }
+    await (await _db).insert(
+      'media_source_preferences',
+      {
+        'media_key': _mediaSourcePreferenceKey(media),
+        'source_id': sourceId,
+        'remote_id': remoteId,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  String _mediaSourcePreferenceKey(MediaItem media) {
+    final normalizedTitle = media.title
+        .toLowerCase()
+        .replaceAll(RegExp(r'[\s\p{P}\p{S}]', unicode: true), '');
+    return '${media.kind.name}:$normalizedTitle';
   }
 
   Future<List<MediaItem>> searchOtherSources(MediaItem media,

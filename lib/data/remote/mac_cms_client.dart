@@ -333,6 +333,7 @@ class MacCmsClient {
     return MediaItem(
       id: '${source.id}:$remoteId',
       sourceId: source.id,
+      sourceName: source.name,
       remoteId: remoteId,
       title: title,
       description: formatMediaDescription(_string(item['vod_content'])),

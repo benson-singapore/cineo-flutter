@@ -232,8 +232,21 @@ class _CineoShellState extends State<CineoShell> {
     await _refresh();
   }
 
-  Future<void> _openMedia(MediaItem media) async {
-    final resolvedMedia = await _resolveMediaDetails(media);
+  Future<void> _openMedia(
+    MediaItem media, {
+    MediaItem? preferenceAnchor,
+    bool skipPreferredSource = false,
+  }) async {
+    final anchor = preferenceAnchor ?? media;
+    MediaItem selectedMedia = media;
+    if (!skipPreferredSource) {
+      final preferred = await widget.repository.preferredSourceFor(
+        anchor,
+        includeAdult: widget.adultSourceSettings.showAdultSources,
+      );
+      if (preferred != null) selectedMedia = preferred;
+    }
+    final resolvedMedia = await _resolveMediaDetails(selectedMedia);
     final favorite = await widget.repository.isFavorite(resolvedMedia.id);
     final history = await widget.repository.watchHistory();
     final recentEpisodeId = history
@@ -265,9 +278,15 @@ class _CineoShellState extends State<CineoShell> {
             item,
             includeAdult: widget.adultSourceSettings.showAdultSources,
           ),
-          onOpenAlternative: (alternative) {
+          onOpenAlternative: (alternative) async {
+            await widget.repository.savePreferredSource(anchor, alternative);
+            if (!mounted) return;
             Navigator.of(context).pop();
-            unawaited(_openMedia(alternative));
+            unawaited(_openMedia(
+              alternative,
+              preferenceAnchor: anchor,
+              skipPreferredSource: true,
+            ));
           },
         ),
       ),

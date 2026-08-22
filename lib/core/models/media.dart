@@ -51,6 +51,7 @@ class MediaItem {
     this.episodes = const [],
     this.playbackOptions = const [],
     this.sourceId,
+    this.sourceName,
     this.remoteId,
     this.category,
     this.categoryId,
@@ -69,6 +70,7 @@ class MediaItem {
   final List<Episode> episodes;
   final List<PlaybackOption> playbackOptions;
   final String? sourceId;
+  final String? sourceName;
   final String? remoteId;
   final String? category;
   final String? categoryId;

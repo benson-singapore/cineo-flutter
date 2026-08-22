@@ -31,7 +31,11 @@ void main() {
     quality: '线路 B',
   );
 
-  MediaItem buildSeries({String description = '测试简介'}) {
+  MediaItem buildSeries({
+    String description = '测试简介',
+    String? sourceId,
+    String? sourceName,
+  }) {
     return MediaItem(
       id: 'series',
       title: '测试剧集',
@@ -43,6 +47,8 @@ void main() {
       genres: ['剧情'],
       rating: 8,
       duration: const Duration(minutes: 40),
+      sourceId: sourceId,
+      sourceName: sourceName,
       playbackOptions: const [lineAEpisode, lineAEpisodeTwo, lineBEpisode],
       episodes: const [
         Episode(
@@ -177,6 +183,64 @@ void main() {
     expect(find.text('倒序'), findsNothing);
     expect(find.byType(ChoiceChip), findsNothing);
     expect(find.text('查看全部'), findsOneWidget);
+  });
+
+  testWidgets('chooses an alternative media site from the detail sheet',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final current = buildSeries(
+      sourceId: 'site-1',
+      sourceName: '当前资源站',
+    );
+    const alternative = MediaItem(
+      id: 'site-2:remote-2',
+      sourceId: 'site-2',
+      sourceName: '如意资源站',
+      remoteId: 'remote-2',
+      title: '测试剧集',
+      description: '备用站点版本',
+      year: 2026,
+      kind: MediaKind.series,
+      posterUrl: '',
+      backdropUrl: '',
+      genres: ['剧情'],
+      rating: 8,
+      duration: Duration(minutes: 40),
+      category: '韩国剧',
+    );
+    MediaItem? selected;
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: current,
+        favorite: false,
+        onFavoriteChanged: (_) {},
+        onPlay: (_) {},
+        onSearchOtherSources: (_) async => [alternative],
+        onOpenAlternative: (media) => selected = media,
+      ),
+    ));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    await tester.ensureVisible(find.byKey(const ValueKey('switch-media-site')));
+    await tester.tap(find.byKey(const ValueKey('switch-media-site')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('选择资源站'), findsOneWidget);
+    expect(find.text('当前资源站'), findsNWidgets(2));
+    expect(find.text('如意资源站'), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-2')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('media-site-site-2')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(selected?.sourceId, 'site-2');
+    expect(find.text('选择资源站'), findsNothing);
   });
 
   test('formats inconsistent source episode labels', () {

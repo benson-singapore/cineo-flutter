@@ -403,6 +403,14 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
         const SizedBox(height: 28),
         _sectionTitle('播放来源'),
         const SizedBox(height: 12),
+        if (widget.onSearchOtherSources != null) ...[
+          _SiteSwitchTile(
+            sourceName: _siteDisplayName(media),
+            isLoading: _searchingOtherSources,
+            onTap: _searchingOtherSources ? null : _searchOtherSources,
+          ),
+          const SizedBox(height: 12),
+        ],
         if (_sourceOptions.isEmpty)
           const _InlineEmpty(message: '暂无可用播放来源')
         else ...[
@@ -438,19 +446,6 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
         if (_tmdbDetails?.cast.isNotEmpty == true) ...[
           const SizedBox(height: 30),
           _CastSection(cast: _tmdbDetails!.cast),
-        ],
-        if (widget.onSearchOtherSources != null) ...[
-          const SizedBox(height: 28),
-          OutlinedButton.icon(
-            onPressed: _searchingOtherSources ? null : _searchOtherSources,
-            icon: _searchingOtherSources
-                ? const SizedBox.square(
-                    dimension: 18,
-                    child: CircularProgressIndicator(strokeWidth: 2),
-                  )
-                : const Icon(Icons.travel_explore_outlined),
-            label: Text(_searchingOtherSources ? '正在搜索其他站点...' : '在其他站点查找'),
-          ),
         ],
       ],
     );
@@ -587,11 +582,16 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       await showModalBottomSheet<void>(
         context: context,
         showDragHandle: true,
+        isScrollControlled: true,
+        backgroundColor: CineoColors.surface,
         builder: (context) => _OtherSourcesSheet(
-          matches: matches,
+          matches: <MediaItem>[widget.media, ...matches],
+          activeSourceId: widget.media.sourceId,
           onOpen: (media) {
             Navigator.of(context).pop();
-            widget.onOpenAlternative?.call(media);
+            if (media.sourceId != widget.media.sourceId) {
+              widget.onOpenAlternative?.call(media);
+            }
           },
         ),
       );
@@ -790,6 +790,78 @@ String _lineName(PlaybackOption option) {
   return name.isEmpty ? '播放源' : name;
 }
 
+String _siteDisplayName(MediaItem media) {
+  final name = media.sourceName?.trim() ?? '';
+  if (name.isNotEmpty) return name;
+  final sourceId = media.sourceId?.trim() ?? '';
+  return sourceId.isEmpty ? '当前资源站' : sourceId;
+}
+
+class _SiteSwitchTile extends StatelessWidget {
+  const _SiteSwitchTile({
+    required this.sourceName,
+    required this.isLoading,
+    required this.onTap,
+  });
+
+  final String sourceName;
+  final bool isLoading;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return Material(
+      color: CineoColors.surfaceElevated,
+      borderRadius: BorderRadius.circular(10),
+      child: InkWell(
+        key: const ValueKey('switch-media-site'),
+        borderRadius: BorderRadius.circular(10),
+        onTap: onTap,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          child: Row(
+            children: [
+              const Icon(Icons.dns_rounded, color: CineoColors.primary),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text(
+                      '资源站',
+                      style: TextStyle(
+                        color: CineoColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Text(
+                      sourceName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(fontWeight: FontWeight.w800),
+                    ),
+                  ],
+                ),
+              ),
+              if (isLoading)
+                const SizedBox.square(
+                  dimension: 20,
+                  child: CircularProgressIndicator(strokeWidth: 2),
+                )
+              else
+                const Icon(
+                  Icons.swap_horiz_rounded,
+                  color: CineoColors.primaryLight,
+                ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _SourceSelector extends StatelessWidget {
   const _SourceSelector({
     required this.sourceNames,
@@ -979,9 +1051,14 @@ class _InlineEmpty extends StatelessWidget {
 }
 
 class _OtherSourcesSheet extends StatelessWidget {
-  const _OtherSourcesSheet({required this.matches, required this.onOpen});
+  const _OtherSourcesSheet({
+    required this.matches,
+    required this.activeSourceId,
+    required this.onOpen,
+  });
 
   final List<MediaItem> matches;
+  final String? activeSourceId;
   final ValueChanged<MediaItem> onOpen;
 
   @override
@@ -992,34 +1069,169 @@ class _OtherSourcesSheet extends StatelessWidget {
         child: Text('已搜索所有已启用的视频源，暂未找到匹配内容。'),
       );
     }
-    final grouped = <String, List<MediaItem>>{};
+    final sites = <String, MediaItem>{};
     for (final media in matches) {
-      grouped.putIfAbsent(media.sourceId ?? '其他来源', () => []).add(media);
+      final sourceId = media.sourceId?.trim() ?? '';
+      if (sourceId.isNotEmpty) sites.putIfAbsent(sourceId, () => media);
     }
-    return SafeArea(
-      child: ListView(
-        shrinkWrap: true,
-        padding: const EdgeInsets.fromLTRB(20, 8, 20, 28),
-        children: [
-          Text('其他站点结果', style: Theme.of(context).textTheme.titleLarge),
-          const SizedBox(height: 8),
-          ...grouped.entries.expand((entry) => [
-                Padding(
-                  padding: const EdgeInsets.only(top: 16, bottom: 4),
-                  child: Text('来源 ${entry.key}',
-                      style: const TextStyle(color: CineoColors.textSecondary)),
-                ),
-                ...entry.value.map(
-                  (media) => ListTile(
-                    contentPadding: EdgeInsets.zero,
-                    title: Text(media.title),
-                    subtitle: Text(media.category ?? '视频资源'),
-                    trailing: const Icon(Icons.chevron_right_rounded),
+    final orderedSites = sites.values.toList()
+      ..sort((left, right) {
+        final leftActive = left.sourceId == activeSourceId;
+        final rightActive = right.sourceId == activeSourceId;
+        if (leftActive == rightActive) return 0;
+        return leftActive ? -1 : 1;
+      });
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * .76,
+      child: SafeArea(
+        top: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Text(
+                '选择资源站',
+                style: Theme.of(context).textTheme.titleLarge,
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 14),
+              child: Text(
+                '切换后会记住此剧集的最近选择，并优先使用该站点播放。',
+                style: TextStyle(color: CineoColors.textSecondary),
+              ),
+            ),
+            Expanded(
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+                itemCount: orderedSites.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final media = orderedSites[index];
+                  return _SourceSiteCard(
+                    media: media,
+                    selected: media.sourceId == activeSourceId,
                     onTap: () => onOpen(media),
-                  ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _SourceSiteCard extends StatelessWidget {
+  const _SourceSiteCard({
+    required this.media,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final MediaItem media;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final detail = <String>[
+      if (media.year > 0) '${media.year}',
+      if (media.category?.trim().isNotEmpty == true) media.category!.trim(),
+    ].join('  ·  ');
+    return Material(
+      color:
+          selected ? CineoColors.primaryContainer : CineoColors.surfaceElevated,
+      borderRadius: BorderRadius.circular(12),
+      child: InkWell(
+        key: ValueKey('media-site-${media.sourceId}'),
+        borderRadius: BorderRadius.circular(12),
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.all(12),
+          decoration: BoxDecoration(
+            borderRadius: BorderRadius.circular(12),
+            border: Border.all(
+              color: selected ? CineoColors.primary : CineoColors.divider,
+              width: selected ? 2 : 1,
+            ),
+          ),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 58,
+                height: 78,
+                child: MediaImage(
+                  url: media.posterUrl,
+                  borderRadius: BorderRadius.circular(6),
+                  placeholderIcon: Icons.movie_outlined,
                 ),
-              ]),
-        ],
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      media.title,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 16,
+                        fontWeight: FontWeight.w800,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 8,
+                        vertical: 4,
+                      ),
+                      decoration: BoxDecoration(
+                        color: CineoColors.surfaceOverlay,
+                        borderRadius: BorderRadius.circular(5),
+                      ),
+                      child: Text(
+                        _siteDisplayName(media),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: CineoColors.textSecondary,
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                        ),
+                      ),
+                    ),
+                    if (detail.isNotEmpty) ...[
+                      const SizedBox(height: 8),
+                      Text(
+                        detail,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                          color: CineoColors.textSecondary,
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              if (selected)
+                const Icon(
+                  Icons.check_circle_rounded,
+                  color: CineoColors.primary,
+                  size: 30,
+                )
+              else
+                const Icon(
+                  Icons.chevron_right_rounded,
+                  color: CineoColors.textSecondary,
+                ),
+            ],
+          ),
+        ),
       ),
     );
   }
