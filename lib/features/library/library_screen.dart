@@ -1,0 +1,335 @@
+import 'package:flutter/material.dart';
+
+import '../../core/models/media.dart';
+import '../../data/repositories/media_repository.dart';
+
+class LibraryScreen extends StatefulWidget {
+  const LibraryScreen({
+    super.key,
+    required this.repository,
+    this.onMediaTap,
+  });
+
+  final MediaRepository repository;
+  final ValueChanged<MediaItem>? onMediaTap;
+
+  @override
+  State<LibraryScreen> createState() => _LibraryScreenState();
+}
+
+class _LibraryScreenState extends State<LibraryScreen>
+    with SingleTickerProviderStateMixin {
+  late final TabController _tabController =
+      TabController(length: 3, vsync: this);
+  List<MediaItem> _favorites = const [];
+  List<_HistoryEntry> _history = const [];
+  bool _loading = true;
+  Object? _error;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  @override
+  void dispose() {
+    _tabController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _load() async {
+    setState(() {
+      _loading = true;
+      _error = null;
+    });
+    try {
+      final results = await Future.wait([
+        widget.repository.favorites(),
+        widget.repository.watchHistory(),
+      ]);
+      final progress = results[1] as List<WatchProgress>;
+      final media = <String, MediaItem>{};
+      for (final item in await Future.wait(
+        progress.map((entry) => widget.repository.getById(entry.mediaId)),
+      )) {
+        if (item != null) media[item.id] = item;
+      }
+      if (!mounted) return;
+      setState(() {
+        _favorites = results[0] as List<MediaItem>;
+        _history = [
+          for (final entry in progress)
+            if (media[entry.mediaId] != null)
+              _HistoryEntry(media: media[entry.mediaId]!, progress: entry),
+        ];
+        _loading = false;
+      });
+    } catch (error) {
+      if (!mounted) return;
+      setState(() {
+        _error = error;
+        _loading = false;
+      });
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      appBar: AppBar(
+        title: const Text('我的片单'),
+        actions: [
+          IconButton(
+            tooltip: '刷新',
+            onPressed: _load,
+            icon: const Icon(Icons.refresh),
+          ),
+        ],
+        bottom: TabBar(
+          controller: _tabController,
+          tabs: const [
+            Tab(text: '收藏'),
+            Tab(text: '继续观看'),
+            Tab(text: '播放历史'),
+          ],
+        ),
+      ),
+      body: _loading
+          ? const Center(child: CircularProgressIndicator())
+          : _error != null
+              ? _ErrorState(message: '本地数据加载失败', onRetry: _load)
+              : TabBarView(
+                  controller: _tabController,
+                  children: [
+                    _MediaGrid(
+                      items: _favorites,
+                      emptyTitle: '还没有收藏内容',
+                      emptyIcon: Icons.bookmark_border,
+                      onTap: widget.onMediaTap,
+                    ),
+                    _HistoryList(
+                      entries: _history
+                          .where((entry) => !entry.progress.isComplete)
+                          .toList(),
+                      onTap: widget.onMediaTap,
+                    ),
+                    _HistoryList(entries: _history, onTap: widget.onMediaTap),
+                  ],
+                ),
+    );
+  }
+}
+
+class _MediaGrid extends StatelessWidget {
+  const _MediaGrid({
+    required this.items,
+    required this.emptyTitle,
+    required this.emptyIcon,
+    this.onTap,
+  });
+
+  final List<MediaItem> items;
+  final String emptyTitle;
+  final IconData emptyIcon;
+  final ValueChanged<MediaItem>? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (items.isEmpty) {
+      return _EmptyState(title: emptyTitle, icon: emptyIcon);
+    }
+    return GridView.builder(
+      padding: const EdgeInsets.all(16),
+      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+        maxCrossAxisExtent: 180,
+        mainAxisSpacing: 16,
+        crossAxisSpacing: 12,
+        childAspectRatio: .58,
+      ),
+      itemCount: items.length,
+      itemBuilder: (context, index) => _MediaTile(
+        media: items[index],
+        onTap: onTap == null ? null : () => onTap!(items[index]),
+      ),
+    );
+  }
+}
+
+class _HistoryList extends StatelessWidget {
+  const _HistoryList({required this.entries, this.onTap});
+
+  final List<_HistoryEntry> entries;
+  final ValueChanged<MediaItem>? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    if (entries.isEmpty) {
+      return const _EmptyState(title: '还没有播放记录', icon: Icons.history);
+    }
+    return ListView.separated(
+      padding: const EdgeInsets.all(16),
+      itemCount: entries.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      itemBuilder: (context, index) {
+        final entry = entries[index];
+        return _HistoryTile(
+          entry: entry,
+          onTap: onTap == null ? null : () => onTap!(entry.media),
+        );
+      },
+    );
+  }
+}
+
+class _MediaTile extends StatelessWidget {
+  const _MediaTile({required this.media, this.onTap});
+
+  final MediaItem media;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(8),
+              child: _Poster(url: media.posterUrl),
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            media.title,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 3),
+          Text(
+            '${media.year}  ·  ${media.rating.toStringAsFixed(1)} 分',
+            style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryTile extends StatelessWidget {
+  const _HistoryTile({required this.entry, this.onTap});
+
+  final _HistoryEntry entry;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final progress = entry.progress.fraction;
+    return ListTile(
+      onTap: onTap,
+      contentPadding: EdgeInsets.zero,
+      leading: SizedBox(
+        width: 72,
+        height: 96,
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(6),
+          child: _Poster(url: entry.media.posterUrl),
+        ),
+      ),
+      title:
+          Text(entry.media.title, maxLines: 1, overflow: TextOverflow.ellipsis),
+      subtitle: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const SizedBox(height: 6),
+          Text(
+            entry.progress.episodeId == null
+                ? '电影'
+                : '第 ${entry.progress.episodeId} 集',
+            style: TextStyle(color: Colors.grey.shade500),
+          ),
+          const SizedBox(height: 10),
+          LinearProgressIndicator(value: progress, minHeight: 3),
+        ],
+      ),
+      trailing: const Icon(Icons.chevron_right),
+    );
+  }
+}
+
+class _Poster extends StatelessWidget {
+  const _Poster({required this.url});
+
+  final String url;
+
+  @override
+  Widget build(BuildContext context) {
+    return Image.network(
+      url,
+      fit: BoxFit.cover,
+      width: double.infinity,
+      errorBuilder: (_, __, ___) => ColoredBox(
+        color: Colors.grey.shade900,
+        child: const Center(
+            child: Icon(Icons.movie_outlined, color: Colors.white54)),
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState({required this.title, required this.icon});
+
+  final String title;
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 48, color: Colors.grey.shade600),
+          const SizedBox(height: 12),
+          Text(title, style: TextStyle(color: Colors.grey.shade500)),
+        ],
+      ),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  const _ErrorState({required this.message, required this.onRetry});
+
+  final String message;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(message),
+          const SizedBox(height: 12),
+          OutlinedButton.icon(
+            onPressed: onRetry,
+            icon: const Icon(Icons.refresh),
+            label: const Text('重试'),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _HistoryEntry {
+  const _HistoryEntry({required this.media, required this.progress});
+
+  final MediaItem media;
+  final WatchProgress progress;
+}
