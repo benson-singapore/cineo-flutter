@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/material.dart';
 
 import '../../core/theme/cineo_theme.dart';
@@ -20,53 +22,63 @@ class MediaImage extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final uri = Uri.tryParse(url);
+    final localFile = uri?.scheme == 'file' ? File.fromUri(uri!) : null;
     return ClipRRect(
       borderRadius: borderRadius,
       child: url.trim().isEmpty
           ? _fallback()
-          : Image.network(
-              url,
-              fit: fit,
-              alignment: alignment,
-              filterQuality: FilterQuality.medium,
-              errorBuilder: (context, error, stackTrace) {
-                assert(() {
-                  final uri = Uri.tryParse(url);
-                  final safeUrl = uri == null
-                      ? '<invalid-url>'
-                      : uri.replace(query: '', fragment: '').toString();
-                  debugPrint(
-                    '[Cineo][Image] phase=load_failed url=$safeUrl '
-                    'error=${error.runtimeType}: $error',
-                  );
-                  return true;
-                }());
-                return _fallback();
-              },
-              loadingBuilder: (context, child, loadingProgress) {
-                if (loadingProgress == null) return child;
-                return Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    _fallback(),
-                    Center(
-                      child: SizedBox(
-                        width: 20,
-                        height: 20,
-                        child: CircularProgressIndicator(
-                          strokeWidth: 2,
-                          value: loadingProgress.expectedTotalBytes == null
-                              ? null
-                              : loadingProgress.cumulativeBytesLoaded /
-                                  loadingProgress.expectedTotalBytes!,
-                          color: CineoColors.primary,
+          : localFile != null
+              ? Image.file(
+                  localFile,
+                  fit: fit,
+                  alignment: alignment,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (context, error, stackTrace) => _fallback(),
+                )
+              : Image.network(
+                  url,
+                  fit: fit,
+                  alignment: alignment,
+                  filterQuality: FilterQuality.medium,
+                  errorBuilder: (context, error, stackTrace) {
+                    assert(() {
+                      final uri = Uri.tryParse(url);
+                      final safeUrl = uri == null
+                          ? '<invalid-url>'
+                          : uri.replace(query: '', fragment: '').toString();
+                      debugPrint(
+                        '[Cineo][Image] phase=load_failed url=$safeUrl '
+                        'error=${error.runtimeType}: $error',
+                      );
+                      return true;
+                    }());
+                    return _fallback();
+                  },
+                  loadingBuilder: (context, child, loadingProgress) {
+                    if (loadingProgress == null) return child;
+                    return Stack(
+                      fit: StackFit.expand,
+                      children: [
+                        _fallback(),
+                        Center(
+                          child: SizedBox(
+                            width: 20,
+                            height: 20,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              value: loadingProgress.expectedTotalBytes == null
+                                  ? null
+                                  : loadingProgress.cumulativeBytesLoaded /
+                                      loadingProgress.expectedTotalBytes!,
+                              color: CineoColors.primary,
+                            ),
+                          ),
                         ),
-                      ),
-                    ),
-                  ],
-                );
-              },
-            ),
+                      ],
+                    );
+                  },
+                ),
     );
   }
 
