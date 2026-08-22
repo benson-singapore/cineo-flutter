@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/models/media.dart';
@@ -31,6 +33,8 @@ int playbackEpisodeIndex(List<PlaybackOption> episodes, String optionId) {
   final index = episodes.indexWhere((episode) => episode.id == optionId);
   return index < 0 ? 0 : index;
 }
+
+enum _PlayerOrientation { portrait, landscape }
 
 class PlayerScreen extends StatefulWidget {
   const PlayerScreen({
@@ -79,12 +83,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   Timer? _saveTimer;
   String? _error;
   bool _controlsVisible = true;
-  bool _episodePanelOpen = false;
-  bool _showScrollToTop = false;
   double _playbackSpeed = 1;
   bool? _lastIsPlaying;
   int _loadGeneration = 0;
-  late final ScrollController _episodeScrollController;
+  _PlayerOrientation _orientation = _PlayerOrientation.portrait;
 
   List<PlaybackOption> get _episodes {
     final options = <PlaybackOption>[...widget.episodes];
@@ -111,8 +113,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
-    _episodeScrollController = ScrollController()
-      ..addListener(_onEpisodeScroll);
     _loadOption(widget.option, initial: true);
   }
 
@@ -205,7 +205,6 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _toggleControls() {
-    if (_episodePanelOpen) return;
     setState(() => _controlsVisible = !_controlsVisible);
   }
 
@@ -233,39 +232,62 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _selectEpisode(PlaybackOption option) async {
-    if (option.id == _activeOption?.id) {
-      if (mounted) setState(() => _episodePanelOpen = false);
-      return;
-    }
-    if (mounted) setState(() => _episodePanelOpen = false);
+    if (option.id == _activeOption?.id) return;
     await _loadOption(option);
   }
 
-  void _openEpisodePanel() {
-    setState(() => _episodePanelOpen = true);
-    WidgetsBinding.instance
-        .addPostFrameCallback((_) => _scrollToCurrentEpisode());
+  Future<void> _openEpisodePanel() async {
+    final activeOptionId = _activeOption?.id ?? widget.option.id;
+    await showModalBottomSheet<void>(
+      context: context,
+      isScrollControlled: true,
+      useSafeArea: true,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => _EpisodeBottomSheet(
+        episodes: _episodes,
+        activeOptionId: activeOptionId,
+        onSelected: (option) {
+          Navigator.of(sheetContext).pop();
+          unawaited(_selectEpisode(option));
+        },
+      ),
+    );
   }
 
-  void _onEpisodeScroll() {
-    final shouldShow = _episodeScrollController.hasClients &&
-        _episodeScrollController.offset > 240;
-    if (shouldShow != _showScrollToTop && mounted) {
-      setState(() => _showScrollToTop = shouldShow);
+  Future<void> _openInExternalBrowser() async {
+    final rawUrl = _activeOption?.url;
+    final uri = rawUrl == null ? null : Uri.tryParse(rawUrl);
+    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
+      _showMessage('当前播放地址不可用');
+      return;
+    }
+    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!launched && mounted) _showMessage('无法使用系统浏览器打开此播放地址');
+  }
+
+  Future<void> _toggleOrientation() async {
+    final landscape = _orientation == _PlayerOrientation.landscape;
+    await SystemChrome.setPreferredOrientations(
+      landscape
+          ? const <DeviceOrientation>[DeviceOrientation.portraitUp]
+          : const <DeviceOrientation>[
+              DeviceOrientation.landscapeLeft,
+              DeviceOrientation.landscapeRight,
+            ],
+    );
+    if (mounted) {
+      setState(() {
+        _orientation = landscape
+            ? _PlayerOrientation.portrait
+            : _PlayerOrientation.landscape;
+      });
     }
   }
 
-  void _scrollToCurrentEpisode() {
-    if (!_episodeScrollController.hasClients) return;
-    final target = math.min(
-      _currentEpisodeIndex * 58.0,
-      _episodeScrollController.position.maxScrollExtent,
-    );
-    _episodeScrollController.animateTo(
-      target,
-      duration: const Duration(milliseconds: 220),
-      curve: Curves.easeOut,
-    );
+  void _showMessage(String message) {
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+        .showSnackBar(SnackBar(content: Text(message)));
   }
 
   @override
@@ -273,9 +295,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _loadGeneration++;
     _saveTimer?.cancel();
     _save();
-    _episodeScrollController
-      ..removeListener(_onEpisodeScroll)
-      ..dispose();
+    unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     final controller = _controller;
     if (controller != null) {
       controller.removeListener(_onControllerChanged);
@@ -322,10 +342,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             if (_error == null && isReady && controller != null)
               IgnorePointer(
-                ignoring: !_controlsVisible || _episodePanelOpen,
+                ignoring: !_controlsVisible,
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 180),
-                  opacity: _controlsVisible && !_episodePanelOpen ? 1 : 0,
+                  opacity: _controlsVisible ? 1 : 0,
                   child: _PlayerControls(
                     controller: controller,
                     title: widget.media.title,
@@ -343,6 +363,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onNext: () => _selectRelativeEpisode(1),
                     onSpeedChanged: _setPlaybackSpeed,
                     onOpenEpisodes: _openEpisodePanel,
+                    isLandscape: _orientation == _PlayerOrientation.landscape,
+                    onOpenInBrowser: _openInExternalBrowser,
+                    onToggleOrientation: _toggleOrientation,
                     onPictureInPicture: () {
                       setState(() => _controlsVisible = false);
                       widget.onPictureInPicture?.call();
@@ -350,123 +373,240 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   ),
                 ),
               ),
-            if (_episodePanelOpen) _buildEpisodePanel(context),
           ],
         ),
       ),
     );
   }
+}
 
-  Widget _buildEpisodePanel(BuildContext context) {
-    final width = math.min(MediaQuery.sizeOf(context).width * .86, 360.0);
-    return Align(
-      alignment: Alignment.centerRight,
-      child: SizedBox(
-        width: width,
-        child: Material(
-          color: const Color(0xff111110),
-          child: SafeArea(
-            left: false,
-            child: Stack(
-              children: [
-                Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
-                      child: Row(
-                        children: [
-                          Container(
-                            width: 3,
-                            height: 18,
-                            decoration: BoxDecoration(
-                              color: CineoColors.primary,
-                              borderRadius: BorderRadius.circular(2),
-                            ),
-                          ),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              '选集  ${_episodes.length} 集',
-                              style: const TextStyle(
-                                fontSize: 16,
-                                fontWeight: FontWeight.w600,
-                              ),
-                            ),
-                          ),
-                          IconButton(
-                            tooltip: '关闭选集',
-                            onPressed: () =>
-                                setState(() => _episodePanelOpen = false),
-                            icon: const Icon(Icons.close),
-                          ),
-                        ],
+class _EpisodeBottomSheet extends StatefulWidget {
+  const _EpisodeBottomSheet({
+    required this.episodes,
+    required this.activeOptionId,
+    required this.onSelected,
+  });
+
+  final List<PlaybackOption> episodes;
+  final String activeOptionId;
+  final ValueChanged<PlaybackOption> onSelected;
+
+  @override
+  State<_EpisodeBottomSheet> createState() => _EpisodeBottomSheetState();
+}
+
+class _EpisodeBottomSheetState extends State<_EpisodeBottomSheet> {
+  static const _itemExtent = 54.0;
+  static const _itemSpacing = 8.0;
+  late final ScrollController _scrollController;
+  bool _showCurrentEpisodeShortcut = false;
+
+  int get _currentEpisodeIndex =>
+      playbackEpisodeIndex(widget.episodes, widget.activeOptionId);
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController()..addListener(_onScroll);
+    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToCurrent());
+  }
+
+  void _onScroll() {
+    final isAwayFromCurrent = _scrollController.hasClients &&
+        (_scrollController.offset -
+                    _currentEpisodeIndex * (_itemExtent + _itemSpacing))
+                .abs() >
+            180;
+    if (isAwayFromCurrent != _showCurrentEpisodeShortcut && mounted) {
+      setState(() => _showCurrentEpisodeShortcut = isAwayFromCurrent);
+    }
+  }
+
+  void _scrollToCurrent() {
+    if (!_scrollController.hasClients) return;
+    final target = math.min(
+      math.max(
+        0.0,
+        _currentEpisodeIndex * (_itemExtent + _itemSpacing) - _itemExtent,
+      ),
+      _scrollController.position.maxScrollExtent,
+    );
+    _scrollController.animateTo(
+      target,
+      duration: const Duration(milliseconds: 220),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_onScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final height = math.min(MediaQuery.sizeOf(context).height * .72, 620.0);
+    final currentLabel =
+        episodeDisplayLabel(widget.episodes[_currentEpisodeIndex]);
+    return SizedBox(
+      height: height,
+      child: Material(
+        color: CineoColors.surface,
+        borderRadius: const BorderRadius.vertical(top: Radius.circular(20)),
+        clipBehavior: Clip.antiAlias,
+        child: SafeArea(
+          top: false,
+          child: Stack(
+            children: [
+              Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Center(
+                    child: Container(
+                      width: 36,
+                      height: 4,
+                      margin: const EdgeInsets.only(top: 10, bottom: 8),
+                      decoration: BoxDecoration(
+                        color: CineoColors.divider,
+                        borderRadius: BorderRadius.circular(3),
                       ),
-                    ),
-                    const Divider(height: 1, color: Colors.white12),
-                    Expanded(
-                      child: ListView.builder(
-                        controller: _episodeScrollController,
-                        itemExtent: 58,
-                        padding: const EdgeInsets.symmetric(vertical: 8),
-                        itemCount: _episodes.length,
-                        itemBuilder: (context, index) {
-                          final episode = _episodes[index];
-                          final selected = episode.id == _activeOption?.id;
-                          return ListTile(
-                            dense: true,
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
-                            ),
-                            contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 12,
-                            ),
-                            selected: selected,
-                            selectedTileColor:
-                                CineoColors.primary.withOpacity(.18),
-                            leading: Icon(
-                              selected
-                                  ? Icons.play_arrow
-                                  : Icons.movie_outlined,
-                              color: selected
-                                  ? CineoColors.primary
-                                  : CineoColors.textSecondary,
-                            ),
-                            title: Text(
-                              episodeDisplayLabel(episode),
-                              style: TextStyle(
-                                color: selected
-                                    ? CineoColors.primaryLight
-                                    : CineoColors.textPrimary,
-                                fontWeight: selected
-                                    ? FontWeight.w800
-                                    : FontWeight.w600,
-                              ),
-                            ),
-                            onTap: () => _selectEpisode(episode),
-                          );
-                        },
-                      ),
-                    ),
-                  ],
-                ),
-                if (_showScrollToTop)
-                  Positioned(
-                    right: 16,
-                    bottom: 20,
-                    child: FloatingActionButton.small(
-                      heroTag: 'player-episodes-top',
-                      tooltip: '回到顶部',
-                      onPressed: () => _episodeScrollController.animateTo(
-                        0,
-                        duration: const Duration(milliseconds: 220),
-                        curve: Curves.easeOut,
-                      ),
-                      child: const Icon(Icons.vertical_align_top),
                     ),
                   ),
-              ],
-            ),
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(20, 4, 8, 12),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                '选集',
+                                style: Theme.of(context)
+                                    .textTheme
+                                    .titleLarge
+                                    ?.copyWith(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                              ),
+                              const SizedBox(height: 2),
+                              Text(
+                                '${widget.episodes.length} 集 · 正在播放 $currentLabel',
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                                style: const TextStyle(
+                                  color: CineoColors.textSecondary,
+                                  fontSize: 13,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '关闭选集',
+                          onPressed: () => Navigator.of(context).pop(),
+                          icon: const Icon(Icons.close_rounded),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const Divider(height: 1, color: CineoColors.divider),
+                  Expanded(
+                    child: ListView.separated(
+                      controller: _scrollController,
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 96),
+                      itemCount: widget.episodes.length,
+                      separatorBuilder: (_, __) =>
+                          const SizedBox(height: _itemSpacing),
+                      itemBuilder: (context, index) {
+                        final episode = widget.episodes[index];
+                        final selected = episode.id == widget.activeOptionId;
+                        return SizedBox(
+                          height: _itemExtent,
+                          child: Material(
+                            color: selected
+                                ? CineoColors.primaryContainer
+                                : CineoColors.surfaceElevated,
+                            borderRadius: BorderRadius.circular(10),
+                            child: InkWell(
+                              borderRadius: BorderRadius.circular(10),
+                              onTap: () => widget.onSelected(episode),
+                              child: Padding(
+                                padding:
+                                    const EdgeInsets.symmetric(horizontal: 14),
+                                child: Row(
+                                  children: [
+                                    Container(
+                                      width: 28,
+                                      height: 28,
+                                      alignment: Alignment.center,
+                                      decoration: BoxDecoration(
+                                        color: selected
+                                            ? CineoColors.primary
+                                            : CineoColors.surfaceOverlay,
+                                        shape: BoxShape.circle,
+                                      ),
+                                      child: Icon(
+                                        selected
+                                            ? Icons.play_arrow_rounded
+                                            : Icons.movie_outlined,
+                                        size: 17,
+                                        color: selected
+                                            ? const Color(0xff251300)
+                                            : CineoColors.textSecondary,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(
+                                        episodeDisplayLabel(episode),
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: TextStyle(
+                                          color: selected
+                                              ? CineoColors.primaryLight
+                                              : CineoColors.textPrimary,
+                                          fontWeight: selected
+                                              ? FontWeight.w800
+                                              : FontWeight.w600,
+                                        ),
+                                      ),
+                                    ),
+                                    if (selected)
+                                      const Text(
+                                        '播放中',
+                                        style: TextStyle(
+                                          color: CineoColors.primaryLight,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                  ],
+                                ),
+                              ),
+                            ),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+                ],
+              ),
+              if (_showCurrentEpisodeShortcut)
+                Positioned(
+                  right: 20,
+                  bottom: 20,
+                  child: FloatingActionButton.small(
+                    heroTag: 'player-current-episode',
+                    tooltip: '定位当前集',
+                    onPressed: _scrollToCurrent,
+                    child: const Icon(Icons.my_location_rounded),
+                  ),
+                ),
+            ],
           ),
         ),
       ),
@@ -490,6 +630,9 @@ class _PlayerControls extends StatelessWidget {
     required this.onNext,
     required this.onSpeedChanged,
     required this.onOpenEpisodes,
+    required this.isLandscape,
+    required this.onOpenInBrowser,
+    required this.onToggleOrientation,
     required this.onPictureInPicture,
   });
 
@@ -507,6 +650,9 @@ class _PlayerControls extends StatelessWidget {
   final VoidCallback onNext;
   final ValueChanged<double> onSpeedChanged;
   final VoidCallback onOpenEpisodes;
+  final bool isLandscape;
+  final VoidCallback onOpenInBrowser;
+  final VoidCallback onToggleOrientation;
   final VoidCallback? onPictureInPicture;
 
   @override
@@ -541,6 +687,20 @@ class _PlayerControls extends StatelessWidget {
                         fontSize: 15,
                         fontWeight: FontWeight.w700,
                       ),
+                    ),
+                  ),
+                  IconButton(
+                    tooltip: '在浏览器打开',
+                    onPressed: onOpenInBrowser,
+                    icon: const Icon(Icons.open_in_browser_rounded),
+                  ),
+                  IconButton(
+                    tooltip: isLandscape ? '竖屏播放' : '横屏播放',
+                    onPressed: onToggleOrientation,
+                    icon: Icon(
+                      isLandscape
+                          ? Icons.stay_current_portrait_rounded
+                          : Icons.screen_rotation_alt_rounded,
                     ),
                   ),
                   _PictureInPictureButton(
