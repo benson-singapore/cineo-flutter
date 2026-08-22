@@ -43,6 +43,14 @@ void main() {
     expect(
       types
           .firstWhere((item) => item.type == UnifiedMediaType.series)
+          .subcategories
+          .single
+          .name,
+      '国产剧',
+    );
+    expect(
+      types
+          .firstWhere((item) => item.type == UnifiedMediaType.series)
           .sourceCategoryIds,
       isNot(contains('2')),
     );
@@ -113,6 +121,25 @@ void main() {
           .sourceCategoryIds,
       ['40', '41'],
     );
+  });
+
+  test('keeps tree leaves as separately browsable secondary categories', () {
+    final types = MediaCategoryAdapter.adapt(const [
+      RemoteCategory(id: '2', name: '电视剧'),
+      RemoteCategory(id: '21', name: '国产剧', parentId: '2'),
+      RemoteCategory(id: '22', name: '日剧', parentId: '2'),
+      RemoteCategory(id: '23', name: '韩剧', parentId: '2'),
+    ]);
+
+    final series =
+        types.firstWhere((item) => item.type == UnifiedMediaType.series);
+    expect(series.sourceCategoryIds, ['21', '22', '23']);
+    expect(series.subcategories.map((item) => item.name), ['国产剧', '日剧', '韩剧']);
+    expect(series.subcategories.map((item) => item.sourceCategoryIds), [
+      ['21'],
+      ['22'],
+      ['23'],
+    ]);
   });
 
   test('maps flat source categories without guessing unknown categories', () {

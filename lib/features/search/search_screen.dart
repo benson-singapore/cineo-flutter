@@ -4,6 +4,7 @@ import '../../core/models/media.dart';
 import '../../core/models/paged_media.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../data/remote/media_category_adapter.dart';
+import '../../shared/widgets/media_poster_card.dart';
 import 'category_browse_screen.dart';
 
 class SearchScreen extends StatefulWidget {
@@ -57,6 +58,7 @@ class _SearchScreenState extends State<SearchScreen>
   int _searchPage = 0;
   int _browsePage = 0;
   int _revision = 0;
+  final Map<String, _SubcategoryBrowseState> _subcategoryBrowse = {};
   late UnifiedMediaType _selectedType;
 
   @override
@@ -65,7 +67,7 @@ class _SearchScreenState extends State<SearchScreen>
     _selectedType = widget.initialCategory?.type ?? UnifiedMediaType.all;
     _scrollController.addListener(_onScroll);
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (mounted) _loadBrowse();
+      if (mounted) _loadCurrentBrowse();
     });
   }
 
@@ -83,7 +85,10 @@ class _SearchScreenState extends State<SearchScreen>
         _isLoadingMore) {
       return;
     }
-    if (_query.trim().isEmpty && _hasMoreBrowse && !_isBrowsing) {
+    if (_query.trim().isEmpty &&
+        !_usesSecondaryBrowse &&
+        _hasMoreBrowse &&
+        !_isBrowsing) {
       _loadBrowsePage(_browsePage + 1);
     } else if (_query.trim().isNotEmpty && _hasMoreSearch && !_isSearching) {
       _loadSearchPage(_searchPage + 1, _query.trim());
@@ -196,6 +201,73 @@ class _SearchScreenState extends State<SearchScreen>
       });
     }
     await _loadBrowsePage(1, revision: revision);
+  }
+
+  UnifiedCategory get _selectedCategory => _categoryFor(_selectedType);
+
+  bool get _usesSecondaryBrowse =>
+      _query.trim().isEmpty && _selectedCategory.subcategories.length > 1;
+
+  String _subcategoryKey(UnifiedSubcategory category) =>
+      '${_selectedType.name}:${category.id}';
+
+  Future<void> _loadCurrentBrowse({bool force = false}) {
+    return _usesSecondaryBrowse
+        ? _loadSubcategoryBrowse(force: force)
+        : _loadBrowse(preserveResults: !force);
+  }
+
+  Future<void> _loadSubcategoryBrowse({bool force = false}) async {
+    final category = _selectedCategory;
+    final pending = category.subcategories.where((subcategory) {
+      return force ||
+          !_subcategoryBrowse.containsKey(_subcategoryKey(subcategory));
+    }).toList(growable: false);
+    if (pending.isEmpty) return;
+
+    final revision = ++_revision;
+    setState(() {
+      for (final subcategory in pending) {
+        final key = _subcategoryKey(subcategory);
+        final previous = _subcategoryBrowse[key];
+        _subcategoryBrowse[key] = _SubcategoryBrowseState(
+          items: previous?.items ?? const [],
+          loading: true,
+        );
+      }
+      _errorMessage = null;
+      _paginationError = null;
+    });
+
+    final results =
+        await Future.wait<(UnifiedSubcategory, PagedMedia?, Object?)>(
+      pending.map((subcategory) async {
+        try {
+          final page = await _browsePageRequest(
+            subcategory.sourceCategoryIds,
+            1,
+          );
+          return (subcategory, page, null);
+        } catch (error) {
+          return (subcategory, null, error);
+        }
+      }),
+    );
+    if (!mounted || revision != _revision || !_usesSecondaryBrowse) return;
+    setState(() {
+      for (final result in results) {
+        final subcategory = result.$1;
+        final page = result.$2;
+        final error = result.$3;
+        final key = _subcategoryKey(subcategory);
+        final previous = _subcategoryBrowse[key];
+        _subcategoryBrowse[key] = _SubcategoryBrowseState(
+          items: page?.items ?? previous?.items ?? const [],
+          loading: false,
+          error: error,
+        );
+      }
+    });
   }
 
   Future<void> _loadBrowsePage(int page, {int? revision}) async {
@@ -341,7 +413,7 @@ class _SearchScreenState extends State<SearchScreen>
     if (_query.trim().isNotEmpty) {
       _submit(_query);
     } else {
-      _loadBrowse();
+      _loadCurrentBrowse();
     }
   }
 
@@ -354,7 +426,7 @@ class _SearchScreenState extends State<SearchScreen>
       _remoteResults = const [];
       _revision++;
     });
-    _loadBrowse(preserveResults: true);
+    _loadCurrentBrowse();
     _focusNode.requestFocus();
   }
 
@@ -363,7 +435,7 @@ class _SearchScreenState extends State<SearchScreen>
     if (query.isNotEmpty) {
       return _loadSearchPage(1, query, revision: _revision);
     }
-    return _loadBrowse(preserveResults: true);
+    return _loadCurrentBrowse(force: true);
   }
 
   @override
@@ -455,6 +527,7 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   List<Widget> _buildBrowse() {
+    if (_usesSecondaryBrowse) return _buildSubcategoryBrowse();
     final history = widget.libraryMode ? const <String>[] : _history;
     final browse = _browseResults;
     return [
@@ -621,6 +694,164 @@ class _SearchScreenState extends State<SearchScreen>
           onRetry: () => _loadSearchPage(_searchPage + 1, query),
         )),
     ];
+  }
+
+  List<Widget> _buildSubcategoryBrowse() {
+    final category = _selectedCategory;
+    return [
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 2),
+        sliver: SliverToBoxAdapter(
+          child: Text(
+            '${category.type.label}分类',
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
+        ),
+      ),
+      for (final subcategory in category.subcategories)
+        SliverToBoxAdapter(
+          child: _SubcategoryRail(
+            category: subcategory,
+            state: _subcategoryBrowse[_subcategoryKey(subcategory)] ??
+                const _SubcategoryBrowseState(loading: true),
+            onOpenMedia: widget.onOpenMedia,
+            onSeeAll: () => _openSubcategory(subcategory),
+            onRetry: () => _loadSubcategoryBrowse(force: true),
+          ),
+        ),
+      const SliverToBoxAdapter(child: SizedBox(height: 28)),
+    ];
+  }
+
+  void _openSubcategory(UnifiedSubcategory category) {
+    final state = _subcategoryBrowse[_subcategoryKey(category)];
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => CategoryBrowseScreen(
+          title: category.name,
+          initialItems: state?.items ?? const [],
+          onOpenMedia: widget.onOpenMedia,
+          onLoad: (page) =>
+              _browsePageRequest(category.sourceCategoryIds, page),
+        ),
+      ),
+    );
+  }
+}
+
+class _SubcategoryBrowseState {
+  const _SubcategoryBrowseState({
+    this.items = const [],
+    this.loading = false,
+    this.error,
+  });
+
+  final List<MediaItem> items;
+  final bool loading;
+  final Object? error;
+}
+
+class _SubcategoryRail extends StatelessWidget {
+  const _SubcategoryRail({
+    required this.category,
+    required this.state,
+    required this.onOpenMedia,
+    required this.onSeeAll,
+    required this.onRetry,
+  });
+
+  final UnifiedSubcategory category;
+  final _SubcategoryBrowseState state;
+  final ValueChanged<MediaItem> onOpenMedia;
+  final VoidCallback onSeeAll;
+  final VoidCallback onRetry;
+
+  @override
+  Widget build(BuildContext context) {
+    final items = state.items;
+    return Padding(
+      padding: const EdgeInsets.only(top: 18),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 20),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    category.name,
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+                IconButton(
+                  key: ValueKey('subcategory-see-all-${category.id}'),
+                  tooltip: '查看全部${category.name}',
+                  onPressed: onSeeAll,
+                  icon: const Icon(Icons.chevron_right_rounded),
+                ),
+              ],
+            ),
+          ),
+          const SizedBox(height: 10),
+          if (state.loading && items.isEmpty)
+            const SizedBox(
+              height: 236,
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (state.error != null && items.isEmpty)
+            SizedBox(
+              height: 116,
+              child: Center(
+                child: TextButton.icon(
+                  onPressed: onRetry,
+                  icon: const Icon(Icons.refresh_rounded),
+                  label: Text('${category.name}加载失败，重试'),
+                ),
+              ),
+            )
+          else if (items.isEmpty)
+            SizedBox(
+              height: 88,
+              child: Center(
+                child: Text(
+                  '${category.name}暂无内容',
+                  style: const TextStyle(color: CineoColors.textSecondary),
+                ),
+              ),
+            )
+          else
+            SizedBox(
+              height: 268,
+              child: Stack(
+                children: [
+                  ListView.separated(
+                    padding: const EdgeInsets.symmetric(horizontal: 20),
+                    scrollDirection: Axis.horizontal,
+                    itemCount: items.length,
+                    separatorBuilder: (_, __) => const SizedBox(width: 12),
+                    itemBuilder: (_, index) => MediaPosterCard(
+                      media: items[index],
+                      onTap: () => onOpenMedia(items[index]),
+                    ),
+                  ),
+                  if (state.loading)
+                    const Positioned(
+                      top: 0,
+                      left: 20,
+                      right: 20,
+                      child: LinearProgressIndicator(minHeight: 2),
+                    ),
+                ],
+              ),
+            ),
+        ],
+      ),
+    );
   }
 }
 

@@ -38,20 +38,22 @@ void main() {
     List<String> history = const [],
     bool libraryMode = false,
     VoidCallback? onOpenSearch,
+    List<UnifiedCategory>? categories,
   }) {
     return MaterialApp(
       theme: buildCineoTheme(),
       home: SearchScreen(
         items: items,
         history: history,
-        categories: const [
-          UnifiedCategory(
-            type: UnifiedMediaType.all,
-            sourceCategoryIds: [],
-          ),
-          movieCategory,
-          seriesCategory,
-        ],
+        categories: categories ??
+            const [
+              UnifiedCategory(
+                type: UnifiedMediaType.all,
+                sourceCategoryIds: [],
+              ),
+              movieCategory,
+              seriesCategory,
+            ],
         onSearch: (_) {},
         onOpenMedia: (_) {},
         onBrowseCategory: onBrowse,
@@ -334,6 +336,74 @@ void main() {
     await tester.tap(find.byTooltip('搜索'));
 
     expect(opened, isTrue);
+  });
+
+  testWidgets('shows leaf categories as independently loaded library rails',
+      (tester) async {
+    final calls = <List<String>>[];
+    await tester.pumpWidget(
+      buildSubject(
+        items: const [],
+        libraryMode: true,
+        categories: const [
+          UnifiedCategory(
+            type: UnifiedMediaType.all,
+            sourceCategoryIds: [],
+          ),
+          UnifiedCategory(
+            type: UnifiedMediaType.series,
+            sourceCategoryIds: ['21', '22'],
+            subcategories: [
+              UnifiedSubcategory(
+                id: '21',
+                name: '国产剧',
+                sourceCategoryIds: ['21'],
+              ),
+              UnifiedSubcategory(
+                id: '22',
+                name: '日剧',
+                sourceCategoryIds: ['22'],
+              ),
+            ],
+          ),
+        ],
+        onBrowse: (categoryIds, page) async {
+          calls.add(categoryIds);
+          final label = categoryIds.single == '21' ? '国产剧资源' : '日剧资源';
+          return PagedMedia(
+            items: [media(label, kind: MediaKind.series)],
+            page: page,
+            pageCount: 1,
+            total: 1,
+            limit: 1,
+            hasMore: false,
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '剧集'));
+    await tester.pumpAndSettle();
+
+    expect(
+        calls,
+        containsAll([
+          ['21'],
+          ['22'],
+        ]));
+    expect(find.text('国产剧'), findsOneWidget);
+    expect(find.text('日剧'), findsOneWidget);
+    expect(find.text('国产剧资源'), findsOneWidget);
+    expect(find.text('日剧资源'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('subcategory-see-all-21')));
+    await tester.pumpAndSettle();
+    expect(find.text('国产剧'), findsOneWidget);
+    expect(
+      calls.where((ids) => ids.length == 1 && ids.single == '21').length,
+      greaterThan(1),
+    );
   });
 
   testWidgets('normal mode keeps the keyword search field', (tester) async {

@@ -28,11 +28,29 @@ class UnifiedCategory {
     required this.type,
     required this.sourceCategoryIds,
     this.displayName,
+    this.subcategories = const [],
   });
 
   final UnifiedMediaType type;
   final List<String> sourceCategoryIds;
   final String? displayName;
+  final List<UnifiedSubcategory> subcategories;
+}
+
+/// A source-native leaf category displayed below a unified primary type.
+///
+/// The original IDs remain intact so browsing can request the source API with
+/// `ac=videolist&t=<id>` rather than filtering a previously fetched page.
+class UnifiedSubcategory {
+  const UnifiedSubcategory({
+    required this.id,
+    required this.name,
+    required this.sourceCategoryIds,
+  });
+
+  final String id;
+  final String name;
+  final List<String> sourceCategoryIds;
 }
 
 /// Converts one-level and tree-shaped source categories into stable Cineo
@@ -58,6 +76,8 @@ class MediaCategoryAdapter {
     final cycleIds = _cycleIds(byId);
     final grouped = <UnifiedMediaType, List<String>>{};
     final groupedIds = <UnifiedMediaType, Set<String>>{};
+    final subcategories = <UnifiedMediaType, List<UnifiedSubcategory>>{};
+    final subcategoryIds = <UnifiedMediaType, Set<String>>{};
     for (final category in categories) {
       final type = _typeFor(category, byId);
       if (type == null) continue;
@@ -77,6 +97,18 @@ class MediaCategoryAdapter {
       final ids = grouped.putIfAbsent(type, () => []);
       final seen = groupedIds.putIfAbsent(type, () => <String>{});
       if (seen.add(category.id)) ids.add(category.id);
+
+      final categoryGroups = subcategories.putIfAbsent(type, () => []);
+      final seenGroups = subcategoryIds.putIfAbsent(type, () => <String>{});
+      if (seenGroups.add(category.id)) {
+        categoryGroups.add(
+          UnifiedSubcategory(
+            id: category.id,
+            name: category.name,
+            sourceCategoryIds: [category.id],
+          ),
+        );
+      }
     }
     return [
       const UnifiedCategory(
@@ -88,6 +120,7 @@ class MediaCategoryAdapter {
           UnifiedCategory(
             type: type,
             sourceCategoryIds: List.unmodifiable(grouped[type]!),
+            subcategories: List.unmodifiable(subcategories[type]!),
           ),
     ];
   }
