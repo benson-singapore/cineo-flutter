@@ -1,4 +1,5 @@
 import 'package:cineo_flutter/core/models/media.dart';
+import 'package:cineo_flutter/core/models/home_category_rail.dart';
 import 'package:cineo_flutter/core/theme/cineo_theme.dart';
 import 'package:cineo_flutter/features/home/home_screen.dart';
 import 'package:flutter/material.dart';
@@ -28,7 +29,7 @@ MediaItem _media(
 Widget _subject({
   required List<MediaItem> items,
   required HomeRailSeeAllCallback onSeeAll,
-  List<String> selectedSourceCategoryIds = const [],
+  List<HomeCategoryRail> categoryRails = const [],
   Future<void> Function()? onRefresh,
   List<MediaItem> continueWatching = const [],
   ValueChanged<MediaItem>? onContinueWatching,
@@ -40,7 +41,7 @@ Widget _subject({
       continueWatching: continueWatching,
       onOpenMedia: (_) {},
       onContinueWatching: onContinueWatching,
-      selectedSourceCategoryIds: selectedSourceCategoryIds,
+      categoryRails: categoryRails,
       onSeeAll: onSeeAll,
       onRefresh: onRefresh,
     ),
@@ -96,11 +97,14 @@ void main() {
     expect(hero.height, closeTo(800 * 4 / 3, .1));
   });
 
-  testWidgets('short drama rail sends its real category id', (tester) async {
-    final items = [
-      _media('1', '短剧一', categoryId: 'tid-short', genres: ['短剧']),
-      _media('2', '短剧二', categoryId: 'tid-short', genres: ['短剧']),
-      _media('3', '电影', categoryId: 'tid-movie', genres: ['电影']),
+  testWidgets('fixed short drama rail sends its source category id',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final items = [_media('1', '短剧一')];
+    final shortDrama = [
+      _media('short-1', '短剧一', categoryId: 'tid-short', genres: ['短剧']),
+      _media('short-2', '短剧二', categoryId: 'tid-short', genres: ['短剧']),
     ];
     String? title;
     List<String>? categoryIds;
@@ -108,6 +112,13 @@ void main() {
     await tester.pumpWidget(
       _subject(
         items: items,
+        categoryRails: [
+          HomeCategoryRail(
+            title: '短剧',
+            categoryIds: const ['tid-short'],
+            items: shortDrama,
+          ),
+        ],
         onSeeAll: (railTitle, _, ids) {
           title = railTitle;
           categoryIds = ids;
@@ -127,33 +138,60 @@ void main() {
     expect(categoryIds, ['tid-short']);
   });
 
-  testWidgets('recommendation rail sends selected source category ids',
+  testWidgets('fixed movie rail sends its configured source category ids',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     final items = [
-      _media('1', '推荐一', categoryId: 'tid-a'),
-      _media('2', '推荐二', categoryId: 'tid-b'),
+      _media('1', '电影一', categoryId: 'tid-a'),
+      _media('2', '电影二', categoryId: 'tid-b'),
     ];
     List<String>? categoryIds;
 
     await tester.pumpWidget(
       _subject(
         items: items,
-        selectedSourceCategoryIds: const ['tid-series', 'tid-series', 'tid-b'],
+        categoryRails: [
+          HomeCategoryRail(
+            title: '电影',
+            categoryIds: const ['tid-movie-a', 'tid-movie-b'],
+            items: items,
+          ),
+        ],
         onSeeAll: (_, __, ids) => categoryIds = ids,
       ),
     );
     await tester.pumpAndSettle();
 
     await tester.scrollUntilVisible(
-      find.byTooltip('查看全部为你推荐'),
+      find.byTooltip('查看全部电影'),
       300,
       scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.byTooltip('查看全部为你推荐').first);
+    await tester.tap(find.byTooltip('查看全部电影').first);
 
-    expect(categoryIds, ['tid-series', 'tid-b']);
+    expect(categoryIds, ['tid-movie-a', 'tid-movie-b']);
+  });
+
+  testWidgets('removes the homepage category filter strip', (tester) async {
+    await tester.pumpWidget(
+      _subject(
+        items: [_media('1', '电影')],
+        categoryRails: [
+          HomeCategoryRail(
+            title: '电影',
+            categoryIds: const ['movie'],
+            items: [_media('1', '电影')],
+          ),
+        ],
+        onSeeAll: (_, __, ___) {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(find.text('全部'), findsNothing);
+    expect(find.text('电影'), findsWidgets);
   });
 
   testWidgets('pulling down refreshes while keeping loaded content visible',

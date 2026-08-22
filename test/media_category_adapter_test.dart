@@ -140,6 +140,8 @@ void main() {
       ['22'],
       ['23'],
     ]);
+    expect(series.subcategories.last.matchText, contains('电视剧'));
+    expect(series.subcategories.last.matchText, contains('韩剧'));
   });
 
   test('maps flat source categories without guessing unknown categories', () {

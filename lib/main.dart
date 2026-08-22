@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import 'core/models/media.dart';
+import 'core/models/home_category_rail.dart';
 import 'core/models/tmdb_media.dart';
 import 'core/platform/picture_in_picture.dart';
 import 'core/theme/cineo_theme.dart';
@@ -112,14 +113,11 @@ class _CineoShellState extends State<CineoShell> {
   static const _pictureInPicture = PictureInPictureService();
 
   List<MediaItem> _items = const [];
+  List<HomeCategoryRail> _homeCategoryRails = const [];
   List<MediaItem> _continueWatching = const [];
   List<String> _searchHistory = const [];
   Map<String, double> _progressByMediaId = const {};
   List<UnifiedCategory> _categories = const [];
-  UnifiedCategory _selectedCategory = const UnifiedCategory(
-    type: UnifiedMediaType.all,
-    sourceCategoryIds: [],
-  );
   bool _loading = true;
   bool _refreshing = false;
   String? _errorMessage;
@@ -142,11 +140,9 @@ class _CineoShellState extends State<CineoShell> {
   Future<void> _refresh({bool preserveContent = true}) async {
     final revision = ++_refreshRevision;
     final stopwatch = Stopwatch()..start();
-    final showCachedContent = preserveContent && _items.isNotEmpty;
+    final showCachedContent = preserveContent && _homeCategoryRails.isNotEmpty;
     _debugLog(
-      'home_refresh phase=start revision=$revision '
-      'category=${_selectedCategory.type.name} '
-      'sourceCategories=${_selectedCategory.sourceCategoryIds.length}',
+      'home_refresh phase=start revision=$revision',
     );
     if (mounted) {
       setState(() {
@@ -156,17 +152,20 @@ class _CineoShellState extends State<CineoShell> {
       });
     }
     try {
-      final itemsFuture = widget.repository.browseDefaultSourceCategories(
-        _selectedCategory.sourceCategoryIds,
+      final categories = await widget.repository.defaultSourceCategories();
+      if (!mounted || revision != _refreshRevision) return;
+      final railsFuture = widget.repository.browseDefaultHomeCategoryRails(
+        categories,
       );
       final progressFuture = widget.repository.watchHistory();
       final historyFuture = widget.repository.searchHistory();
       final results = await Future.wait([
-        itemsFuture,
+        railsFuture,
         progressFuture,
         historyFuture,
       ]);
-      final items = results[0] as List<MediaItem>;
+      final rails = results[0] as List<HomeCategoryRail>;
+      final items = rails.expand((rail) => rail.items).toList(growable: false);
       final progress = results[1] as List<WatchProgress>;
       final history = results[2] as List<String>;
       final byId = <String, MediaItem>{
@@ -176,11 +175,14 @@ class _CineoShellState extends State<CineoShell> {
       stopwatch.stop();
       _debugLog(
         'home_refresh phase=complete revision=$revision '
-        'elapsedMs=${stopwatch.elapsedMilliseconds} items=${items.length} '
+        'elapsedMs=${stopwatch.elapsedMilliseconds} rails=${rails.length} '
+        'items=${items.length} '
         'progress=${progress.length} searchHistory=${history.length}',
       );
       setState(() {
         _items = items;
+        _homeCategoryRails = rails;
+        _categories = categories;
         _continueWatching = [
           for (final entry in progress)
             if (!entry.isComplete && byId[entry.mediaId] != null)
@@ -194,7 +196,6 @@ class _CineoShellState extends State<CineoShell> {
         _refreshing = false;
         _errorMessage = null;
       });
-      unawaited(_refreshCategories(revision));
     } catch (error, stackTrace) {
       stopwatch.stop();
       _debugError(
@@ -212,29 +213,6 @@ class _CineoShellState extends State<CineoShell> {
     }
   }
 
-  Future<void> _refreshCategories(int revision) async {
-    try {
-      final categories = await widget.repository.defaultSourceCategories();
-      if (!mounted || revision != _refreshRevision) return;
-      setState(() {
-        _categories = categories;
-        if (categories.isNotEmpty &&
-            !categories.any(
-              (category) => category.type == _selectedCategory.type,
-            )) {
-          _selectedCategory = categories.first;
-        }
-      });
-    } catch (error, stackTrace) {
-      _debugError(
-        'category_refresh phase=failed revision=$revision',
-        error,
-        stackTrace,
-      );
-      // Category metadata is optional; the content list remains usable.
-    }
-  }
-
   String _homeLoadError(Object error) {
     final detail = error.toString().replaceFirst('Exception: ', '').trim();
     if (detail.contains('请求超时')) {
@@ -247,12 +225,6 @@ class _CineoShellState extends State<CineoShell> {
       return '默认视频源未返回兼容的 JSON 数据，请检查站点接口类型';
     }
     return '默认视频源无法加载，请检查连通性和配置';
-  }
-
-  Future<void> _selectCategory(UnifiedCategory category) async {
-    if (_selectedCategory.type == category.type) return;
-    setState(() => _selectedCategory = category);
-    await _refresh(preserveContent: false);
   }
 
   Future<void> _recordSearch(String query) async {
@@ -542,10 +514,7 @@ class _CineoShellState extends State<CineoShell> {
         items: _items,
         continueWatching: _continueWatching,
         progressByMediaId: _progressByMediaId,
-        categories: _categories,
-        selectedCategory: _selectedCategory.type,
-        selectedSourceCategoryIds: _selectedCategory.sourceCategoryIds,
-        onCategorySelected: (category) => unawaited(_selectCategory(category)),
+        categoryRails: _homeCategoryRails,
         isLoading: _loading,
         isRefreshing: _refreshing,
         errorMessage: _errorMessage,

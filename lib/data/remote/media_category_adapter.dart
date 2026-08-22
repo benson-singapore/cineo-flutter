@@ -46,11 +46,15 @@ class UnifiedSubcategory {
     required this.id,
     required this.name,
     required this.sourceCategoryIds,
+    this.matchText = '',
   });
 
   final String id;
   final String name;
   final List<String> sourceCategoryIds;
+
+  /// The source category path, retained for fixed home-row matching.
+  final String matchText;
 }
 
 /// Converts one-level and tree-shaped source categories into stable Cineo
@@ -106,6 +110,7 @@ class MediaCategoryAdapter {
             id: category.id,
             name: category.name,
             sourceCategoryIds: [category.id],
+            matchText: _categoryPath(category, byId).join(' '),
           ),
         );
       }
@@ -153,16 +158,7 @@ class MediaCategoryAdapter {
     RemoteCategory category,
     Map<String, RemoteCategory> byId,
   ) {
-    final names = <String>[category.name];
-    var parentId = category.parentId;
-    final visited = <String>{category.id};
-    while (parentId != null && parentId.isNotEmpty && visited.add(parentId)) {
-      final parent = byId[parentId];
-      if (parent == null) break;
-      names.add(parent.name);
-      parentId = parent.parentId;
-    }
-    final text = names.join(' ').toLowerCase();
+    final text = _categoryPath(category, byId).join(' ').toLowerCase();
     if (RegExp(r'动漫|动画|番剧|cartoon|anime').hasMatch(text)) {
       return UnifiedMediaType.animation;
     }
@@ -176,5 +172,21 @@ class MediaCategoryAdapter {
       return UnifiedMediaType.movie;
     }
     return null;
+  }
+
+  static List<String> _categoryPath(
+    RemoteCategory category,
+    Map<String, RemoteCategory> byId,
+  ) {
+    final names = <String>[category.name];
+    var parentId = category.parentId;
+    final visited = <String>{category.id};
+    while (parentId != null && parentId.isNotEmpty && visited.add(parentId)) {
+      final parent = byId[parentId];
+      if (parent == null) break;
+      names.add(parent.name);
+      parentId = parent.parentId;
+    }
+    return names;
   }
 }

@@ -2,6 +2,7 @@ import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 import '../../core/demo/demo_content.dart';
+import '../../core/models/home_category_rail.dart';
 import '../../core/models/media.dart';
 import '../../core/models/media_source.dart';
 import '../../core/models/paged_media.dart';
@@ -362,6 +363,52 @@ class LocalMediaRepository implements MediaRepository {
     return (await browseDefaultSourcePage(categoryIds: categoryIds)).items;
   }
 
+  /// Loads fixed home rows from source APIs instead of grouping one generic
+  /// first-page response locally. Every non-empty row issues `ac=videolist`
+  /// requests with its matched source category IDs.
+  Future<List<HomeCategoryRail>> browseDefaultHomeCategoryRails(
+    List<UnifiedCategory> categories,
+  ) async {
+    final source = await defaultSource();
+    if (source == null) {
+      return _homeCategoryDefinitions
+          .map(
+            (definition) => HomeCategoryRail(
+              title: definition.title,
+              categoryIds: const [],
+              items: catalog
+                  .where(
+                    (item) => definition.matches(item.genres.join(' ')),
+                  )
+                  .toList(growable: false),
+            ),
+          )
+          .toList(growable: false);
+    }
+
+    final idsByRail = [
+      for (final definition in _homeCategoryDefinitions)
+        _homeCategoryIds(definition, categories),
+    ];
+    final pages = await Future.wait(
+      idsByRail.map(
+        (ids) => ids.isEmpty
+            ? Future<List<MediaItem>>.value(const [])
+            : browseDefaultSourcePage(categoryIds: ids)
+                .then((page) => page.items),
+      ),
+    );
+    return List<HomeCategoryRail>.generate(
+      _homeCategoryDefinitions.length,
+      (index) => HomeCategoryRail(
+        title: _homeCategoryDefinitions[index].title,
+        categoryIds: idsByRail[index],
+        items: pages[index],
+      ),
+      growable: false,
+    );
+  }
+
   Future<List<UnifiedCategory>> defaultSourceCategories() async {
     final source = await defaultSource();
     if (source == null) {
@@ -372,6 +419,26 @@ class LocalMediaRepository implements MediaRepository {
       ];
     }
     return MediaCategoryAdapter.adapt(await _macCmsClient.categories(source));
+  }
+
+  List<String> _homeCategoryIds(
+    _HomeCategoryDefinition definition,
+    List<UnifiedCategory> categories,
+  ) {
+    final typeCategories = categories
+        .where((category) => category.type == definition.type)
+        .toList(growable: false);
+    if (typeCategories.isEmpty) return const [];
+    final category = typeCategories.first;
+    if (definition.useAllTypeIds) return category.sourceCategoryIds;
+    final ids = <String>{};
+    for (final subcategory in category.subcategories) {
+      final text = subcategory.matchText.isEmpty
+          ? subcategory.name
+          : subcategory.matchText;
+      if (definition.matches(text)) ids.addAll(subcategory.sourceCategoryIds);
+    }
+    return ids.toList(growable: false);
   }
 
   Future<List<MediaItem>> searchDefaultSource(
@@ -548,6 +615,51 @@ class LocalMediaRepository implements MediaRepository {
     );
   }
 }
+
+class _HomeCategoryDefinition {
+  const _HomeCategoryDefinition({
+    required this.title,
+    required this.type,
+    required this.pattern,
+    this.useAllTypeIds = false,
+  });
+
+  final String title;
+  final UnifiedMediaType type;
+  final RegExp pattern;
+  final bool useAllTypeIds;
+
+  bool matches(String text) => pattern.hasMatch(text);
+}
+
+final _homeCategoryDefinitions = <_HomeCategoryDefinition>[
+  _HomeCategoryDefinition(
+    title: '电影',
+    type: UnifiedMediaType.movie,
+    pattern: RegExp(r'电影|影片|movie|film', caseSensitive: false),
+    useAllTypeIds: true,
+  ),
+  _HomeCategoryDefinition(
+    title: '国产剧',
+    type: UnifiedMediaType.series,
+    pattern: RegExp(r'国产剧|国剧|内地剧|大陆剧|华语剧'),
+  ),
+  _HomeCategoryDefinition(
+    title: '韩剧',
+    type: UnifiedMediaType.series,
+    pattern: RegExp(r'韩剧|韩国剧'),
+  ),
+  _HomeCategoryDefinition(
+    title: '国漫',
+    type: UnifiedMediaType.animation,
+    pattern: RegExp(r'国漫|国产动漫|国产动画'),
+  ),
+  _HomeCategoryDefinition(
+    title: '短剧',
+    type: UnifiedMediaType.series,
+    pattern: RegExp(r'短剧|微短剧|短视频剧'),
+  ),
+];
 
 /// Convenience repository for screens that need a local demo catalog.
 LocalMediaRepository createDemoLocalMediaRepository({String? databasePath}) {

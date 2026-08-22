@@ -1,8 +1,8 @@
 import 'package:flutter/material.dart';
 
+import '../../core/models/home_category_rail.dart';
 import '../../core/models/media.dart';
 import '../../core/theme/cineo_theme.dart';
-import '../../data/remote/media_category_adapter.dart';
 import '../../shared/widgets/content_state_view.dart';
 import '../../shared/widgets/media_image.dart';
 import '../../shared/widgets/media_rail.dart';
@@ -25,10 +25,7 @@ class HomeScreen extends StatelessWidget {
     this.onRetry,
     this.onRefresh,
     this.progressByMediaId = const {},
-    this.categories = const [],
-    this.selectedCategory = UnifiedMediaType.all,
-    this.selectedSourceCategoryIds = const [],
-    this.onCategorySelected,
+    this.categoryRails = const [],
     this.onSeeAll,
     this.onContinueWatching,
   });
@@ -42,10 +39,7 @@ class HomeScreen extends StatelessWidget {
   final VoidCallback? onRetry;
   final Future<void> Function()? onRefresh;
   final Map<String, double> progressByMediaId;
-  final List<UnifiedCategory> categories;
-  final UnifiedMediaType selectedCategory;
-  final List<String> selectedSourceCategoryIds;
-  final ValueChanged<UnifiedCategory>? onCategorySelected;
+  final List<HomeCategoryRail> categoryRails;
 
   final HomeRailSeeAllCallback? onSeeAll;
   final ValueChanged<MediaItem>? onContinueWatching;
@@ -88,14 +82,6 @@ class HomeScreen extends StatelessWidget {
                         : onOpenMedia,
                   ),
                 ),
-                if (categories.length > 1)
-                  SliverToBoxAdapter(
-                    child: _CategoryStrip(
-                      categories: categories,
-                      selected: selectedCategory,
-                      onSelected: onCategorySelected,
-                    ),
-                  ),
                 if (continueWatching.isNotEmpty)
                   MediaRail(
                     title: '继续观看',
@@ -103,20 +89,7 @@ class HomeScreen extends StatelessWidget {
                     progressByMediaId: progressByMediaId,
                     onOpenMedia: onOpenMedia,
                   ),
-                MediaRail(
-                  title: '为你推荐',
-                  items: items,
-                  onOpenMedia: onOpenMedia,
-                  showDescription: true,
-                  onSeeAll: onSeeAll == null
-                      ? null
-                      : () => _notifySeeAll(
-                            '为你推荐',
-                            items,
-                            _selectedCategoryIds,
-                          ),
-                ),
-                ..._categoryRails(),
+                ..._fixedCategoryRails(),
                 const SliverToBoxAdapter(child: SizedBox(height: 40)),
               ],
             ],
@@ -131,22 +104,6 @@ class HomeScreen extends StatelessWidget {
     if (errorMessage != null) return ContentState.error;
     if (items.isEmpty) return ContentState.empty;
     return null;
-  }
-
-  List<String> get _selectedCategoryIds {
-    if (selectedSourceCategoryIds.isNotEmpty) {
-      return _stableNonEmptyIds(selectedSourceCategoryIds);
-    }
-
-    // This fallback keeps the current shell useful while it still passes only
-    // the selected enum. Once migrated, selectedSourceCategoryIds is the
-    // authoritative value supplied by the parent.
-    for (final category in categories) {
-      if (category.type == selectedCategory) {
-        return _stableNonEmptyIds(category.sourceCategoryIds);
-      }
-    }
-    return const [];
   }
 
   void _notifySeeAll(
@@ -181,36 +138,24 @@ class HomeScreen extends StatelessWidget {
     );
   }
 
-  List<Widget> _categoryRails() {
-    final seen = <String>{};
-    final rails = <Widget>[];
-    for (final media in items) {
-      for (final genre in media.genres) {
-        if (genre.isEmpty || seen.contains(genre)) continue;
-        seen.add(genre);
-        final categoryItems = items
-            .where((item) => item.genres.contains(genre))
-            .toList(growable: false);
-        rails.add(
-          MediaRail(
-            title: genre,
-            items: categoryItems,
+  List<Widget> _fixedCategoryRails() {
+    return categoryRails
+        .where((rail) => rail.items.isNotEmpty)
+        .map(
+          (rail) => MediaRail(
+            title: rail.title,
+            items: rail.items,
             onOpenMedia: onOpenMedia,
             onSeeAll: onSeeAll == null
                 ? null
                 : () => _notifySeeAll(
-                      genre,
-                      categoryItems,
-                      _stableNonEmptyIds(
-                        categoryItems.map((item) => item.categoryId),
-                      ),
+                      rail.title,
+                      rail.items,
+                      _stableNonEmptyIds(rail.categoryIds),
                     ),
           ),
-        );
-        if (rails.length == 3) return rails;
-      }
-    }
-    return rails;
+        )
+        .toList(growable: false);
   }
 
   List<String> _stableNonEmptyIds(Iterable<String?> ids) {
@@ -222,40 +167,6 @@ class HomeScreen extends StatelessWidget {
       result.add(value);
     }
     return List.unmodifiable(result);
-  }
-}
-
-class _CategoryStrip extends StatelessWidget {
-  const _CategoryStrip({
-    required this.categories,
-    required this.selected,
-    required this.onSelected,
-  });
-
-  final List<UnifiedCategory> categories;
-  final UnifiedMediaType selected;
-  final ValueChanged<UnifiedCategory>? onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return SizedBox(
-      height: 54,
-      child: ListView.separated(
-        padding: const EdgeInsets.fromLTRB(20, 12, 20, 4),
-        scrollDirection: Axis.horizontal,
-        itemCount: categories.length,
-        separatorBuilder: (_, __) => const SizedBox(width: 8),
-        itemBuilder: (_, index) {
-          final category = categories[index];
-          final isSelected = category.type == selected;
-          return ChoiceChip(
-            label: Text(category.type.label),
-            selected: isSelected,
-            onSelected: (_) => onSelected?.call(category),
-          );
-        },
-      ),
-    );
   }
 }
 
