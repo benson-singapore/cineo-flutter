@@ -311,4 +311,71 @@ void main() {
     expect(find.text('测试简介'), findsOneWidget);
     expect(find.text('查看全部'), findsOneWidget);
   });
+
+  testWidgets('manually searches and applies a TMDB match', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const match = TmdbMediaMatch(
+      id: 321,
+      mediaType: TmdbMediaType.tv,
+      title: '正确剧集名',
+      originalTitle: 'Correct Show',
+      overview: '正确简介',
+      year: 2024,
+      posterUrl: '',
+      backdropUrl: '',
+      rating: 8.4,
+    );
+    const details = TmdbMediaDetails(
+      id: 321,
+      mediaType: TmdbMediaType.tv,
+      title: '正确剧集名',
+      originalTitle: 'Correct Show',
+      overview: '正确简介',
+      year: 2024,
+      posterUrl: '',
+      backdropUrl: '',
+      rating: 8.4,
+      runtime: 45,
+    );
+    String? query;
+    TmdbMediaType? type;
+    int? year;
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: buildSeries(),
+        favorite: false,
+        onFavoriteChanged: (_) {},
+        onPlay: (_) {},
+        onSearchTmdbMatches: (value, valueType, valueYear) async {
+          query = value;
+          type = valueType;
+          year = valueYear;
+          return const [match];
+        },
+        onSelectTmdbMatch: (_) async => details,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('手动匹配'), findsOneWidget);
+    await tester.tap(find.byTooltip('手动匹配'));
+    await tester.pumpAndSettle();
+    expect(find.text('手动匹配'), findsOneWidget);
+    expect(find.text('搜索匹配项'), findsOneWidget);
+
+    await tester.tap(find.text('搜索匹配项'));
+    await tester.pumpAndSettle();
+    expect(query, '测试剧集');
+    expect(type, TmdbMediaType.tv);
+    expect(year, 2026);
+    expect(find.text('正确剧集名'), findsOneWidget);
+    expect(find.text('Correct Show  ·  2024  ·  8.4 分'), findsOneWidget);
+
+    await tester.tap(find.text('正确剧集名'));
+    await tester.pumpAndSettle();
+    expect(find.text('正确简介'), findsOneWidget);
+    expect(find.text('正确剧集名'), findsOneWidget);
+  });
 }

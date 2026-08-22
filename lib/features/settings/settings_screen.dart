@@ -6,6 +6,7 @@ import '../app_lock/pin_setup_screen.dart';
 import '../app_lock/pin_verification_dialog.dart';
 import 'adult_source_settings.dart';
 import 'tmdb_settings.dart';
+import 'tmdb_disk_cache_controller.dart';
 import 'tmdb_settings_screen.dart';
 
 class SettingsScreen extends StatelessWidget {
@@ -13,11 +14,13 @@ class SettingsScreen extends StatelessWidget {
     super.key,
     required this.adultSourceSettings,
     required this.tmdbSettings,
+    required this.tmdbCacheController,
     this.appLockController,
   });
 
   final AdultSourceSettings adultSourceSettings;
   final TMDBSettings tmdbSettings;
+  final TmdbDiskCacheController tmdbCacheController;
   final AppLockController? appLockController;
 
   @override
@@ -66,8 +69,10 @@ class SettingsScreen extends StatelessWidget {
                   trailing: const Icon(Icons.chevron_right_rounded),
                   onTap: () => Navigator.of(context).push(
                     MaterialPageRoute(
-                      builder: (_) =>
-                          TMDBSettingsScreen(settings: tmdbSettings),
+                      builder: (_) => TMDBSettingsScreen(
+                        settings: tmdbSettings,
+                        cacheController: tmdbCacheController,
+                      ),
                     ),
                   ),
                 ),

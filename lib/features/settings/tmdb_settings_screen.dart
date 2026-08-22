@@ -1,14 +1,19 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import 'tmdb_cache_settings.dart';
 import 'tmdb_settings.dart';
 
 class TMDBSettingsScreen extends StatefulWidget {
   const TMDBSettingsScreen({
     super.key,
     this.settings,
+    this.cacheController,
   });
 
   final TMDBSettings? settings;
+  final TmdbCacheSettingsController? cacheController;
 
   @override
   State<TMDBSettingsScreen> createState() => _TMDBSettingsScreenState();
@@ -26,7 +31,10 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
     _ownsSettings = widget.settings == null;
     _settings = widget.settings ?? TMDBSettings();
     _tokenController = TextEditingController();
-    _settings.initialize();
+    unawaited(_settings.initialize());
+    if (widget.cacheController != null) {
+      unawaited(widget.cacheController!.initialize());
+    }
   }
 
   @override
@@ -121,8 +129,213 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
           const SizedBox(height: 16),
           _buildError(context),
         ],
+        _buildCacheSection(context),
       ],
     );
+  }
+
+  Widget _buildCacheSection(BuildContext context) {
+    final controller = widget.cacheController;
+    final theme = Theme.of(context);
+    final colorScheme = theme.colorScheme;
+    if (controller == null) {
+      return _buildCacheCard(
+        context,
+        child: const ListTile(
+          contentPadding: EdgeInsets.zero,
+          leading: Icon(Icons.folder_off_outlined),
+          title: Text('TMDB 缓存'),
+          subtitle: Text('缓存服务尚未接入，接入后可在此管理图片和剧集资料。'),
+        ),
+      );
+    }
+
+    return AnimatedBuilder(
+      animation: controller,
+      builder: (context, _) {
+        final stats = controller.stats;
+        return _buildCacheCard(
+          context,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading:
+                    Icon(Icons.cached_outlined, color: colorScheme.primary),
+                title: const Text('TMDB 缓存'),
+                subtitle: Text(
+                  '${formatTmdbCacheSize(stats.bytes)} · ${stats.fileCount} 个文件',
+                ),
+                trailing: controller.isBusy
+                    ? const SizedBox(
+                        width: 24,
+                        height: 24,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : IconButton(
+                        tooltip: '刷新缓存统计',
+                        onPressed: () => controller.initialize(force: true),
+                        icon: const Icon(Icons.refresh),
+                      ),
+              ),
+              const Divider(height: 1),
+              ListTile(
+                contentPadding: EdgeInsets.zero,
+                leading: const Icon(Icons.timer_outlined),
+                title: const Text('缓存保留时间'),
+                subtitle: const Text('超过保留时间的缓存可手动清理'),
+                trailing: TextButton(
+                  onPressed: controller.isBusy
+                      ? null
+                      : () => _chooseRetention(context, controller),
+                  child:
+                      Text(tmdbCacheRetentionLabel(controller.retentionDays)),
+                ),
+              ),
+              if (controller.isBusy) const LinearProgressIndicator(),
+              if (controller.errorMessage != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  controller.errorMessage!,
+                  style: TextStyle(color: colorScheme.error),
+                ),
+              ],
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: controller.isBusy
+                          ? null
+                          : () => _cleanupExpired(controller),
+                      icon: const Icon(Icons.auto_delete_outlined),
+                      label: const Text('清理过期缓存'),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: OutlinedButton.icon(
+                      onPressed: controller.isBusy || stats.fileCount == 0
+                          ? null
+                          : () => _confirmClearCache(context, controller),
+                      icon: const Icon(Icons.delete_sweep_outlined),
+                      label: const Text('清空全部'),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildCacheCard(BuildContext context, {required Widget child}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 24),
+        Text('本地缓存', style: Theme.of(context).textTheme.titleLarge),
+        const SizedBox(height: 8),
+        Container(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 16),
+          decoration: BoxDecoration(
+            color: Theme.of(context).colorScheme.surface,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: Theme.of(context).colorScheme.outlineVariant,
+            ),
+          ),
+          child: child,
+        ),
+      ],
+    );
+  }
+
+  Future<void> _chooseRetention(
+    BuildContext context,
+    TmdbCacheSettingsController controller,
+  ) async {
+    final selected = await showModalBottomSheet<int>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: ListView(
+          shrinkWrap: true,
+          children: [
+            const ListTile(title: Text('选择缓存保留时间')),
+            for (final days in tmdbCacheRetentionPresets)
+              RadioListTile<int>(
+                value: days,
+                groupValue: controller.retentionDays,
+                title: Text(tmdbCacheRetentionLabel(days)),
+                onChanged: (value) => Navigator.of(context).pop(value),
+              ),
+          ],
+        ),
+      ),
+    );
+    if (selected == null || selected == controller.retentionDays) return;
+    try {
+      await controller.setRetentionDays(selected);
+      if (mounted) {
+        ScaffoldMessenger.of(this.context).showSnackBar(
+          SnackBar(
+              content: Text('缓存保留时间已设为 ${tmdbCacheRetentionLabel(selected)}')),
+        );
+      }
+    } catch (_) {
+      // The controller exposes a safe, localized error message.
+    }
+  }
+
+  Future<void> _cleanupExpired(TmdbCacheSettingsController controller) async {
+    try {
+      await controller.cleanupExpired();
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('过期 TMDB 缓存已清理')),
+        );
+      }
+    } catch (_) {
+      // The controller exposes a safe, localized error message.
+    }
+  }
+
+  Future<void> _confirmClearCache(
+    BuildContext context,
+    TmdbCacheSettingsController controller,
+  ) async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清空 TMDB 缓存？'),
+        content: const Text('这会删除已缓存的海报、剧集资料和每集图片，之后可以再次下载。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    try {
+      await controller.clearAll();
+      if (mounted) {
+        ScaffoldMessenger.of(this.context).showSnackBar(
+          const SnackBar(content: Text('TMDB 缓存已清空')),
+        );
+      }
+    } catch (_) {
+      // The controller exposes a safe, localized error message.
+    }
   }
 
   Widget _buildStatus(BuildContext context) {

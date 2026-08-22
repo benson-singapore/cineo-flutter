@@ -18,6 +18,8 @@ class MediaDetailsScreen extends StatefulWidget {
     this.onSearchOtherSources,
     this.onOpenAlternative,
     this.onLoadTmdbDetails,
+    this.onSearchTmdbMatches,
+    this.onSelectTmdbMatch,
   });
 
   final MediaItem media;
@@ -28,6 +30,10 @@ class MediaDetailsScreen extends StatefulWidget {
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
   final ValueChanged<MediaItem>? onOpenAlternative;
   final Future<TmdbMediaDetails?> Function(MediaItem media)? onLoadTmdbDetails;
+  final Future<List<TmdbMediaMatch>> Function(
+      String query, TmdbMediaType? type, int? year)? onSearchTmdbMatches;
+  final Future<TmdbMediaDetails?> Function(TmdbMediaMatch match)?
+      onSelectTmdbMatch;
 
   @override
   State<MediaDetailsScreen> createState() => _MediaDetailsScreenState();
@@ -194,6 +200,55 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     }
   }
 
+  Future<void> _openManualTmdbMatch() async {
+    final search = widget.onSearchTmdbMatches;
+    final select = widget.onSelectTmdbMatch;
+    if (search == null || select == null) return;
+
+    final match = await showDialog<TmdbMediaMatch>(
+      context: context,
+      builder: (_) => _ManualTmdbMatchDialog(
+        initialQuery: _displayTitle,
+        initialYear: _displayYear > 0 ? _displayYear : null,
+        initialType: widget.media.kind == MediaKind.series
+            ? TmdbMediaType.tv
+            : TmdbMediaType.movie,
+        onSearch: search,
+      ),
+    );
+    if (match == null || !mounted) return;
+
+    setState(() => _tmdbLoading = true);
+    try {
+      final details = await select(match);
+      if (!mounted) return;
+      if (details == null) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('无法加载所选匹配的详情')),
+        );
+        return;
+      }
+      setState(() {
+        _tmdbDetails = details;
+        if (_selectedSeason == null && _availableSeasons.isNotEmpty) {
+          _selectedSeason = _availableSeasons.first;
+        }
+      });
+    } catch (error) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('手动匹配暂时无法完成')),
+      );
+      assert(() {
+        debugPrint('[Cineo][TMDB] manual_match phase=failed '
+            'errorType=${error.runtimeType}');
+        return true;
+      }());
+    } finally {
+      if (mounted) setState(() => _tmdbLoading = false);
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     final media = widget.media;
@@ -207,6 +262,13 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             surfaceTintColor: Colors.transparent,
             title: const Text('详情'),
             actions: [
+              if (widget.onSearchTmdbMatches != null &&
+                  widget.onSelectTmdbMatch != null)
+                IconButton(
+                  tooltip: '手动匹配',
+                  onPressed: _tmdbLoading ? null : _openManualTmdbMatch,
+                  icon: const Icon(Icons.manage_search_rounded),
+                ),
               IconButton(
                 tooltip: _favorite ? '取消收藏' : '收藏',
                 onPressed: () {
@@ -943,6 +1005,273 @@ class _OtherSourcesSheet extends StatelessWidget {
                 ),
               ]),
         ],
+      ),
+    );
+  }
+}
+
+class _ManualTmdbMatchDialog extends StatefulWidget {
+  const _ManualTmdbMatchDialog({
+    required this.initialQuery,
+    required this.initialYear,
+    required this.initialType,
+    required this.onSearch,
+  });
+
+  final String initialQuery;
+  final int? initialYear;
+  final TmdbMediaType initialType;
+  final Future<List<TmdbMediaMatch>> Function(
+      String query, TmdbMediaType? type, int? year) onSearch;
+
+  @override
+  State<_ManualTmdbMatchDialog> createState() => _ManualTmdbMatchDialogState();
+}
+
+class _ManualTmdbMatchDialogState extends State<_ManualTmdbMatchDialog> {
+  late final TextEditingController _queryController =
+      TextEditingController(text: widget.initialQuery);
+  late final TextEditingController _yearController = TextEditingController(
+      text: widget.initialYear == null ? '' : '${widget.initialYear}');
+  late TmdbMediaType _type = widget.initialType;
+  List<TmdbMediaMatch> _matches = const [];
+  bool _loading = false;
+  String? _errorMessage;
+  bool _hasSearched = false;
+
+  @override
+  void dispose() {
+    _queryController.dispose();
+    _yearController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _search() async {
+    final query = _queryController.text.trim();
+    if (query.isEmpty) {
+      setState(() => _errorMessage = '请输入影片或剧集名称');
+      return;
+    }
+    final yearText = _yearController.text.trim();
+    final year = yearText.isEmpty ? null : int.tryParse(yearText);
+    if (yearText.isNotEmpty && (year == null || year < 1800 || year > 2200)) {
+      setState(() => _errorMessage = '请输入有效的年份');
+      return;
+    }
+
+    FocusScope.of(context).unfocus();
+    setState(() {
+      _loading = true;
+      _errorMessage = null;
+      _hasSearched = true;
+    });
+    try {
+      final matches = await widget.onSearch(query, _type, year);
+      if (!mounted) return;
+      setState(() => _matches = matches);
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _matches = const [];
+        _errorMessage = '搜索失败，请稍后重试';
+      });
+    } finally {
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return AlertDialog(
+      title: const Text('手动匹配'),
+      content: SizedBox(
+        width: 560,
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxHeight: 620),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              TextField(
+                controller: _queryController,
+                textInputAction: TextInputAction.search,
+                onSubmitted: (_) => _search(),
+                decoration: const InputDecoration(
+                  labelText: '影片或剧集名称',
+                  prefixIcon: Icon(Icons.title_rounded),
+                ),
+              ),
+              const SizedBox(height: 10),
+              Row(
+                children: [
+                  Expanded(
+                    child: DropdownButtonFormField<TmdbMediaType>(
+                      value: _type,
+                      decoration: const InputDecoration(
+                        labelText: '类型',
+                        prefixIcon: Icon(Icons.category_outlined),
+                      ),
+                      items: const [
+                        DropdownMenuItem(
+                          value: TmdbMediaType.movie,
+                          child: Text('电影'),
+                        ),
+                        DropdownMenuItem(
+                          value: TmdbMediaType.tv,
+                          child: Text('剧集'),
+                        ),
+                      ],
+                      onChanged: _loading
+                          ? null
+                          : (value) {
+                              if (value != null) setState(() => _type = value);
+                            },
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: TextField(
+                      controller: _yearController,
+                      keyboardType: TextInputType.number,
+                      textInputAction: TextInputAction.search,
+                      onSubmitted: (_) => _search(),
+                      decoration: const InputDecoration(
+                        labelText: '年份（可选）',
+                        prefixIcon: Icon(Icons.calendar_today_outlined),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+              const SizedBox(height: 12),
+              FilledButton.icon(
+                onPressed: _loading ? null : _search,
+                icon: _loading
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.search_rounded),
+                label: Text(_loading ? '搜索中...' : '搜索匹配项'),
+              ),
+              if (_errorMessage != null) ...[
+                const SizedBox(height: 12),
+                Text(
+                  _errorMessage!,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
+              ],
+              if (_loading) ...[
+                const SizedBox(height: 14),
+                const LinearProgressIndicator(minHeight: 2),
+              ],
+              if (!_loading &&
+                  _hasSearched &&
+                  _matches.isEmpty &&
+                  _errorMessage == null) ...[
+                const SizedBox(height: 18),
+                const Center(
+                  child: Text('没有找到匹配内容',
+                      style: TextStyle(color: CineoColors.textSecondary)),
+                ),
+              ],
+              if (_matches.isNotEmpty) ...[
+                const SizedBox(height: 14),
+                const Text('选择匹配结果',
+                    style: TextStyle(fontWeight: FontWeight.w700)),
+                const SizedBox(height: 8),
+                Flexible(
+                  child: ListView.separated(
+                    shrinkWrap: true,
+                    itemCount: _matches.length,
+                    separatorBuilder: (_, __) =>
+                        const Divider(height: 1, color: CineoColors.divider),
+                    itemBuilder: (context, index) {
+                      final match = _matches[index];
+                      return _TmdbMatchTile(
+                        match: match,
+                        onTap: () => Navigator.of(context).pop(match),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ],
+          ),
+        ),
+      ),
+      actions: [
+        TextButton(
+          onPressed: _loading ? null : () => Navigator.of(context).pop(),
+          child: const Text('取消'),
+        ),
+      ],
+    );
+  }
+}
+
+class _TmdbMatchTile extends StatelessWidget {
+  const _TmdbMatchTile({required this.match, required this.onTap});
+
+  final TmdbMediaMatch match;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final year = match.year == null ? '' : '${match.year}';
+    final details = [
+      if (match.originalTitle.trim().isNotEmpty) match.originalTitle.trim(),
+      if (year.isNotEmpty) year,
+      if (match.rating > 0) '${match.rating.toStringAsFixed(1)} 分',
+    ].join('  ·  ');
+    final poster =
+        match.posterUrl.trim().isNotEmpty ? match.posterUrl : match.backdropUrl;
+    return InkWell(
+      onTap: onTap,
+      borderRadius: BorderRadius.circular(8),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 10),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 56,
+              height: 82,
+              child: MediaImage(
+                url: poster,
+                borderRadius: BorderRadius.circular(6),
+                placeholderIcon: Icons.movie_outlined,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    match.title.trim().isEmpty ? '未命名' : match.title,
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(fontWeight: FontWeight.w700),
+                  ),
+                  if (details.isNotEmpty) ...[
+                    const SizedBox(height: 6),
+                    Text(details,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(
+                            color: CineoColors.textSecondary, fontSize: 12)),
+                  ],
+                  const SizedBox(height: 8),
+                  Text(match.mediaType == TmdbMediaType.tv ? '剧集' : '电影',
+                      style: const TextStyle(
+                          color: CineoColors.primary, fontSize: 12)),
+                ],
+              ),
+            ),
+            const Icon(Icons.chevron_right_rounded),
+          ],
+        ),
       ),
     );
   }

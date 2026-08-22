@@ -6,8 +6,10 @@ import 'core/models/media.dart';
 import 'core/models/tmdb_media.dart';
 import 'core/platform/picture_in_picture.dart';
 import 'core/theme/cineo_theme.dart';
+import 'data/cache/tmdb_disk_cache.dart';
 import 'data/remote/tmdb_client.dart';
 import 'data/repositories/local_media_repository.dart';
+import 'data/repositories/tmdb_metadata_repository.dart';
 import 'data/remote/media_category_adapter.dart';
 import 'features/app_lock/app_lock.dart';
 import 'features/home/home_screen.dart';
@@ -20,6 +22,7 @@ import 'features/search/category_browse_screen.dart';
 import 'features/settings/adult_source_settings.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/tmdb_settings.dart';
+import 'features/settings/tmdb_disk_cache_controller.dart';
 import 'features/sources/source_list_screen.dart';
 
 void main() {
@@ -38,6 +41,13 @@ class _CineoAppState extends State<CineoApp> {
   final _appLockController = AppLockController();
   final _adultSourceSettings = AdultSourceSettings();
   final _tmdbSettings = TMDBSettings();
+  final _tmdbCache = TmdbDiskCache();
+  late final _tmdbCacheController = TmdbDiskCacheController(cache: _tmdbCache);
+  late final _tmdbMetadata = TmdbMetadataRepository(
+    cache: _tmdbCache,
+    readToken: _tmdbSettings.readTokenForRequest,
+    retention: () => Duration(days: _tmdbCacheController.retentionDays),
+  );
   final _repository = createDemoLocalMediaRepository();
 
   @override
@@ -45,6 +55,7 @@ class _CineoAppState extends State<CineoApp> {
     super.initState();
     unawaited(_adultSourceSettings.initialize());
     unawaited(_tmdbSettings.initialize());
+    unawaited(_tmdbCacheController.initialize());
   }
 
   @override
@@ -67,6 +78,8 @@ class _CineoAppState extends State<CineoApp> {
           appLockController: _appLockController,
           adultSourceSettings: _adultSourceSettings,
           tmdbSettings: _tmdbSettings,
+          tmdbMetadata: _tmdbMetadata,
+          tmdbCacheController: _tmdbCacheController,
         ),
       ),
     );
@@ -80,12 +93,16 @@ class CineoShell extends StatefulWidget {
     required this.appLockController,
     required this.adultSourceSettings,
     required this.tmdbSettings,
+    required this.tmdbMetadata,
+    required this.tmdbCacheController,
   });
 
   final LocalMediaRepository repository;
   final AppLockController appLockController;
   final AdultSourceSettings adultSourceSettings;
   final TMDBSettings tmdbSettings;
+  final TmdbMetadataRepository tmdbMetadata;
+  final TmdbDiskCacheController tmdbCacheController;
 
   @override
   State<CineoShell> createState() => _CineoShellState();
@@ -273,6 +290,8 @@ class _CineoShellState extends State<CineoShell> {
           },
           onPlay: (option) => unawaited(_openPlayer(resolvedMedia, option)),
           onLoadTmdbDetails: _loadTmdbDetails,
+          onSearchTmdbMatches: _searchTmdbMatches,
+          onSelectTmdbMatch: (match) => _selectTmdbMatch(resolvedMedia, match),
           onSearchOtherSources: (item) => widget.repository.searchOtherSources(
             item,
             includeAdult: widget.adultSourceSettings.showAdultSources,
@@ -288,16 +307,10 @@ class _CineoShellState extends State<CineoShell> {
   }
 
   Future<TmdbMediaDetails?> _loadTmdbDetails(MediaItem media) async {
-    final token = await widget.tmdbSettings.readTokenForRequest();
-    if (token == null) return null;
     final mediaType =
         media.kind == MediaKind.series ? TmdbMediaType.tv : TmdbMediaType.movie;
     try {
-      final details = await TmdbClient(bearerToken: token).findDetails(
-        media.title,
-        type: mediaType,
-        year: media.year > 0 ? media.year : null,
-      );
+      final details = await widget.tmdbMetadata.loadForMedia(media);
       _debugLog(
         'tmdb_details phase=complete type=${mediaType.name} '
         'matched=${details != null}',
@@ -313,6 +326,40 @@ class _CineoShellState extends State<CineoShell> {
       _debugLog(
         'tmdb_details phase=failed errorType=${error.runtimeType} '
         'type=${mediaType.name}',
+      );
+      return null;
+    }
+  }
+
+  Future<List<TmdbMediaMatch>> _searchTmdbMatches(
+    String query,
+    TmdbMediaType? type,
+    int? year,
+  ) async {
+    return widget.tmdbMetadata.search(query, type, year);
+  }
+
+  Future<TmdbMediaDetails?> _selectTmdbMatch(
+    MediaItem media,
+    TmdbMediaMatch match,
+  ) async {
+    try {
+      final details = await widget.tmdbMetadata.selectForMedia(media, match);
+      _debugLog(
+        'tmdb_details phase=manual_match type=${match.mediaType.name} '
+        'matched=${details != null}',
+      );
+      return details;
+    } on TmdbApiException catch (error) {
+      _debugLog(
+        'tmdb_details phase=manual_unavailable kind=${error.kind.name} '
+        'type=${match.mediaType.name}',
+      );
+      return null;
+    } on Object catch (error) {
+      _debugLog(
+        'tmdb_details phase=manual_failed errorType=${error.runtimeType} '
+        'type=${match.mediaType.name}',
       );
       return null;
     }
@@ -444,6 +491,7 @@ class _CineoShellState extends State<CineoShell> {
           adultSourceSettings: widget.adultSourceSettings,
           appLockController: widget.appLockController,
           tmdbSettings: widget.tmdbSettings,
+          tmdbCacheController: widget.tmdbCacheController,
         ),
       ),
     );
