@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 # 只需要修改这一行，然后执行：make publish
-VERSION := 1.0.0+2
+VERSION := 1.0.0+3
 BRANCH ?= main
 
 .PHONY: help publish version bump-patch bump-minor bump-major signing-setup android ios build release sync-build clean

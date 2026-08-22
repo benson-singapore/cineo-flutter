@@ -4,7 +4,8 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "${ROOT_DIR}"
 
-VERSION="${VERSION:-}"
+REQUESTED_VERSION="${VERSION:-}"
+VERSION="${REQUESTED_VERSION}"
 BRANCH="${BRANCH:-main}"
 
 if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[1-9][0-9]*$ ]]; then
@@ -54,9 +55,11 @@ if [[ -n "${makefile_stash}" ]]; then
   makefile_stash=""
   trap - EXIT
 else
-  # When the local Makefile was clean, use the version from the newly synced
-  # branch instead of a value expanded by make before the pull.
-  VERSION="$(perl -ne 'if (/^VERSION\s*:=\s*([0-9]+\.[0-9]+\.[0-9]+\+[1-9][0-9]*)\s*$/) { print "$1\n" }' Makefile)"
+  # When no version was explicitly requested, use the version from the newly
+  # synced branch instead of a value expanded by make before the pull.
+  if [[ -z "${REQUESTED_VERSION}" ]]; then
+    VERSION="$(perl -ne 'if (/^VERSION\s*:=\s*([0-9]+\.[0-9]+\.[0-9]+\+[1-9][0-9]*)\s*$/) { print "$1\n" }' Makefile)"
+  fi
 fi
 
 if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[1-9][0-9]*$ ]]; then
@@ -82,7 +85,11 @@ fi
 # Push the newest branch revision first, then move the version tag to it.
 git push origin "${BRANCH}"
 TAG="v${VERSION}"
-git tag -fa "${TAG}" -m "Cineo ${VERSION}" HEAD
-git push origin "refs/tags/${TAG}" --force
+if git rev-parse --verify --quiet "refs/tags/${TAG}" >/dev/null; then
+  echo "error: tag ${TAG} already exists; refusing to overwrite it" >&2
+  exit 1
+fi
+git tag -a "${TAG}" -m "Cineo ${VERSION}" HEAD
+git push origin "refs/tags/${TAG}"
 
 echo "Published ${TAG}. GitHub Actions will build Android APK and unsigned iOS IPA from this tag."
