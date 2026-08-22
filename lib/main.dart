@@ -141,12 +141,20 @@ class _CineoShellState extends State<CineoShell> {
   int _selectedIndex = 0;
   int _refreshRevision = 0;
   bool _pictureInPictureAvailable = false;
+  bool _showLibraryScrollToTop = false;
+  final _libraryScrollController = ScrollController();
 
   @override
   void initState() {
     super.initState();
     _refresh();
     unawaited(_loadPlatformCapabilities());
+  }
+
+  @override
+  void dispose() {
+    _libraryScrollController.dispose();
+    super.dispose();
   }
 
   Future<void> _loadPlatformCapabilities() async {
@@ -643,6 +651,12 @@ class _CineoShellState extends State<CineoShell> {
         ),
         libraryMode: true,
         onOpenSearch: () => unawaited(_openSearch()),
+        scrollController: _libraryScrollController,
+        onScrollToTopVisibilityChanged: (visible) {
+          if (mounted && visible != _showLibraryScrollToTop) {
+            setState(() => _showLibraryScrollToTop = visible);
+          }
+        },
       ),
       ProfileScreen(
         appLockController: widget.appLockController,
@@ -660,7 +674,22 @@ class _CineoShellState extends State<CineoShell> {
     ];
     return Scaffold(
       extendBody: true,
-      body: IndexedStack(index: _selectedIndex, children: pages),
+      body: Stack(
+        fit: StackFit.expand,
+        children: [
+          IndexedStack(index: _selectedIndex, children: pages),
+          if (_selectedIndex == 1 && _showLibraryScrollToTop)
+            Positioned(
+              right: 16,
+              bottom: 16,
+              child: FloatingActionButton.small(
+                onPressed: _scrollLibraryToTop,
+                tooltip: '回到顶部',
+                child: const Icon(Icons.keyboard_arrow_up_rounded),
+              ),
+            ),
+        ],
+      ),
       bottomNavigationBar: AnimatedBuilder(
         animation: widget.updateService,
         builder: (context, _) => _GlassBottomNavigation(
@@ -670,6 +699,18 @@ class _CineoShellState extends State<CineoShell> {
               setState(() => _selectedIndex = index),
         ),
       ),
+    );
+  }
+
+  Future<void> _scrollLibraryToTop() async {
+    if (!_libraryScrollController.hasClients ||
+        _libraryScrollController.offset <= 0) {
+      return;
+    }
+    await _libraryScrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
     );
   }
 }

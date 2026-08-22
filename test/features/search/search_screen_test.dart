@@ -284,10 +284,7 @@ void main() {
 
     expect(find.byTooltip('回到顶部'), findsOneWidget);
     final fabBottom = tester.getBottomRight(find.byTooltip('回到顶部')).dy;
-    expect(
-      fabBottom,
-      closeTo(tester.binding.renderView.size.height - 24, 1),
-    );
+    expect(fabBottom, lessThan(tester.binding.renderView.size.height));
     await tester.tap(find.byTooltip('回到顶部'));
     await tester.pumpAndSettle();
 

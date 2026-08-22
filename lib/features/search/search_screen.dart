@@ -21,6 +21,8 @@ class SearchScreen extends StatefulWidget {
     this.initialCategory,
     this.libraryMode = false,
     this.onOpenSearch,
+    this.scrollController,
+    this.onScrollToTopVisibilityChanged,
   });
 
   final List<MediaItem> items;
@@ -35,6 +37,8 @@ class SearchScreen extends StatefulWidget {
   final UnifiedCategory? initialCategory;
   final bool libraryMode;
   final VoidCallback? onOpenSearch;
+  final ScrollController? scrollController;
+  final ValueChanged<bool>? onScrollToTopVisibilityChanged;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -45,7 +49,8 @@ class _SearchScreenState extends State<SearchScreen>
   final _queryController = TextEditingController();
   final _focusNode = FocusNode();
   final _localHistory = <String>[];
-  final _scrollController = ScrollController();
+  late final ScrollController _scrollController;
+  late final bool _ownsScrollController;
   String _query = '';
   String? _errorMessage;
   String? _paginationError;
@@ -67,6 +72,8 @@ class _SearchScreenState extends State<SearchScreen>
   void initState() {
     super.initState();
     _selectedType = widget.initialCategory?.type ?? UnifiedMediaType.all;
+    _scrollController = widget.scrollController ?? ScrollController();
+    _ownsScrollController = widget.scrollController == null;
     _scrollController
       ..addListener(_onScroll)
       ..addListener(_updateScrollToTopVisibility);
@@ -79,7 +86,7 @@ class _SearchScreenState extends State<SearchScreen>
   void dispose() {
     _queryController.dispose();
     _focusNode.dispose();
-    _scrollController.dispose();
+    if (_ownsScrollController) _scrollController.dispose();
     super.dispose();
   }
 
@@ -104,6 +111,7 @@ class _SearchScreenState extends State<SearchScreen>
     final shouldShow = _scrollController.offset > 24;
     if (shouldShow != _showScrollToTop && mounted) {
       setState(() => _showScrollToTop = shouldShow);
+      widget.onScrollToTopVisibilityChanged?.call(shouldShow);
     }
   }
 
@@ -559,28 +567,18 @@ class _SearchScreenState extends State<SearchScreen>
                 ],
               ),
             ),
-            if (widget.libraryMode && _showScrollToTop)
-              Positioned(
-                right: 16,
-                // The shell's glass navigation occupies its own bottom area.
-                // Keep the action just above it without leaving a large gap.
-                bottom: 24,
-                child: FloatingActionButton.small(
-                  onPressed: _scrollToTop,
-                  tooltip: '回到顶部',
-                  child: const Icon(Icons.keyboard_arrow_up_rounded),
-                ),
-              ),
           ],
         ),
       ),
-      floatingActionButton: !widget.libraryMode && _showScrollToTop
+      floatingActionButton: _showScrollToTop &&
+              !(widget.libraryMode && widget.scrollController != null)
           ? FloatingActionButton.small(
               onPressed: _scrollToTop,
               tooltip: '回到顶部',
               child: const Icon(Icons.keyboard_arrow_up_rounded),
             )
           : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 
