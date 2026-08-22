@@ -7,6 +7,8 @@ import 'package:flutter/foundation.dart';
 
 import '../../core/models/media.dart';
 import '../../core/models/media_source.dart';
+import '../../core/models/paged_media.dart';
+import '../../core/text/media_description_formatter.dart';
 import 'media_category_adapter.dart';
 
 typedef MacCmsFetcher = Future<String> Function(Uri uri);
@@ -46,13 +48,29 @@ class MacCmsClient {
     String? category,
     int page = 1,
   }) async {
+    final result = await listPage(
+      source,
+      query: query,
+      category: category,
+      page: page,
+    );
+    return result.items;
+  }
+
+  Future<PagedMedia> listPage(
+    MediaSource source, {
+    String? query,
+    String? category,
+    int page = 1,
+  }) async {
+    final requestedPage = page < 1 ? 1 : page;
     // MacCMS `list` responses often omit poster fields. `videolist` returns
     // the full records needed for browse cards, including `vod_pic`. Some
     // source CDNs incorrectly reuse a cached `list` response for this route,
     // so each content request carries a cache-busting marker.
     final parameters = <String, String>{
       'ac': 'videolist',
-      'pg': '$page',
+      'pg': '$requestedPage',
       '_': '${DateTime.now().microsecondsSinceEpoch}',
     };
     if (query != null && query.trim().isNotEmpty) {
@@ -62,7 +80,41 @@ class MacCmsClient {
       parameters['t'] = category.trim();
     }
     final payload = await _get(source, parameters);
-    return _itemsFromPayload(payload, source);
+    final items = _itemsFromPayload(payload, source);
+    final responsePage = _paginationValue(
+      payload,
+      'page',
+      fallback: requestedPage,
+    );
+    final currentPage = responsePage > 0 ? responsePage : requestedPage;
+    final responseLimit = _paginationValue(
+      payload,
+      'limit',
+      fallback: items.length,
+    );
+    final limit = responseLimit >= 0 ? responseLimit : items.length;
+    final responseTotal = _paginationValue(
+      payload,
+      'total',
+      fallback: items.length,
+    );
+    final total = responseTotal >= 0 ? responseTotal : items.length;
+    final calculatedPageCount = _pageCount(
+      payload,
+      currentPage: currentPage,
+      limit: limit,
+      total: total,
+    );
+    final pageCount =
+        calculatedPageCount < currentPage ? currentPage : calculatedPageCount;
+    return PagedMedia(
+      items: items,
+      page: currentPage,
+      pageCount: pageCount,
+      limit: limit,
+      total: total,
+      hasMore: currentPage < pageCount,
+    );
   }
 
   Future<MediaItem?> detail(MediaSource source, String remoteId) async {
@@ -240,6 +292,31 @@ class MacCmsClient {
     return null;
   }
 
+  int _paginationValue(
+    Object? payload,
+    String key, {
+    required int fallback,
+  }) {
+    if (payload is! Map) return fallback;
+    final direct = _intOrNull(payload[key]);
+    if (direct != null) return direct;
+    final data = payload['data'];
+    if (data is Map) return _intOrNull(data[key]) ?? fallback;
+    return fallback;
+  }
+
+  int _pageCount(
+    Object? payload, {
+    required int currentPage,
+    required int limit,
+    required int total,
+  }) {
+    final explicit = _paginationValue(payload, 'pagecount', fallback: 0);
+    if (explicit > 0) return explicit;
+    if (limit > 0 && total > 0) return (total / limit).ceil();
+    return currentPage > 0 ? currentPage : 1;
+  }
+
   MediaItem? _itemFromMap(
     Map<String, Object?> item,
     MediaSource source, {
@@ -258,7 +335,7 @@ class MacCmsClient {
       sourceId: source.id,
       remoteId: remoteId,
       title: title,
-      description: _stripHtml(_string(item['vod_content'])),
+      description: formatMediaDescription(_string(item['vod_content'])),
       year: _int(item['vod_year']),
       kind: _kindFor(typeName),
       posterUrl: _resolveUrl(source.baseUrl, _string(item['vod_pic'])),
@@ -453,14 +530,18 @@ class MacCmsClient {
   }
 
   static String _string(Object? value) => value?.toString().trim() ?? '';
+  static int? _intOrNull(Object? value) {
+    if (value is num) return value.toInt();
+    final text = _string(value);
+    return text.isEmpty ? null : int.tryParse(text);
+  }
+
   static int _int(Object? value) => int.tryParse(_string(value)) ?? 0;
   static double _double(Object? value) => double.tryParse(_string(value)) ?? 0;
   static MediaKind _kindFor(String category) =>
       RegExp(r'剧|番|动漫|动画|综艺', caseSensitive: false).hasMatch(category)
           ? MediaKind.series
           : MediaKind.movie;
-  static String _stripHtml(String value) =>
-      value.replaceAll(RegExp(r'<[^>]*>'), '').trim();
   static String _resolveUrl(String baseUrl, String value) {
     if (value.isEmpty) return '';
     final uri = Uri.tryParse(value);

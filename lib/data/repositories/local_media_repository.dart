@@ -4,6 +4,7 @@ import 'package:sqflite/sqflite.dart';
 import '../../core/demo/demo_content.dart';
 import '../../core/models/media.dart';
 import '../../core/models/media_source.dart';
+import '../../core/models/paged_media.dart';
 import '../remote/mac_cms_client.dart';
 import '../remote/media_category_adapter.dart';
 import 'media_repository.dart';
@@ -116,7 +117,9 @@ class LocalMediaRepository implements MediaRepository {
     final normalizedQuery = query.trim().toLowerCase();
     if (normalizedQuery.isEmpty) return featured();
     final source = await defaultSource();
-    if (source != null) return _macCmsClient.list(source, query: normalizedQuery);
+    if (source != null) {
+      return _macCmsClient.list(source, query: normalizedQuery);
+    }
     return catalog.where((media) {
       final searchable = [
         media.title,
@@ -308,41 +311,55 @@ class LocalMediaRepository implements MediaRepository {
   Future<void> setDefaultSource(String id) async {
     final database = await _db;
     await database.transaction((transaction) async {
-      final row = await transaction.query('sources', where: 'id = ?', whereArgs: [id], limit: 1);
+      final row = await transaction.query('sources',
+          where: 'id = ?', whereArgs: [id], limit: 1);
       if (row.isEmpty) throw StateError('未找到视频源');
       final source = _sourceFromRow(row.single);
-      if (!source.enabled || (source.type != MediaSourceType.macCmsApi && source.type != MediaSourceType.jsonApi)) {
+      if (!source.enabled ||
+          (source.type != MediaSourceType.macCmsApi &&
+              source.type != MediaSourceType.jsonApi)) {
         throw StateError('仅可将已启用的 API 视频源设为默认');
       }
       await transaction.update('sources', {'is_default': 0});
-      await transaction.update('sources', {'is_default': 1}, where: 'id = ?', whereArgs: [id]);
+      await transaction.update('sources', {'is_default': 1},
+          where: 'id = ?', whereArgs: [id]);
     });
   }
 
   Future<List<MediaItem>> browseDefaultSource({String? category}) async {
+    return (await browseDefaultSourcePage(
+      categoryIds: category == null ? const [] : [category],
+    ))
+        .items;
+  }
+
+  Future<PagedMedia> browseDefaultSourcePage({
+    List<String> categoryIds = const [],
+    int page = 1,
+  }) async {
     final source = await defaultSource();
-    if (source == null) return catalog.take(10).toList();
-    return _macCmsClient.list(source, category: category);
+    if (source == null) {
+      final filtered = categoryIds.isEmpty
+          ? catalog
+          : catalog
+              .where((item) => _matchesLocalCategory(item, categoryIds))
+              .toList(growable: false);
+      return _localPage(filtered, page);
+    }
+    final ids = _normalizedCategoryIds(categoryIds);
+    if (ids.isEmpty) {
+      return _macCmsClient.listPage(source, page: page);
+    }
+    final pages = await Future.wait(
+      ids.map((id) => _macCmsClient.listPage(source, category: id, page: page)),
+    );
+    return _combinePages(pages, page);
   }
 
   Future<List<MediaItem>> browseDefaultSourceCategories(
     List<String> categoryIds,
   ) async {
-    if (categoryIds.isEmpty) return browseDefaultSource();
-    final source = await defaultSource();
-    if (source == null) {
-      return catalog
-          .where((item) => _matchesLocalCategory(item, categoryIds))
-          .toList(growable: false);
-    }
-    final results = await Future.wait(
-      categoryIds.map((id) => _macCmsClient.list(source, category: id)),
-    );
-    final seen = <String>{};
-    return results
-        .expand((items) => items)
-        .where((item) => seen.add(item.id))
-        .toList(growable: false);
+    return (await browseDefaultSourcePage(categoryIds: categoryIds)).items;
   }
 
   Future<List<UnifiedCategory>> defaultSourceCategories() async {
@@ -361,17 +378,77 @@ class LocalMediaRepository implements MediaRepository {
     String query, {
     List<String> categoryIds = const [],
   }) async {
-    if (categoryIds.isEmpty) return search(query);
+    return (await searchDefaultSourcePage(query, categoryIds: categoryIds))
+        .items;
+  }
+
+  Future<PagedMedia> searchDefaultSourcePage(
+    String query, {
+    List<String> categoryIds = const [],
+    int page = 1,
+  }) async {
+    final normalizedQuery = query.trim();
     final source = await defaultSource();
-    if (source == null) return search(query);
-    final results = await Future.wait(categoryIds.map(
-      (categoryId) => _macCmsClient.list(source, query: query, category: categoryId),
-    ));
+    if (source == null) {
+      final normalized = normalizedQuery.toLowerCase();
+      final filtered = catalog.where((media) {
+        final matchesText = normalized.isEmpty ||
+            [media.title, media.description, ...media.genres]
+                .join(' ')
+                .toLowerCase()
+                .contains(normalized);
+        return matchesText &&
+            (categoryIds.isEmpty || _matchesLocalCategory(media, categoryIds));
+      }).toList(growable: false);
+      return _localPage(filtered, page);
+    }
+    final ids = _normalizedCategoryIds(categoryIds);
+    if (ids.isEmpty) {
+      return _macCmsClient.listPage(source, query: normalizedQuery, page: page);
+    }
+    final pages = await Future.wait(ids.map((id) => _macCmsClient.listPage(
+          source,
+          query: normalizedQuery,
+          category: id,
+          page: page,
+        )));
+    return _combinePages(pages, page);
+  }
+
+  List<String> _normalizedCategoryIds(List<String> categoryIds) => categoryIds
+      .map((id) => id.trim())
+      .where((id) => id.isNotEmpty)
+      .toSet()
+      .toList(growable: false);
+
+  PagedMedia _localPage(List<MediaItem> items, int requestedPage) {
+    final page = requestedPage < 1 ? 1 : requestedPage;
+    final pageItems = page == 1 ? items : const <MediaItem>[];
+    return PagedMedia(
+      items: pageItems,
+      page: page,
+      pageCount: 1,
+      limit: items.length,
+      total: items.length,
+      hasMore: false,
+    );
+  }
+
+  PagedMedia _combinePages(List<PagedMedia> pages, int requestedPage) {
     final seen = <String>{};
-    return results
-        .expand((items) => items)
+    final items = pages
+        .expand((result) => result.items)
         .where((item) => seen.add(item.id))
         .toList(growable: false);
+    return PagedMedia(
+      items: items,
+      page: requestedPage,
+      pageCount: pages.fold<int>(
+          1, (max, result) => result.pageCount > max ? result.pageCount : max),
+      limit: pages.fold<int>(0, (sum, result) => sum + result.limit),
+      total: pages.fold<int>(0, (sum, result) => sum + result.total),
+      hasMore: pages.any((result) => result.hasMore),
+    );
   }
 
   bool _matchesLocalCategory(MediaItem item, List<String> categoryIds) {
@@ -384,17 +461,21 @@ class LocalMediaRepository implements MediaRepository {
 
   Future<MediaItem?> loadDetails(MediaItem item) async {
     if (item.sourceId == null || item.remoteId == null) return item;
-    final sourceRows = await (await _db).query('sources', where: 'id = ?', whereArgs: [item.sourceId], limit: 1);
+    final sourceRows = await (await _db).query('sources',
+        where: 'id = ?', whereArgs: [item.sourceId], limit: 1);
     if (sourceRows.isEmpty) return item;
-    return _macCmsClient.detail(_sourceFromRow(sourceRows.single), item.remoteId!);
+    return _macCmsClient.detail(
+        _sourceFromRow(sourceRows.single), item.remoteId!);
   }
 
-  Future<List<MediaItem>> searchOtherSources(MediaItem media, {bool includeAdult = false}) async {
+  Future<List<MediaItem>> searchOtherSources(MediaItem media,
+      {bool includeAdult = false}) async {
     final allSources = await sources();
     final candidates = allSources.where((source) =>
         source.enabled &&
         source.id != media.sourceId &&
-        (source.type == MediaSourceType.macCmsApi || source.type == MediaSourceType.jsonApi) &&
+        (source.type == MediaSourceType.macCmsApi ||
+            source.type == MediaSourceType.jsonApi) &&
         (includeAdult || !source.isAdult));
     final results = await Future.wait(candidates.map((source) async {
       try {

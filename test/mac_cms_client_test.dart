@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cineo_flutter/core/models/media_source.dart';
+import 'package:cineo_flutter/core/models/paged_media.dart';
 import 'package:cineo_flutter/data/remote/mac_cms_client.dart';
 
 void main() {
@@ -26,7 +27,7 @@ void main() {
             'vod_id': 42,
             'vod_name': '示例剧集',
             'vod_pic': '/poster.jpg',
-            'vod_content': '<p>简介</p>',
+            'vod_content': '<p>简介&nbsp;&amp; 内容</p><script>忽略</script>',
             'vod_year': '2025',
             'vod_score': '8.6',
             'type_name': '电视剧',
@@ -43,8 +44,116 @@ void main() {
     expect(items, hasLength(1));
     expect(items.single.id, 'family:42');
     expect(items.single.remoteId, '42');
-    expect(items.single.description, '简介');
+    expect(items.single.description, '简介 & 内容');
     expect(items.single.posterUrl, 'https://media.example.test/poster.jpg');
+  });
+
+  test('listPage sends category and page and parses pagination metadata',
+      () async {
+    late Uri requestedUri;
+    final client = MacCmsClient(fetcher: (uri) async {
+      requestedUri = uri;
+      return jsonEncode({
+        'code': 1,
+        'page': '2',
+        'pagecount': 5,
+        'limit': '20',
+        'total': '91',
+        'list': [
+          {
+            'vod_id': 7,
+            'vod_name': '第二页影片',
+            'type_id': '12',
+            'type_name': '电影',
+          },
+        ],
+      });
+    });
+
+    final page = await client.listPage(
+      source,
+      query: '星际',
+      category: '12',
+      page: 2,
+    );
+
+    expect(requestedUri.queryParameters['ac'], 'videolist');
+    expect(requestedUri.queryParameters['t'], '12');
+    expect(requestedUri.queryParameters['wd'], '星际');
+    expect(requestedUri.queryParameters['pg'], '2');
+    expect(page, isA<PagedMedia>());
+    expect(page.page, 2);
+    expect(page.pageCount, 5);
+    expect(page.limit, 20);
+    expect(page.total, 91);
+    expect(page.hasMore, isTrue);
+    expect(page.items.single.title, '第二页影片');
+  });
+
+  test('list remains a compatibility wrapper around the first page items',
+      () async {
+    final client = MacCmsClient(
+      fetcher: (_) async => jsonEncode({
+        'page': 1,
+        'pagecount': 3,
+        'limit': 1,
+        'total': 3,
+        'list': [
+          {'vod_id': 8, 'vod_name': '兼容影片'},
+        ],
+      }),
+    );
+
+    final items = await client.list(source, page: 1);
+
+    expect(items, hasLength(1));
+    expect(items.single.title, '兼容影片');
+  });
+
+  test('derives page count from total and limit when pagecount is absent',
+      () async {
+    final client = MacCmsClient(
+      fetcher: (_) async => jsonEncode({
+        'page': 2,
+        'limit': '20',
+        'total': 41,
+        'list': [
+          {'vod_id': 9, 'vod_name': '推导分页影片'},
+        ],
+      }),
+    );
+
+    final page = await client.listPage(source, page: 2);
+
+    expect(page.pageCount, 3);
+    expect(page.hasMore, isTrue);
+  });
+
+  test('normalizes invalid page metadata from nonstandard sources', () async {
+    late Uri requestedUri;
+    final client = MacCmsClient(
+      fetcher: (uri) async {
+        requestedUri = uri;
+        return jsonEncode({
+          'page': 0,
+          'pagecount': 0,
+          'limit': -1,
+          'total': -1,
+          'list': [
+            {'vod_id': 10, 'vod_name': '非标准分页影片'},
+          ],
+        });
+      },
+    );
+
+    final page = await client.listPage(source, page: 0);
+
+    expect(requestedUri.queryParameters['pg'], '1');
+    expect(page.page, 1);
+    expect(page.pageCount, 1);
+    expect(page.limit, 1);
+    expect(page.total, 1);
+    expect(page.hasMore, isFalse);
   });
 
   test('parses grouped MacCMS playback options and episodes', () async {
