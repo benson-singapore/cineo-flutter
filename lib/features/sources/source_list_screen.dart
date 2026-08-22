@@ -27,8 +27,16 @@ class SourceListScreen extends StatefulWidget {
 class _SourceListScreenState extends State<SourceListScreen> {
   List<MediaSource> _sources = const [];
   final Set<String> _testing = {};
+  final _searchController = TextEditingController();
+  String _query = '';
   bool _loading = true;
   Object? _error;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
 
   Future<bool> _testSource(MediaSource source) {
     return widget.onSourceTest?.call(source) ??
@@ -343,21 +351,49 @@ class _SourceListScreenState extends State<SourceListScreen> {
             );
           }
           final adultVisible = widget.adultSourceSettings.showAdultSources;
-          final favoriteSources = _sources
+          final query = _query.trim().toLowerCase();
+          final matchingSources = query.isEmpty
+              ? _sources
+              : _sources
+                  .where((source) => source.name.toLowerCase().contains(query))
+                  .toList(growable: false);
+          final favoriteSources = matchingSources
               .where((source) =>
                   source.isFavorite && (adultVisible || !source.isAdult))
               .toList(growable: false);
-          final regularSources = _sources
+          final regularSources = matchingSources
               .where((source) => !source.isAdult)
               .toList(growable: false);
-          final adultSources = _sources
+          final adultSources = matchingSources
               .where((source) => source.isAdult)
               .toList(growable: false);
 
           return DefaultTabController(
-            length: 3,
+            length: adultVisible ? 3 : 2,
             child: Column(
               children: [
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                  child: TextField(
+                    controller: _searchController,
+                    onChanged: (value) => setState(() => _query = value),
+                    textInputAction: TextInputAction.search,
+                    decoration: InputDecoration(
+                      hintText: '按名称搜索视频源',
+                      prefixIcon: const Icon(Icons.search_rounded),
+                      suffixIcon: _query.isEmpty
+                          ? null
+                          : IconButton(
+                              tooltip: '清除搜索',
+                              onPressed: () {
+                                _searchController.clear();
+                                setState(() => _query = '');
+                              },
+                              icon: const Icon(Icons.close_rounded),
+                            ),
+                    ),
+                  ),
+                ),
                 Material(
                   color: CineoColors.background,
                   child: TabBar(
@@ -397,22 +433,21 @@ class _SourceListScreenState extends State<SourceListScreen> {
                         onEdit: _openEditor,
                         onDelete: _deleteSource,
                       ),
-                      adultVisible
-                          ? _SourceTabList(
-                              sources: adultSources,
-                              testing: _testing,
-                              emptyState: const _SourceEmptyState(
-                                title: '还没有成人来源',
-                                subtitle: '导入的成人标记来源会单独显示在这里',
-                              ),
-                              onToggle: _toggleSource,
-                              onToggleFavorite: _toggleFavorite,
-                              onTest: _runTest,
-                              onSetDefault: _setDefaultSource,
-                              onEdit: _openEditor,
-                              onDelete: _deleteSource,
-                            )
-                          : const _AdultSourcesProtectedState(),
+                      if (adultVisible)
+                        _SourceTabList(
+                          sources: adultSources,
+                          testing: _testing,
+                          emptyState: const _SourceEmptyState(
+                            title: '还没有成人来源',
+                            subtitle: '导入的成人标记来源会单独显示在这里',
+                          ),
+                          onToggle: _toggleSource,
+                          onToggleFavorite: _toggleFavorite,
+                          onTest: _runTest,
+                          onSetDefault: _setDefaultSource,
+                          onEdit: _openEditor,
+                          onDelete: _deleteSource,
+                        ),
                     ],
                   ),
                 ),
@@ -551,7 +586,7 @@ class _SourceCard extends StatelessWidget {
                   tooltip: source.isFavorite ? '取消收藏来源' : '收藏来源',
                   onPressed: onToggleFavorite,
                   icon: Icon(
-                    source.isFavorite ? Icons.star : Icons.star_border_outlined,
+                    source.isFavorite ? Icons.favorite : Icons.favorite_border,
                   ),
                 ),
                 TextButton.icon(
@@ -715,34 +750,6 @@ class _SourceImportRequest {
 
   final String rawJson;
   final bool allowInsecureHttp;
-}
-
-class _AdultSourcesProtectedState extends StatelessWidget {
-  const _AdultSourcesProtectedState();
-
-  @override
-  Widget build(BuildContext context) {
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.lock_outline,
-                size: 52, color: CineoColors.primary),
-            const SizedBox(height: 12),
-            Text('成人来源已隐藏', style: Theme.of(context).textTheme.titleMedium),
-            const SizedBox(height: 6),
-            const Text(
-              '请在设置中启用成人标记，并完成 PIN 验证后查看',
-              textAlign: TextAlign.center,
-              style: TextStyle(color: CineoColors.textSecondary, fontSize: 12),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
 }
 
 class _SourceEmptyState extends StatelessWidget {
