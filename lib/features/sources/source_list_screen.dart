@@ -352,14 +352,21 @@ class _SourceListScreenState extends State<SourceListScreen> {
           }
           final adultVisible = widget.adultSourceSettings.showAdultSources;
           final query = _query.trim().toLowerCase();
-          final matchingSources = query.isEmpty
+          // Keep adult sources out of the source-management data set when
+          // the setting is disabled. This prevents them from leaking into
+          // another tab or search result while the adult tab is hidden.
+          final visibleSources = adultVisible
               ? _sources
               : _sources
+                  .where((source) => !source.isAdult)
+                  .toList(growable: false);
+          final matchingSources = query.isEmpty
+              ? visibleSources
+              : visibleSources
                   .where((source) => source.name.toLowerCase().contains(query))
                   .toList(growable: false);
           final favoriteSources = matchingSources
-              .where((source) =>
-                  source.isFavorite && (adultVisible || !source.isAdult))
+              .where((source) => source.isFavorite)
               .toList(growable: false);
           final regularSources = matchingSources
               .where((source) => !source.isAdult)
@@ -367,9 +374,10 @@ class _SourceListScreenState extends State<SourceListScreen> {
           final adultSources = matchingSources
               .where((source) => source.isAdult)
               .toList(growable: false);
+          final adultTabVisible = adultVisible && adultSources.isNotEmpty;
 
           return DefaultTabController(
-            length: adultVisible ? 3 : 2,
+            length: adultTabVisible ? 3 : 2,
             child: Column(
               children: [
                 Padding(
@@ -401,7 +409,8 @@ class _SourceListScreenState extends State<SourceListScreen> {
                     tabs: [
                       Tab(text: '收藏源 ${favoriteSources.length}'),
                       Tab(text: '普通源 ${regularSources.length}'),
-                      if (adultVisible) Tab(text: '成人源 ${adultSources.length}'),
+                      if (adultTabVisible)
+                        Tab(text: '成人源 ${adultSources.length}'),
                     ],
                   ),
                 ),
@@ -433,7 +442,7 @@ class _SourceListScreenState extends State<SourceListScreen> {
                         onEdit: _openEditor,
                         onDelete: _deleteSource,
                       ),
-                      if (adultVisible)
+                      if (adultTabVisible)
                         _SourceTabList(
                           sources: adultSources,
                           testing: _testing,
