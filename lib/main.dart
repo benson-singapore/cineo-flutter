@@ -290,9 +290,8 @@ class _CineoShellState extends State<CineoShell> {
   Future<TmdbMediaDetails?> _loadTmdbDetails(MediaItem media) async {
     final token = await widget.tmdbSettings.readTokenForRequest();
     if (token == null) return null;
-    final mediaType = media.kind == MediaKind.series
-        ? TmdbMediaType.tv
-        : TmdbMediaType.movie;
+    final mediaType =
+        media.kind == MediaKind.series ? TmdbMediaType.tv : TmdbMediaType.movie;
     try {
       final details = await TmdbClient(bearerToken: token).findDetails(
         media.title,
