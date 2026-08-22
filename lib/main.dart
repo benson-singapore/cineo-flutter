@@ -196,6 +196,26 @@ class _CineoShellState extends State<CineoShell> {
       final byId = <String, MediaItem>{
         for (final item in historyMedia.whereType<MediaItem>()) item.id: item,
       };
+      final continueWatching = [
+        for (final entry in progress)
+          if (!entry.isComplete && byId[entry.mediaId] != null)
+            byId[entry.mediaId]!,
+      ];
+      if (continueWatching.isNotEmpty) {
+        try {
+          final details = await widget.tmdbMetadata.loadCachedForMedia(
+            continueWatching.first,
+          );
+          final posterUrl = details?.posterUrl.trim() ?? '';
+          if (posterUrl.isNotEmpty) {
+            continueWatching[0] = continueWatching.first.copyWith(
+              posterUrl: posterUrl,
+            );
+          }
+        } on Object {
+          // A cache read must not prevent the home screen from loading.
+        }
+      }
       if (!mounted || revision != _refreshRevision) return;
       stopwatch.stop();
       _debugLog(
@@ -208,11 +228,7 @@ class _CineoShellState extends State<CineoShell> {
         _items = items;
         _homeCategoryRails = rails;
         _categories = categories;
-        _continueWatching = [
-          for (final entry in progress)
-            if (!entry.isComplete && byId[entry.mediaId] != null)
-              byId[entry.mediaId]!,
-        ];
+        _continueWatching = continueWatching;
         _favorites = favorites;
         _progressByMediaId = {
           for (final entry in progress) entry.mediaId: entry.fraction,

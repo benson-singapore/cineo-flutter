@@ -74,6 +74,45 @@ class MediaItem {
   final String? remoteId;
   final String? category;
   final String? categoryId;
+
+  MediaItem copyWith({
+    String? title,
+    String? description,
+    int? year,
+    MediaKind? kind,
+    String? posterUrl,
+    String? backdropUrl,
+    List<String>? genres,
+    double? rating,
+    Duration? duration,
+    List<Episode>? episodes,
+    List<PlaybackOption>? playbackOptions,
+    String? sourceId,
+    String? sourceName,
+    String? remoteId,
+    String? category,
+    String? categoryId,
+  }) {
+    return MediaItem(
+      id: id,
+      title: title ?? this.title,
+      description: description ?? this.description,
+      year: year ?? this.year,
+      kind: kind ?? this.kind,
+      posterUrl: posterUrl ?? this.posterUrl,
+      backdropUrl: backdropUrl ?? this.backdropUrl,
+      genres: genres ?? this.genres,
+      rating: rating ?? this.rating,
+      duration: duration ?? this.duration,
+      episodes: episodes ?? this.episodes,
+      playbackOptions: playbackOptions ?? this.playbackOptions,
+      sourceId: sourceId ?? this.sourceId,
+      sourceName: sourceName ?? this.sourceName,
+      remoteId: remoteId ?? this.remoteId,
+      category: category ?? this.category,
+      categoryId: categoryId ?? this.categoryId,
+    );
+  }
 }
 
 class WatchProgress {

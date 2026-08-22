@@ -95,6 +95,63 @@ void main() {
         requestedPaths.where((path) => path.endsWith('/movie/77')).length, 2);
     expect(requestedPaths.where((path) => path.contains('/search/')), isEmpty);
   });
+
+  test('reads cached metadata without requesting TMDB again', () async {
+    var requestCount = 0;
+    final cache = TmdbDiskCache(
+      directoryProvider: () async => directory,
+      imageFetcher: (_) async => <int>[1, 2, 3],
+    );
+    final repository = TmdbMetadataRepository(
+      cache: cache,
+      readToken: () async => 'test-token',
+      retention: () => const Duration(days: 30),
+      clientFactory: (token) => _client(token, () => requestCount++),
+    );
+
+    await repository.loadForMedia(_media());
+    final requestsAfterLoad = requestCount;
+    final cached = await repository.loadCachedForMedia(_media());
+
+    expect(cached?.posterUrl, startsWith('file:'));
+    expect(requestCount, requestsAfterLoad);
+  });
+
+  test('refreshes cached details that have no poster when opening media',
+      () async {
+    var requestCount = 0;
+    final cache = TmdbDiskCache(
+      directoryProvider: () async => directory,
+      imageFetcher: (_) async => <int>[1, 2, 3],
+    );
+    await cache.putDetails(
+      mediaId: _media().id,
+      details: const TmdbMediaDetails(
+        id: 12,
+        mediaType: TmdbMediaType.movie,
+        title: '测试电影',
+        originalTitle: 'Test Film',
+        overview: '旧详情',
+        year: 2024,
+        posterUrl: '',
+        backdropUrl: '',
+        rating: 8.2,
+        runtime: 120,
+      ),
+    );
+    final repository = TmdbMetadataRepository(
+      cache: cache,
+      readToken: () async => 'test-token',
+      retention: () => const Duration(days: 30),
+      clientFactory: (token) => _client(token, () => requestCount++),
+    );
+
+    final refreshed = await repository.loadForMedia(_media());
+
+    expect(refreshed?.posterUrl, startsWith('file:'));
+    expect(requestCount, 1);
+    expect((await cache.getDetails(_media().id))?.posterUrl, isNotEmpty);
+  });
 }
 
 MediaItem _media() => const MediaItem(

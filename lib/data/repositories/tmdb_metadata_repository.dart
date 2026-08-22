@@ -29,7 +29,17 @@ class TmdbMetadataRepository {
 
   Future<TmdbMediaDetails?> loadForMedia(MediaItem media) async {
     final cached = await _cache.getDetails(media.id);
-    if (cached != null) return _withCachedImages(cached);
+    if (cached != null) {
+      if (cached.posterUrl.trim().isNotEmpty) {
+        return _withCachedImages(cached);
+      }
+      final client = await _client();
+      if (client == null) return _withCachedImages(cached);
+      final refreshed = await client.getDetails(cached);
+      return refreshed == null
+          ? _withCachedImages(cached)
+          : _storeAndLocalize(media.id, refreshed);
+    }
 
     final client = await _client();
     if (client == null) return null;
@@ -46,6 +56,16 @@ class TmdbMetadataRepository {
     final details = await client.getDetails(match);
     if (details == null) return null;
     return _storeAndLocalize(media.id, details);
+  }
+
+  /// Reads previously loaded metadata without initiating TMDB matching or a
+  /// network request.
+  ///
+  /// Home uses this to show a stored poster immediately while keeping refreshes
+  /// independent from TMDB availability.
+  Future<TmdbMediaDetails?> loadCachedForMedia(MediaItem media) async {
+    final cached = await _cache.getDetails(media.id);
+    return cached == null ? null : _withCachedImages(cached);
   }
 
   Future<List<TmdbMediaMatch>> search(
