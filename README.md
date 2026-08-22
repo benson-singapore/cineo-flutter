@@ -205,50 +205,41 @@ dart format lib test
 
 仓库提供 `Makefile` 和 `.github/workflows/cineo-build.yml`，用于统一版本号、本地构建和 GitHub Actions 构建。
 
-查看所有命令：
+最简单的发布方式：
 
 ```bash
 make help
 ```
 
-常用命令：
+先打开 `Makefile` 顶部，只修改这一行：
 
-```bash
-# 指定版本号，构建号不变（仅修改版本时使用）
-make version VERSION=1.2.0
-
-# 指定版本号和构建号
-make version VERSION=1.2.0+12
-
-# 自动递增版本，并自动递增 Android/iOS build number
-make bump-patch
-make bump-minor
-make bump-major
-
-# 本地生成或复用 Android 自签名 keystore，并构建 APK
-make signing-setup
-make android
-
-# 本地构建未签名 iOS IPA
-make ios
-
-# 修改版本、提交、推送并触发 GitHub Actions
-make release VERSION=1.2.0
-
-# 拉取远端最新 main，递增 patch 版本，推送并触发构建
-make sync-build
+```make
+VERSION := 1.0.0+1
 ```
 
-`make android` 首次运行会在 `android/app/release/cineo-release.keystore` 生成一个本地 Android 自签名证书，并在 `android/key.properties` 保存构建配置。这两个文件已加入 `.gitignore`，不会提交到仓库。请务必备份 keystore 和密码；以后更新 Android 应用必须继续使用同一个 keystore，否则系统会把它识别为不同的应用，无法覆盖升级。
-
-GitHub Actions 由 `make release` 或 `make sync-build` 通过 GitHub API 触发。触发前需要设置一个具有该仓库 Actions 写入权限的 `GH_TOKEN`：
+然后设置一次 GitHub Token，并且以后每次只执行一条命令：
 
 ```bash
 export GH_TOKEN='你的 GitHub Token'
-make release VERSION=1.2.0
+make publish
 ```
 
-也可以直接触发当前版本：
+`VERSION` 必须包含应用版本和构建号，格式为 `主版本.次版本.修订版本+构建号`，例如 `1.2.0+12`。
+
+`make publish` 会自动拉取远程 `main` 的最新提交，将本地已经提交的最新代码推送到 GitHub；如果 `VERSION` 与 `pubspec.yaml` 不同，会自动更新版本并提交。随后它会把 `v1.2.0+12` 这样的 tag 移动到最新提交、推送 tag，并触发 GitHub Actions。即使版本号没有变化，也会把 tag 移动到最新代码后重新构建。
+
+如果当前工作区有除 `Makefile` 以外的未提交文件，命令会停止，避免把未完成的修改发布出去。
+
+`make android` 首次运行会在 `android/app/release/cineo-release.keystore` 生成一个本地 Android 自签名证书，并在 `android/key.properties` 保存构建配置。这两个文件已加入 `.gitignore`，不会提交到仓库。请务必备份 keystore 和密码；以后更新 Android 应用必须继续使用同一个 keystore，否则系统会把它识别为不同的应用，无法覆盖升级。
+
+GitHub Actions 由 `make publish` 通过 GitHub API 触发。触发前需要设置一个具有该仓库 Actions 写入权限的 `GH_TOKEN`：
+
+```bash
+export GH_TOKEN='你的 GitHub Token'
+make publish
+```
+
+也可以直接触发当前 `pubspec.yaml` 版本，但日常发布推荐使用 `make publish`：
 
 ```bash
 make dispatch GH_TOKEN="$GH_TOKEN"
