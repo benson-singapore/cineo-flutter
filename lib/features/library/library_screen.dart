@@ -52,21 +52,36 @@ class _LibraryScreenState extends State<LibraryScreen> {
         return;
       }
 
-      final progress = await widget.repository.watchHistory();
+      final savedProgress = await widget.repository.watchHistory();
+      // Each episode keeps its own resume position locally. The history view
+      // presents only the most recently watched episode for each title.
+      final progressByMediaId = <String, WatchProgress>{};
+      for (final entry in savedProgress) {
+        progressByMediaId.putIfAbsent(entry.mediaId, () => entry);
+      }
+      final progress = progressByMediaId.values.toList(growable: false);
       final media = <String, MediaItem>{};
       for (final item in await Future.wait(
         progress.map((entry) => widget.repository.getById(entry.mediaId)),
       )) {
         if (item != null) media[item.id] = item;
       }
+      final entries = await Future.wait(
+        [
+          for (final entry in progress)
+            if (media[entry.mediaId] != null)
+              _resolveHistoryEntry(
+                _HistoryEntry(
+                  media: media[entry.mediaId]!,
+                  progress: entry,
+                ),
+              ),
+        ],
+      );
       if (!mounted) return;
       setState(() {
         _favorites = const [];
-        _history = [
-          for (final entry in progress)
-            if (media[entry.mediaId] != null)
-              _HistoryEntry(media: media[entry.mediaId]!, progress: entry),
-        ];
+        _history = entries;
         _loading = false;
       });
     } catch (error) {
@@ -76,6 +91,75 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<_HistoryEntry> _resolveHistoryEntry(_HistoryEntry entry) async {
+    final progress = entry.progress;
+    if (progress.episodeId == null ||
+        (progress.episodeNumber != null && progress.episodeCount != null)) {
+      return entry;
+    }
+
+    MediaItem media = entry.media;
+    PlaybackOption? matchedOption;
+    List<PlaybackOption> lineEpisodes = const [];
+    try {
+      final details = await widget.repository.loadDetails(entry.media);
+      if (details != null) {
+        media = details;
+        matchedOption = details.playbackOptions
+            .where((option) => option.id == progress.episodeId)
+            .firstOrNull;
+        if (matchedOption != null) {
+          lineEpisodes = details.playbackOptions
+              .where((option) => option.quality == matchedOption!.quality)
+              .toList(growable: false);
+        }
+      }
+    } catch (_) {
+      // Offline history should remain useful even when the source is down.
+    }
+
+    final episodeNumber = matchedOption == null
+        ? _episodeNumberFromLegacyId(progress.episodeId)
+        : lineEpisodes.indexWhere((option) => option.id == matchedOption!.id) +
+            1;
+    final episodeCount = lineEpisodes.isEmpty ? null : lineEpisodes.length;
+    final episodeLabel = matchedOption == null
+        ? progress.episodeLabel
+        : _episodeLabel(matchedOption);
+    final resolvedProgress = WatchProgress(
+      mediaId: progress.mediaId,
+      episodeId: progress.episodeId,
+      episodeLabel: episodeLabel,
+      episodeNumber: episodeNumber ?? progress.episodeNumber,
+      episodeCount: episodeCount ?? progress.episodeCount,
+      position: progress.position,
+      duration: progress.duration,
+      updatedAt: progress.updatedAt,
+    );
+    if (resolvedProgress.episodeNumber != progress.episodeNumber ||
+        resolvedProgress.episodeCount != progress.episodeCount ||
+        resolvedProgress.episodeLabel != progress.episodeLabel) {
+      try {
+        await widget.repository.saveProgress(resolvedProgress, media: media);
+      } catch (_) {
+        // The display update is still valid when a local write fails.
+      }
+    }
+    return _HistoryEntry(media: media, progress: resolvedProgress);
+  }
+
+  int? _episodeNumberFromLegacyId(String? episodeId) {
+    final match = RegExp(r':(\d+)$').firstMatch(episodeId ?? '');
+    final index = int.tryParse(match?.group(1) ?? '');
+    return index == null ? null : index + 1;
+  }
+
+  String _episodeLabel(PlaybackOption option) {
+    final match = RegExp(r'第\s*(\d+)\s*集').firstMatch(option.label);
+    final number = int.tryParse(match?.group(1) ?? '');
+    return number == null ? option.label : '第$number集';
   }
 
   @override
@@ -254,15 +338,21 @@ class _HistoryTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      entry.progress.episodeId == null
-                          ? '电影'
-                          : '第 ${entry.progress.episodeId} 集',
+                      _episodeSummary(entry.progress),
                       style: const TextStyle(
                         color: CineoColors.textSecondary,
                         fontSize: 12,
                       ),
                     ),
-                    const SizedBox(height: 12),
+                    const SizedBox(height: 8),
+                    Text(
+                      _watchTimeSummary(entry.progress),
+                      style: const TextStyle(
+                        color: CineoColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 8),
                     LinearProgressIndicator(value: progress, minHeight: 4),
                   ],
                 ),
@@ -277,6 +367,36 @@ class _HistoryTile extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _episodeSummary(WatchProgress progress) {
+    if (progress.episodeId == null) return '电影';
+    final number = progress.episodeNumber;
+    final count = progress.episodeCount;
+    if (number != null && count != null) return '共 $count 集 · 当前第 $number 集';
+    if (number != null) return '当前第 $number 集';
+    if (progress.episodeLabel != null && progress.episodeLabel!.isNotEmpty) {
+      return progress.episodeLabel!;
+    }
+    return '已观看剧集';
+  }
+
+  String _watchTimeSummary(WatchProgress progress) {
+    final percentage = (progress.fraction * 100).round();
+    return '已播 ${_formatDuration(progress.position)} / '
+        '${_formatDuration(progress.duration)} · $percentage%';
+  }
+
+  String _formatDuration(Duration duration) {
+    final seconds = duration.inSeconds.clamp(0, 359999);
+    final hours = seconds ~/ Duration.secondsPerHour;
+    final minutes =
+        (seconds % Duration.secondsPerHour) ~/ Duration.secondsPerMinute;
+    final remainder = seconds % Duration.secondsPerMinute;
+    String twoDigits(int value) => value.toString().padLeft(2, '0');
+    return hours == 0
+        ? '${twoDigits(minutes)}:${twoDigits(remainder)}'
+        : '${twoDigits(hours)}:${twoDigits(minutes)}:${twoDigits(remainder)}';
   }
 }
 

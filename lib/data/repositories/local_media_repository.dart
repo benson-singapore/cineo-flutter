@@ -42,7 +42,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     final database = await openDatabase(
       resolvedPath,
-      version: 6,
+      version: 7,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -55,6 +55,9 @@ class LocalMediaRepository implements MediaRepository {
             progress_key TEXT PRIMARY KEY,
             media_id TEXT NOT NULL,
             episode_id TEXT,
+            episode_label TEXT,
+            episode_number INTEGER,
+            episode_count INTEGER,
             position_ms INTEGER NOT NULL,
             duration_ms INTEGER NOT NULL,
             updated_at INTEGER NOT NULL
@@ -131,6 +134,14 @@ class LocalMediaRepository implements MediaRepository {
           ''');
         }
         if (oldVersion < 6) await _createMediaSnapshotsTable(database);
+        if (oldVersion < 7) {
+          await database
+              .execute('ALTER TABLE progress ADD COLUMN episode_label TEXT');
+          await database.execute(
+              'ALTER TABLE progress ADD COLUMN episode_number INTEGER');
+          await database
+              .execute('ALTER TABLE progress ADD COLUMN episode_count INTEGER');
+        }
       },
     );
     await _ensureBuiltInSource(database);
@@ -280,6 +291,9 @@ class LocalMediaRepository implements MediaRepository {
         'progress_key': '${progress.mediaId}:$episodeKey',
         'media_id': progress.mediaId,
         'episode_id': progress.episodeId,
+        'episode_label': progress.episodeLabel,
+        'episode_number': progress.episodeNumber,
+        'episode_count': progress.episodeCount,
         'position_ms': progress.position.inMilliseconds,
         'duration_ms': progress.duration.inMilliseconds,
         'updated_at': progress.updatedAt.millisecondsSinceEpoch,
@@ -601,6 +615,7 @@ class LocalMediaRepository implements MediaRepository {
         categoryIds.contains(item.categoryId);
   }
 
+  @override
   Future<MediaItem?> loadDetails(MediaItem item) async {
     if (item.sourceId == null || item.remoteId == null) return item;
     final sourceRows = await (await _db).query('sources',
@@ -786,6 +801,9 @@ class LocalMediaRepository implements MediaRepository {
     return WatchProgress(
       mediaId: row['media_id'] as String,
       episodeId: row['episode_id'] as String?,
+      episodeLabel: row['episode_label'] as String?,
+      episodeNumber: row['episode_number'] as int?,
+      episodeCount: row['episode_count'] as int?,
       position: Duration(milliseconds: row['position_ms'] as int),
       duration: Duration(milliseconds: row['duration_ms'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),

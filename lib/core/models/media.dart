@@ -83,10 +83,16 @@ class WatchProgress {
     required this.duration,
     required this.updatedAt,
     this.episodeId,
+    this.episodeLabel,
+    this.episodeNumber,
+    this.episodeCount,
   });
 
   final String mediaId;
   final String? episodeId;
+  final String? episodeLabel;
+  final int? episodeNumber;
+  final int? episodeCount;
   final Duration position;
   final Duration duration;
   final DateTime updatedAt;

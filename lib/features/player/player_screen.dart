@@ -206,16 +206,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
         !controller.value.isInitialized) {
       return;
     }
-    widget.onProgressChanged(_media, WatchProgress(
-      mediaId: _media.id,
-      // A newly selected option must write under its own id; otherwise a
-      // caller's initial episodeId would make every switched episode share
-      // one history record.
-      episodeId: option.id,
-      position: controller.value.position,
-      duration: controller.value.duration,
-      updatedAt: DateTime.now(),
-    ));
+    widget.onProgressChanged(
+        _media,
+        WatchProgress(
+          mediaId: _media.id,
+          // A newly selected option must write under its own id; otherwise a
+          // caller's initial episodeId would make every switched episode share
+          // one history record.
+          episodeId: option.id,
+          episodeLabel: episodeDisplayLabel(option),
+          episodeNumber: _currentEpisodeIndex + 1,
+          episodeCount: _episodes.length,
+          position: controller.value.position,
+          duration: controller.value.duration,
+          updatedAt: DateTime.now(),
+        ));
   }
 
   void _toggleControls() {
@@ -286,7 +291,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
           activeSourceId: _media.sourceId,
         ),
       );
-      if (selected == null || selected.sourceId == _media.sourceId || !mounted) {
+      if (selected == null ||
+          selected.sourceId == _media.sourceId ||
+          !mounted) {
         return;
       }
       await _switchSource(selected, loader);
