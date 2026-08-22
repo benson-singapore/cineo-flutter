@@ -34,6 +34,7 @@ Widget _subject({
   List<MediaItem> continueWatching = const [],
   List<MediaItem> favorites = const [],
   ValueChanged<MediaItem>? onContinueWatching,
+  VoidCallback? onOpenSearch,
 }) {
   return MaterialApp(
     theme: buildCineoTheme(),
@@ -46,6 +47,7 @@ Widget _subject({
       categoryRails: categoryRails,
       onSeeAll: onSeeAll,
       onRefresh: onRefresh,
+      onOpenSearch: onOpenSearch,
     ),
   );
 }
@@ -97,6 +99,23 @@ void main() {
     );
     expect(hero.width, 800);
     expect(hero.height, closeTo(800 * 4 / 3, .1));
+  });
+
+  testWidgets('top bar opens search when the search action is tapped',
+      (tester) async {
+    var searchOpened = false;
+    await tester.pumpWidget(
+      _subject(
+        items: [_media('featured', '顶部封面')],
+        onSeeAll: (_, __, ___) {},
+        onOpenSearch: () => searchOpened = true,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('搜索'));
+
+    expect(searchOpened, isTrue);
   });
 
   testWidgets('shows all favorite media below continue watching',

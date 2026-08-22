@@ -620,6 +620,7 @@ class _CineoShellState extends State<CineoShell> {
         onRefresh: _refresh,
         onOpenMedia: (media) => unawaited(_openMedia(media)),
         onContinueWatching: (media) => unawaited(_resumeMedia(media)),
+        onOpenSearch: () => unawaited(_openSearch()),
         onSeeAll: (title, items, categoryIds) =>
             unawaited(_openCategoryBrowse(title, items, categoryIds)),
       ),

@@ -30,6 +30,7 @@ class HomeScreen extends StatelessWidget {
     this.categoryRails = const [],
     this.onSeeAll,
     this.onContinueWatching,
+    this.onOpenSearch,
   });
 
   final List<MediaItem> items;
@@ -46,6 +47,7 @@ class HomeScreen extends StatelessWidget {
 
   final HomeRailSeeAllCallback? onSeeAll;
   final ValueChanged<MediaItem>? onContinueWatching;
+  final VoidCallback? onOpenSearch;
 
   @override
   Widget build(BuildContext context) {
@@ -133,7 +135,7 @@ class HomeScreen extends StatelessWidget {
       title: const CineoBrandMark(),
       actions: [
         IconButton(
-          onPressed: () {},
+          onPressed: onOpenSearch,
           tooltip: '搜索',
           icon: const Icon(Icons.search_rounded, size: 25),
         ),
