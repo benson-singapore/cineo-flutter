@@ -101,7 +101,7 @@ class _SearchScreenState extends State<SearchScreen>
 
   void _updateScrollToTopVisibility() {
     if (!_scrollController.hasClients) return;
-    final shouldShow = _scrollController.offset > 160;
+    final shouldShow = _scrollController.offset > 24;
     if (shouldShow != _showScrollToTop && mounted) {
       setState(() => _showScrollToTop = shouldShow);
     }
