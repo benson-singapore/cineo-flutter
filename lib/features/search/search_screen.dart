@@ -562,9 +562,9 @@ class _SearchScreenState extends State<SearchScreen>
             if (widget.libraryMode && _showScrollToTop)
               Positioned(
                 right: 16,
-                // The shell's glass navigation is painted above this page.
-                // Keep the action clear of that bar on Android and iOS.
-                bottom: 128,
+                // The shell's glass navigation occupies its own bottom area.
+                // Keep the action just above it without leaving a large gap.
+                bottom: 24,
                 child: FloatingActionButton.small(
                   onPressed: _scrollToTop,
                   tooltip: '回到顶部',
