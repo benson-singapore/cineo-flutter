@@ -62,7 +62,7 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
     _loadPage(_page + 1, revision: _revision);
   }
 
-  Future<void> _load() async {
+  Future<void> _load({bool preserveItems = false}) async {
     final loader = widget.onLoad;
     if (loader == null) return;
     final revision = ++_revision;
@@ -70,11 +70,13 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
       _loading = true;
       _error = null;
       _paginationError = null;
-      // The remote first page is authoritative; homepage preview items must
-      // not mask its loading or error state.
-      _items = const [];
-      _page = 0;
-      _hasMore = false;
+      if (!preserveItems) {
+        // The remote first page is authoritative; homepage preview items must
+        // not mask its initial loading or error state.
+        _items = const [];
+        _page = 0;
+        _hasMore = false;
+      }
     });
     await _loadPage(1, revision: revision);
   }
@@ -106,7 +108,7 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
       if (!mounted || revision != _revision) return;
       setState(() {
         if (page == 1) {
-          _error = error;
+          if (_items.isEmpty) _error = error;
           _loading = false;
         } else {
           _paginationError = error;
@@ -142,47 +144,59 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
             ? const Center(child: CircularProgressIndicator())
             : _error != null && _items.isEmpty
                 ? _BrowseError(onRetry: _load)
-                : CustomScrollView(
-                    controller: _scrollController,
-                    slivers: [
-                      if (_items.isEmpty)
-                        const SliverFillRemaining(
-                          hasScrollBody: false,
-                          child: _BrowseEmpty(
-                            icon: Icons.video_library_outlined,
-                            title: '这个分类还没有内容',
-                            message: '稍后刷新试试',
+                : RefreshIndicator(
+                    onRefresh: () => _load(preserveItems: true),
+                    child: CustomScrollView(
+                      key: const PageStorageKey('cineo-category-browse-scroll'),
+                      controller: _scrollController,
+                      physics: const AlwaysScrollableScrollPhysics(
+                        parent: BouncingScrollPhysics(),
+                      ),
+                      slivers: [
+                        if (_loading && _items.isNotEmpty)
+                          const SliverToBoxAdapter(
+                            child: LinearProgressIndicator(minHeight: 2),
                           ),
-                        )
-                      else
-                        SliverPadding(
-                          padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
-                          sliver: SliverGrid(
-                            delegate: SliverChildBuilderDelegate(
-                              (context, index) => BrowseMediaCard(
-                                media: _items[index],
-                                onTap: () => widget.onOpenMedia(_items[index]),
+                        if (_items.isEmpty)
+                          const SliverFillRemaining(
+                            hasScrollBody: false,
+                            child: _BrowseEmpty(
+                              icon: Icons.video_library_outlined,
+                              title: '这个分类还没有内容',
+                              message: '稍后刷新试试',
+                            ),
+                          )
+                        else
+                          SliverPadding(
+                            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                            sliver: SliverGrid(
+                              delegate: SliverChildBuilderDelegate(
+                                (context, index) => BrowseMediaCard(
+                                  media: _items[index],
+                                  onTap: () =>
+                                      widget.onOpenMedia(_items[index]),
+                                ),
+                                childCount: _items.length,
                               ),
-                              childCount: _items.length,
-                            ),
-                            gridDelegate:
-                                const SliverGridDelegateWithMaxCrossAxisExtent(
-                              maxCrossAxisExtent: 176,
-                              mainAxisSpacing: 18,
-                              crossAxisSpacing: 12,
-                              childAspectRatio: .62,
+                              gridDelegate:
+                                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                                maxCrossAxisExtent: 176,
+                                mainAxisSpacing: 18,
+                                crossAxisSpacing: 12,
+                                childAspectRatio: .62,
+                              ),
                             ),
                           ),
-                        ),
-                      if (_loadingMore || _paginationError != null)
-                        SliverToBoxAdapter(
-                          child: _CategoryPaginationFooter(
-                            loading: _loadingMore,
-                            onRetry: () =>
-                                _loadPage(_page + 1, revision: _revision),
+                        if (_loadingMore || _paginationError != null)
+                          SliverToBoxAdapter(
+                            child: _CategoryPaginationFooter(
+                              loading: _loadingMore,
+                              onRetry: () =>
+                                  _loadPage(_page + 1, revision: _revision),
+                            ),
                           ),
-                        ),
-                    ],
+                      ],
+                    ),
                   ),
       ),
     );

@@ -121,6 +121,7 @@ class _CineoShellState extends State<CineoShell> {
     sourceCategoryIds: [],
   );
   bool _loading = true;
+  bool _refreshing = false;
   String? _errorMessage;
   int _selectedIndex = 0;
   int _refreshRevision = 0;
@@ -138,9 +139,10 @@ class _CineoShellState extends State<CineoShell> {
     if (mounted) setState(() => _pictureInPictureAvailable = available);
   }
 
-  Future<void> _refresh() async {
+  Future<void> _refresh({bool preserveContent = true}) async {
     final revision = ++_refreshRevision;
     final stopwatch = Stopwatch()..start();
+    final showCachedContent = preserveContent && _items.isNotEmpty;
     _debugLog(
       'home_refresh phase=start revision=$revision '
       'category=${_selectedCategory.type.name} '
@@ -148,8 +150,9 @@ class _CineoShellState extends State<CineoShell> {
     );
     if (mounted) {
       setState(() {
-        _loading = true;
-        _errorMessage = null;
+        _loading = !showCachedContent;
+        _refreshing = showCachedContent;
+        if (!showCachedContent) _errorMessage = null;
       });
     }
     try {
@@ -188,6 +191,8 @@ class _CineoShellState extends State<CineoShell> {
         };
         _searchHistory = history;
         _loading = false;
+        _refreshing = false;
+        _errorMessage = null;
       });
       unawaited(_refreshCategories(revision));
     } catch (error, stackTrace) {
@@ -201,7 +206,8 @@ class _CineoShellState extends State<CineoShell> {
       if (!mounted || revision != _refreshRevision) return;
       setState(() {
         _loading = false;
-        _errorMessage = _homeLoadError(error);
+        _refreshing = false;
+        if (!showCachedContent) _errorMessage = _homeLoadError(error);
       });
     }
   }
@@ -246,7 +252,7 @@ class _CineoShellState extends State<CineoShell> {
   Future<void> _selectCategory(UnifiedCategory category) async {
     if (_selectedCategory.type == category.type) return;
     setState(() => _selectedCategory = category);
-    await _refresh();
+    await _refresh(preserveContent: false);
   }
 
   Future<void> _recordSearch(String query) async {
@@ -509,8 +515,10 @@ class _CineoShellState extends State<CineoShell> {
         selectedSourceCategoryIds: _selectedCategory.sourceCategoryIds,
         onCategorySelected: (category) => unawaited(_selectCategory(category)),
         isLoading: _loading,
+        isRefreshing: _refreshing,
         errorMessage: _errorMessage,
         onRetry: _refresh,
+        onRefresh: _refresh,
         onOpenMedia: (media) => unawaited(_openMedia(media)),
         onSeeAll: (title, items, categoryIds) =>
             unawaited(_openCategoryBrowse(title, items, categoryIds)),

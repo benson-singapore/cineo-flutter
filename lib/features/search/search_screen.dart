@@ -38,7 +38,8 @@ class SearchScreen extends StatefulWidget {
   State<SearchScreen> createState() => _SearchScreenState();
 }
 
-class _SearchScreenState extends State<SearchScreen> {
+class _SearchScreenState extends State<SearchScreen>
+    with AutomaticKeepAliveClientMixin {
   final _queryController = TextEditingController();
   final _focusNode = FocusNode();
   final _localHistory = <String>[];
@@ -180,16 +181,18 @@ class _SearchScreenState extends State<SearchScreen> {
     ];
   }
 
-  Future<void> _loadBrowse() async {
+  Future<void> _loadBrowse({bool preserveResults = false}) async {
     final revision = ++_revision;
     if (mounted) {
       setState(() {
         _isBrowsing = true;
         _errorMessage = null;
         _paginationError = null;
-        _browseResults = const [];
-        _browsePage = 0;
-        _hasMoreBrowse = false;
+        if (!preserveResults) {
+          _browseResults = const [];
+          _browsePage = 0;
+          _hasMoreBrowse = false;
+        }
       });
     }
     await _loadBrowsePage(1, revision: revision);
@@ -228,7 +231,9 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         if (page == 1) {
           _isBrowsing = false;
-          _errorMessage = '资源库加载失败，请检查默认视频源后重试';
+          if (_browseResults.isEmpty) {
+            _errorMessage = '资源库加载失败，请检查默认视频源后重试';
+          }
         } else {
           _isLoadingMore = false;
           _paginationError = '下一页加载失败';
@@ -304,7 +309,9 @@ class _SearchScreenState extends State<SearchScreen> {
       setState(() {
         if (page == 1) {
           _isSearching = false;
-          _errorMessage = '搜索暂时不可用，请稍后重试';
+          if (_remoteResults.isEmpty) {
+            _errorMessage = '搜索暂时不可用，请稍后重试';
+          }
         } else {
           _isLoadingMore = false;
           _paginationError = '下一页加载失败';
@@ -347,12 +354,24 @@ class _SearchScreenState extends State<SearchScreen> {
       _remoteResults = const [];
       _revision++;
     });
-    _loadBrowse();
+    _loadBrowse(preserveResults: true);
     _focusNode.requestFocus();
   }
 
+  Future<void> _refreshCurrent() {
+    final query = _query.trim();
+    if (query.isNotEmpty) {
+      return _loadSearchPage(1, query, revision: _revision);
+    }
+    return _loadBrowse(preserveResults: true);
+  }
+
+  @override
+  bool get wantKeepAlive => true;
+
   @override
   Widget build(BuildContext context) {
+    super.build(context);
     final query = _query.trim();
     final showingSearch = query.isNotEmpty;
     return Scaffold(
@@ -372,53 +391,64 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
       body: SafeArea(
         top: false,
-        child: CustomScrollView(
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          controller: _scrollController,
-          slivers: [
-            if (!widget.libraryMode)
-              SliverPadding(
-                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                sliver: SliverToBoxAdapter(
-                  child: _SearchField(
-                    controller: _queryController,
-                    focusNode: _focusNode,
-                    onSubmitted: _submit,
-                    onChanged: (value) {
-                      final leftSubmittedSearch =
-                          _query.isNotEmpty && value != _query;
-                      setState(() {
-                        if (leftSubmittedSearch) {
-                          _query = '';
-                          _errorMessage = null;
-                          _remoteResults = const [];
-                        }
-                      });
-                      if (leftSubmittedSearch) _loadBrowse();
-                    },
-                    onClear: _clearQuery,
+        child: RefreshIndicator(
+          onRefresh: _refreshCurrent,
+          child: CustomScrollView(
+            key: PageStorageKey(
+              widget.libraryMode
+                  ? 'cineo-library-scroll'
+                  : 'cineo-search-scroll',
+            ),
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            controller: _scrollController,
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            slivers: [
+              if (!widget.libraryMode)
+                SliverPadding(
+                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                  sliver: SliverToBoxAdapter(
+                    child: _SearchField(
+                      controller: _queryController,
+                      focusNode: _focusNode,
+                      onSubmitted: _submit,
+                      onChanged: (value) {
+                        final leftSubmittedSearch =
+                            _query.isNotEmpty && value != _query;
+                        setState(() {
+                          if (leftSubmittedSearch) {
+                            _query = '';
+                            _errorMessage = null;
+                            _remoteResults = const [];
+                          }
+                        });
+                        if (leftSubmittedSearch) _loadBrowse();
+                      },
+                      onClear: _clearQuery,
+                    ),
                   ),
                 ),
-              ),
-            SliverToBoxAdapter(
-              child: _CategorySelector(
-                categories: _visibleCategories,
-                selectedType: _selectedType,
-                onSelected: _selectType,
-              ),
-            ),
-            if (_errorMessage != null)
               SliverToBoxAdapter(
-                child: _ErrorState(
-                  message: _errorMessage!,
-                  onRetry: showingSearch ? () => _submit(query) : _loadBrowse,
+                child: _CategorySelector(
+                  categories: _visibleCategories,
+                  selectedType: _selectedType,
+                  onSelected: _selectType,
                 ),
-              )
-            else if (showingSearch)
-              ..._buildResults(query)
-            else
-              ..._buildBrowse(),
-          ],
+              ),
+              if (_errorMessage != null)
+                SliverToBoxAdapter(
+                  child: _ErrorState(
+                    message: _errorMessage!,
+                    onRetry: showingSearch ? () => _submit(query) : _loadBrowse,
+                  ),
+                )
+              else if (showingSearch)
+                ..._buildResults(query)
+              else
+                ..._buildBrowse(),
+            ],
+          ),
         ),
       ),
     );
@@ -481,6 +511,10 @@ class _SearchScreenState extends State<SearchScreen> {
           ),
         ),
       ),
+      if (_isBrowsing && browse.isNotEmpty)
+        const SliverToBoxAdapter(
+          child: LinearProgressIndicator(minHeight: 2),
+        ),
       if (_isBrowsing && browse.isEmpty)
         const SliverToBoxAdapter(
           child: Padding(
@@ -527,7 +561,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   List<Widget> _buildResults(String query) {
-    if (_isSearching) {
+    if (_isSearching && _remoteResults.isEmpty) {
       return const [
         SliverToBoxAdapter(
           child: Padding(
@@ -553,6 +587,10 @@ class _SearchScreenState extends State<SearchScreen> {
       ];
     }
     return [
+      if (_isSearching)
+        const SliverToBoxAdapter(
+          child: LinearProgressIndicator(minHeight: 2),
+        ),
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
         sliver: SliverToBoxAdapter(

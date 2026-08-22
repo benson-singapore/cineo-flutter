@@ -29,6 +29,7 @@ Widget _subject({
   required List<MediaItem> items,
   required HomeRailSeeAllCallback onSeeAll,
   List<String> selectedSourceCategoryIds = const [],
+  Future<void> Function()? onRefresh,
 }) {
   return MaterialApp(
     theme: buildCineoTheme(),
@@ -38,6 +39,7 @@ Widget _subject({
       onOpenMedia: (_) {},
       selectedSourceCategoryIds: selectedSourceCategoryIds,
       onSeeAll: onSeeAll,
+      onRefresh: onRefresh,
     ),
   );
 }
@@ -99,5 +101,24 @@ void main() {
     await tester.tap(find.byTooltip('查看全部为你推荐').first);
 
     expect(categoryIds, ['tid-series', 'tid-b']);
+  });
+
+  testWidgets('pulling down refreshes while keeping loaded content visible',
+      (tester) async {
+    var refreshCount = 0;
+    await tester.pumpWidget(
+      _subject(
+        items: [_media('1', '已缓存内容')],
+        onSeeAll: (_, __, ___) {},
+        onRefresh: () async => refreshCount++,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 420));
+    await tester.pumpAndSettle();
+
+    expect(refreshCount, 1);
+    expect(find.text('已缓存内容'), findsWidgets);
   });
 }

@@ -20,8 +20,10 @@ class HomeScreen extends StatelessWidget {
     required this.continueWatching,
     required this.onOpenMedia,
     this.isLoading = false,
+    this.isRefreshing = false,
     this.errorMessage,
     this.onRetry,
+    this.onRefresh,
     this.progressByMediaId = const {},
     this.categories = const [],
     this.selectedCategory = UnifiedMediaType.all,
@@ -34,8 +36,10 @@ class HomeScreen extends StatelessWidget {
   final List<MediaItem> continueWatching;
   final ValueChanged<MediaItem> onOpenMedia;
   final bool isLoading;
+  final bool isRefreshing;
   final String? errorMessage;
   final VoidCallback? onRetry;
+  final Future<void> Function()? onRefresh;
   final Map<String, double> progressByMediaId;
   final List<UnifiedCategory> categories;
   final UnifiedMediaType selectedCategory;
@@ -51,58 +55,68 @@ class HomeScreen extends StatelessWidget {
       backgroundColor: CineoColors.background,
       body: SafeArea(
         bottom: false,
-        child: CustomScrollView(
-          physics: const BouncingScrollPhysics(),
-          slivers: [
-            _buildTopBar(context),
-            if (state != null)
-              ContentStateView(
-                state: state,
-                message: errorMessage,
-                onRetry: onRetry,
-              )
-            else ...[
-              SliverToBoxAdapter(
-                  child: _HeroBanner(media: items.first, onTap: onOpenMedia)),
-              if (categories.length > 1)
+        child: RefreshIndicator(
+          onRefresh: onRefresh ?? () async {},
+          child: CustomScrollView(
+            key: const PageStorageKey('cineo-home-scroll'),
+            physics: const AlwaysScrollableScrollPhysics(
+              parent: BouncingScrollPhysics(),
+            ),
+            slivers: [
+              _buildTopBar(context),
+              if (isRefreshing)
+                const SliverToBoxAdapter(
+                  child: LinearProgressIndicator(minHeight: 2),
+                ),
+              if (state != null)
+                ContentStateView(
+                  state: state,
+                  message: errorMessage,
+                  onRetry: onRetry,
+                )
+              else ...[
                 SliverToBoxAdapter(
-                  child: _CategoryStrip(
-                    categories: categories,
-                    selected: selectedCategory,
-                    onSelected: onCategorySelected,
+                    child: _HeroBanner(media: items.first, onTap: onOpenMedia)),
+                if (categories.length > 1)
+                  SliverToBoxAdapter(
+                    child: _CategoryStrip(
+                      categories: categories,
+                      selected: selectedCategory,
+                      onSelected: onCategorySelected,
+                    ),
                   ),
-                ),
-              if (continueWatching.isNotEmpty)
+                if (continueWatching.isNotEmpty)
+                  MediaRail(
+                    title: '继续观看',
+                    items: continueWatching,
+                    progressByMediaId: progressByMediaId,
+                    onOpenMedia: onOpenMedia,
+                  ),
                 MediaRail(
-                  title: '继续观看',
-                  items: continueWatching,
-                  progressByMediaId: progressByMediaId,
+                  title: '为你推荐',
+                  items: items,
                   onOpenMedia: onOpenMedia,
+                  showDescription: true,
+                  onSeeAll: onSeeAll == null
+                      ? null
+                      : () => _notifySeeAll(
+                            '为你推荐',
+                            items,
+                            _selectedCategoryIds,
+                          ),
                 ),
-              MediaRail(
-                title: '为你推荐',
-                items: items,
-                onOpenMedia: onOpenMedia,
-                showDescription: true,
-                onSeeAll: onSeeAll == null
-                    ? null
-                    : () => _notifySeeAll(
-                          '为你推荐',
-                          items,
-                          _selectedCategoryIds,
-                        ),
-              ),
-              ..._categoryRails(),
-              const SliverToBoxAdapter(child: SizedBox(height: 40)),
+                ..._categoryRails(),
+                const SliverToBoxAdapter(child: SizedBox(height: 40)),
+              ],
             ],
-          ],
+          ),
         ),
       ),
     );
   }
 
   ContentState? get _contentState {
-    if (isLoading) return ContentState.loading;
+    if (isLoading && items.isEmpty) return ContentState.loading;
     if (errorMessage != null) return ContentState.error;
     if (items.isEmpty) return ContentState.empty;
     return null;

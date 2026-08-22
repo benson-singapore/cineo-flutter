@@ -258,6 +258,36 @@ void main() {
     expect(find.text('重复'), findsOneWidget);
   });
 
+  testWidgets(
+      'pulling down refreshes the current library page without blanking it',
+      (tester) async {
+    var calls = 0;
+    await tester.pumpWidget(
+      buildSubject(
+        items: const [],
+        onBrowse: (_, page) async {
+          calls++;
+          return PagedMedia(
+            items: [media('缓存内容')],
+            page: page,
+            pageCount: 1,
+            total: 1,
+            limit: 1,
+            hasMore: false,
+          );
+        },
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    expect(find.text('缓存内容'), findsOneWidget);
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 420));
+    await tester.pumpAndSettle();
+    expect(calls, 2);
+    expect(find.text('缓存内容'), findsOneWidget);
+  });
+
   testWidgets('library mode hides keyword search and history', (tester) async {
     await tester.pumpWidget(
       buildSubject(
