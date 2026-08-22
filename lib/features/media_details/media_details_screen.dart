@@ -16,7 +16,7 @@ class MediaDetailsScreen extends StatefulWidget {
     required this.onPlay,
     this.initialEpisodeId,
     this.onSearchOtherSources,
-    this.onOpenAlternative,
+    this.onLoadAlternative,
     this.onLoadTmdbDetails,
     this.onSearchTmdbMatches,
     this.onSelectTmdbMatch,
@@ -24,11 +24,11 @@ class MediaDetailsScreen extends StatefulWidget {
 
   final MediaItem media;
   final bool favorite;
-  final ValueChanged<bool> onFavoriteChanged;
-  final ValueChanged<PlaybackOption> onPlay;
+  final void Function(MediaItem media, bool isFavorite) onFavoriteChanged;
+  final void Function(MediaItem media, PlaybackOption option) onPlay;
   final String? initialEpisodeId;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
-  final ValueChanged<MediaItem>? onOpenAlternative;
+  final Future<MediaItem?> Function(MediaItem media)? onLoadAlternative;
   final Future<TmdbMediaDetails?> Function(MediaItem media)? onLoadTmdbDetails;
   final Future<List<TmdbMediaMatch>> Function(
       String query, TmdbMediaType? type, int? year)? onSearchTmdbMatches;
@@ -41,13 +41,14 @@ class MediaDetailsScreen extends StatefulWidget {
 
 class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   late bool _favorite = widget.favorite;
+  late MediaItem _media = widget.media;
   String? _selectedSourceName;
   bool _searchingOtherSources = false;
   TmdbMediaDetails? _tmdbDetails;
   bool _tmdbLoading = false;
   int? _selectedSeason;
 
-  List<PlaybackOption> get _options => widget.media.playbackOptions;
+  List<PlaybackOption> get _options => _media.playbackOptions;
 
   List<PlaybackOption> get _sourceOptions {
     final seen = <String>{};
@@ -63,11 +64,11 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       .toList();
 
   List<Episode> get _activeEpisodes {
-    final episodesWithLines = widget.media.episodes
+    final episodesWithLines = _media.episodes
         .where((episode) => episode.playbackOption != null)
         .toList();
     final episodes = episodesWithLines.isEmpty
-        ? widget.media.episodes.toList()
+        ? _media.episodes.toList()
         : episodesWithLines;
 
     final activeName = _activeSourceName;
@@ -84,7 +85,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
 
   List<int> get _sourceSeasons {
     final activeName = _activeSourceName;
-    final sourceEpisodes = widget.media.episodes.where((episode) {
+    final sourceEpisodes = _media.episodes.where((episode) {
       final option = episode.playbackOption;
       return option == null ||
           activeName == null ||
@@ -97,31 +98,31 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
 
   String get _displayTitle => _tmdbDetails?.title.trim().isNotEmpty == true
       ? _tmdbDetails!.title
-      : widget.media.title;
+      : _media.title;
 
   String get _displayDescription =>
       _tmdbDetails?.overview.trim().isNotEmpty == true
           ? _tmdbDetails!.overview
-          : widget.media.description;
+          : _media.description;
 
   String get _displayBackdrop {
     final tmdb = _tmdbDetails?.backdropUrl.trim() ?? '';
     if (tmdb.isNotEmpty) return tmdb;
-    final source = widget.media.backdropUrl.trim();
-    return source.isNotEmpty ? source : widget.media.posterUrl;
+    final source = _media.backdropUrl.trim();
+    return source.isNotEmpty ? source : _media.posterUrl;
   }
 
   double get _displayRating => (_tmdbDetails?.rating ?? 0) > 0
       ? _tmdbDetails!.rating
-      : widget.media.rating;
+      : _media.rating;
 
-  int get _displayYear => _tmdbDetails?.year ?? widget.media.year;
+  int get _displayYear => _tmdbDetails?.year ?? _media.year;
 
   String? get _displayRuntime {
     final minutes = _tmdbDetails?.runtime;
     if ((minutes ?? 0) > 0) return '$minutes 分钟';
-    if (widget.media.duration.inMinutes > 0) {
-      return '${widget.media.duration.inMinutes} 分钟';
+    if (_media.duration.inMinutes > 0) {
+      return '${_media.duration.inMinutes} 分钟';
     }
     return null;
   }
@@ -159,7 +160,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     super.initState();
     final initialEpisodeId = widget.initialEpisodeId;
     if (initialEpisodeId != null) {
-      for (final episode in widget.media.episodes) {
+      for (final episode in _media.episodes) {
         final option = episode.playbackOption;
         if (episode.id == initialEpisodeId || option?.id == initialEpisodeId) {
           _selectedSeason = episode.season > 0 ? episode.season : null;
@@ -179,7 +180,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     if (loader == null) return;
     setState(() => _tmdbLoading = true);
     try {
-      final details = await loader(widget.media);
+      final details = await loader(_media);
       if (!mounted) return;
       setState(() {
         _tmdbDetails = details;
@@ -208,7 +209,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       builder: (_) => _ManualTmdbMatchDialog(
         initialQuery: _displayTitle,
         initialYear: _displayYear > 0 ? _displayYear : null,
-        initialType: widget.media.kind == MediaKind.series
+        initialType: _media.kind == MediaKind.series
             ? TmdbMediaType.tv
             : TmdbMediaType.movie,
         onSearch: search,
@@ -249,7 +250,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
 
   @override
   Widget build(BuildContext context) {
-    final media = widget.media;
+    final media = _media;
     return Scaffold(
       backgroundColor: CineoColors.background,
       body: CustomScrollView(
@@ -274,7 +275,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                 tooltip: _favorite ? '取消收藏' : '收藏',
                 onPressed: () {
                   setState(() => _favorite = !_favorite);
-                  widget.onFavoriteChanged(_favorite);
+                  widget.onFavoriteChanged(_media, _favorite);
                 },
                 icon: Icon(_favorite
                     ? Icons.favorite_rounded
@@ -441,7 +442,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           _buildEpisodePreview(context),
         ] else if (_activeOptions.isNotEmpty) ...[
           const SizedBox(height: 12),
-          _PlaybackList(options: _activeOptions, onPlay: widget.onPlay),
+          _PlaybackList(
+            options: _activeOptions,
+            onPlay: (option) => widget.onPlay(_media, option),
+          ),
         ],
         if (_tmdbDetails?.cast.isNotEmpty == true) ...[
           const SizedBox(height: 30),
@@ -494,7 +498,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                   ? tmdbEpisode!.stillUrl
                   : (_tmdbDetails?.posterUrl.trim().isNotEmpty == true
                       ? _tmdbDetails!.posterUrl
-                      : widget.media.posterUrl);
+                      : _media.posterUrl);
               return SizedBox(
                 width: 220,
                 child: InkWell(
@@ -503,7 +507,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                   onTap: episode.playbackOption == null
                       ? null
                       : () {
-                          widget.onPlay(episode.playbackOption!);
+                          widget.onPlay(_media, episode.playbackOption!);
                         },
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -562,11 +566,11 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     Navigator.of(context).push<void>(
       MaterialPageRoute(
         builder: (_) => EpisodeLibraryScreen(
-          media: widget.media,
+          media: _media,
           episodes: _activeEpisodes,
           tmdbSeason: _selectedTmdbSeason,
-          fallbackPosterUrl: widget.media.posterUrl,
-          onPlay: widget.onPlay,
+          fallbackPosterUrl: _media.posterUrl,
+          onPlay: (option) => widget.onPlay(_media, option),
         ),
       ),
     );
@@ -577,7 +581,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     if (finder == null) return;
     setState(() => _searchingOtherSources = true);
     try {
-      final matches = await finder(widget.media);
+      final matches = await finder(_media);
       if (!mounted) return;
       await showModalBottomSheet<void>(
         context: context,
@@ -585,12 +589,12 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
         isScrollControlled: true,
         backgroundColor: CineoColors.surface,
         builder: (context) => _OtherSourcesSheet(
-          matches: <MediaItem>[widget.media, ...matches],
-          activeSourceId: widget.media.sourceId,
-          onOpen: (media) {
+          matches: <MediaItem>[_media, ...matches],
+          activeSourceId: _media.sourceId,
+          onOpen: (media) async {
             Navigator.of(context).pop();
-            if (media.sourceId != widget.media.sourceId) {
-              widget.onOpenAlternative?.call(media);
+            if (media.sourceId != _media.sourceId) {
+              await _switchAlternative(media);
             }
           },
         ),
@@ -600,6 +604,34 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(content: Text('其他站点暂时无法完成搜索')),
       );
+    } finally {
+      if (mounted) setState(() => _searchingOtherSources = false);
+    }
+  }
+
+  Future<void> _switchAlternative(MediaItem alternative) async {
+    final loader = widget.onLoadAlternative;
+    if (loader == null) return;
+    final messenger = ScaffoldMessenger.of(context);
+    setState(() => _searchingOtherSources = true);
+    try {
+      final loaded = await loader(alternative);
+      if (!mounted || loaded == null) return;
+      setState(() {
+        _media = loaded;
+        _selectedSourceName = null;
+        final seasons = _sourceSeasons;
+        _selectedSeason = seasons.isEmpty ? null : seasons.first;
+      });
+      messenger.showSnackBar(
+        SnackBar(content: Text('已切换到${_siteDisplayName(loaded)}')),
+      );
+    } catch (_) {
+      if (mounted) {
+        messenger.showSnackBar(
+          const SnackBar(content: Text('切换资源站失败，请稍后重试')),
+        );
+      }
     } finally {
       if (mounted) setState(() => _searchingOtherSources = false);
     }

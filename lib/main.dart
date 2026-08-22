@@ -273,11 +273,12 @@ class _CineoShellState extends State<CineoShell> {
           media: resolvedMedia,
           initialEpisodeId: recentEpisodeId.isEmpty ? null : recentEpisodeId,
           favorite: favorite,
-          onFavoriteChanged: (isFavorite) {
-            unawaited(widget.repository.setFavorite(resolvedMedia, isFavorite));
+          onFavoriteChanged: (favoriteMedia, isFavorite) {
+            unawaited(widget.repository.setFavorite(favoriteMedia, isFavorite));
             unawaited(_refresh());
           },
-          onPlay: (option) => unawaited(_openPlayer(resolvedMedia, option)),
+          onPlay: (playingMedia, option) =>
+              unawaited(_openPlayer(playingMedia, option)),
           onLoadTmdbDetails: _loadTmdbDetails,
           onSearchTmdbMatches: _searchTmdbMatches,
           onSelectTmdbMatch: (match) => _selectTmdbMatch(resolvedMedia, match),
@@ -285,15 +286,9 @@ class _CineoShellState extends State<CineoShell> {
             item,
             includeAdult: widget.adultSourceSettings.showAdultSources,
           ),
-          onOpenAlternative: (alternative) async {
+          onLoadAlternative: (alternative) async {
             await widget.repository.savePreferredSource(anchor, alternative);
-            if (!mounted) return;
-            Navigator.of(context).pop();
-            unawaited(_openMedia(
-              alternative,
-              preferenceAnchor: anchor,
-              skipPreferredSource: true,
-            ));
+            return _resolveMediaDetails(alternative);
           },
         ),
       ),
@@ -426,8 +421,17 @@ class _CineoShellState extends State<CineoShell> {
           onPictureInPicture: _pictureInPictureAvailable
               ? () => unawaited(_enterPictureInPicture())
               : null,
-          onProgressChanged: (progress) =>
-              unawaited(widget.repository.saveProgress(progress, media: media)),
+          onProgressChanged: (playingMedia, progress) => unawaited(
+            widget.repository.saveProgress(progress, media: playingMedia),
+          ),
+          onSearchOtherSources: (item) => widget.repository.searchOtherSources(
+            item,
+            includeAdult: widget.adultSourceSettings.showAdultSources,
+          ),
+          onLoadAlternative: (alternative) async {
+            await widget.repository.savePreferredSource(media, alternative);
+            return _resolveMediaDetails(alternative);
+          },
         ),
       ),
     );

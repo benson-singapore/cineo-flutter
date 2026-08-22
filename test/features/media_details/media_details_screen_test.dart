@@ -85,8 +85,8 @@ void main() {
       home: MediaDetailsScreen(
         media: buildSeries(description: description),
         favorite: false,
-        onFavoriteChanged: (_) {},
-        onPlay: onPlay ?? (_) {},
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, option) => (onPlay ?? (_) {})(option),
       ),
     );
   }
@@ -209,17 +209,20 @@ void main() {
       duration: Duration(minutes: 40),
       category: '韩国剧',
     );
-    MediaItem? selected;
+    MediaItem? loaded;
 
     await tester.pumpWidget(MaterialApp(
       theme: buildCineoTheme(),
       home: MediaDetailsScreen(
         media: current,
         favorite: false,
-        onFavoriteChanged: (_) {},
-        onPlay: (_) {},
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
         onSearchOtherSources: (_) async => [alternative],
-        onOpenAlternative: (media) => selected = media,
+        onLoadAlternative: (media) async {
+          loaded = media;
+          return media;
+        },
       ),
     ));
     await tester.pump();
@@ -239,8 +242,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    expect(selected?.sourceId, 'site-2');
+    expect(loaded?.sourceId, 'site-2');
     expect(find.text('选择资源站'), findsNothing);
+    expect(find.text('如意资源站'), findsOneWidget);
   });
 
   test('formats inconsistent source episode labels', () {
@@ -358,8 +362,8 @@ void main() {
       home: MediaDetailsScreen(
         media: buildSeries(),
         favorite: false,
-        onFavoriteChanged: (_) {},
-        onPlay: (_) {},
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
         onLoadTmdbDetails: (_) async => tmdb,
       ),
     ));
@@ -387,8 +391,8 @@ void main() {
       home: MediaDetailsScreen(
         media: buildSeries(),
         favorite: false,
-        onFavoriteChanged: (_) {},
-        onPlay: (_) {},
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
         onLoadTmdbDetails: (_) async => throw StateError('offline'),
       ),
     ));
@@ -433,8 +437,8 @@ void main() {
       home: MediaDetailsScreen(
         media: buildSeries(),
         favorite: false,
-        onFavoriteChanged: (_) {},
-        onPlay: (_) {},
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
         onSearchTmdbMatches: (value, valueType, valueYear) async {
           query = value;
           type = valueType;

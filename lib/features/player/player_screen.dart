@@ -49,12 +49,15 @@ class PlayerScreen extends StatefulWidget {
     this.initialPositionForEpisode,
     this.onPictureInPicture,
     this.pictureInPictureAvailable = false,
+    this.onSearchOtherSources,
+    this.onLoadAlternative,
   });
 
   final MediaItem media;
   final PlaybackOption option;
   final Duration initialPosition;
-  final ValueChanged<WatchProgress> onProgressChanged;
+  final void Function(MediaItem media, WatchProgress progress)
+      onProgressChanged;
   final String? episodeId;
 
   /// Options from the currently selected playback line, in episode order.
@@ -72,6 +75,8 @@ class PlayerScreen extends StatefulWidget {
   /// not expose a portable Flutter PiP API.
   final VoidCallback? onPictureInPicture;
   final bool pictureInPictureAvailable;
+  final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
+  final Future<MediaItem?> Function(MediaItem media)? onLoadAlternative;
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -80,6 +85,7 @@ class PlayerScreen extends StatefulWidget {
 class _PlayerScreenState extends State<PlayerScreen> {
   VideoPlayerController? _controller;
   PlaybackOption? _activeOption;
+  late MediaItem _media = widget.media;
   Timer? _saveTimer;
   String? _error;
   bool _controlsVisible = true;
@@ -87,14 +93,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool? _lastIsPlaying;
   int _loadGeneration = 0;
   _PlayerOrientation _orientation = _PlayerOrientation.portrait;
+  bool _searchingOtherSources = false;
 
   List<PlaybackOption> get _episodes {
-    final options = <PlaybackOption>[...widget.episodes];
-    if (!options.any((option) => option.id == widget.option.id)) {
-      options.insert(0, widget.option);
-    }
+    final activeQuality = _activeOption?.quality ?? widget.option.quality;
+    final options = _media.playbackOptions
+        .where((option) => option.quality == activeQuality)
+        .toList(growable: false);
+    final resolved = options.isEmpty
+        ? <PlaybackOption>[..._media.playbackOptions]
+        : <PlaybackOption>[...options];
+    if (resolved.isEmpty) resolved.add(widget.option);
     final seen = <String>{};
-    return options
+    return resolved
         .where((option) => seen.add(option.id))
         .toList(growable: false);
   }
@@ -130,12 +141,15 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return Duration.zero;
   }
 
-  Future<void> _loadOption(PlaybackOption option,
-      {bool initial = false}) async {
+  Future<void> _loadOption(
+    PlaybackOption option, {
+    bool initial = false,
+    bool savePrevious = true,
+  }) async {
     final generation = ++_loadGeneration;
     final previousController = _controller;
     if (previousController != null) {
-      _save();
+      if (savePrevious) _save();
       _controller = null;
       previousController.removeListener(_onControllerChanged);
       await previousController.dispose();
@@ -192,8 +206,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
         !controller.value.isInitialized) {
       return;
     }
-    widget.onProgressChanged(WatchProgress(
-      mediaId: widget.media.id,
+    widget.onProgressChanged(_media, WatchProgress(
+      mediaId: _media.id,
       // A newly selected option must write under its own id; otherwise a
       // caller's initial episodeId would make every switched episode share
       // one history record.
@@ -252,6 +266,74 @@ class _PlayerScreenState extends State<PlayerScreen> {
         },
       ),
     );
+  }
+
+  Future<void> _openSourcePanel() async {
+    final finder = widget.onSearchOtherSources;
+    final loader = widget.onLoadAlternative;
+    if (finder == null || loader == null || _searchingOtherSources) return;
+    setState(() => _searchingOtherSources = true);
+    try {
+      final matches = await finder(_media);
+      if (!mounted) return;
+      final selected = await showModalBottomSheet<MediaItem>(
+        context: context,
+        showDragHandle: true,
+        isScrollControlled: true,
+        backgroundColor: CineoColors.surface,
+        builder: (context) => _PlayerSourceSheet(
+          matches: <MediaItem>[_media, ...matches],
+          activeSourceId: _media.sourceId,
+        ),
+      );
+      if (selected == null || selected.sourceId == _media.sourceId || !mounted) {
+        return;
+      }
+      await _switchSource(selected, loader);
+    } catch (_) {
+      _showMessage('其他站点暂时无法完成搜索');
+    } finally {
+      if (mounted) setState(() => _searchingOtherSources = false);
+    }
+  }
+
+  Future<void> _switchSource(
+    MediaItem alternative,
+    Future<MediaItem?> Function(MediaItem media) loader,
+  ) async {
+    _save();
+    final loaded = await loader(alternative);
+    if (!mounted || loaded == null) {
+      _showMessage('切换资源站失败，请稍后重试');
+      return;
+    }
+    final option = _matchingOption(loaded, _activeOption) ??
+        loaded.playbackOptions.firstOrNull;
+    if (option == null) {
+      _showMessage('该资源站暂无可播放剧集');
+      return;
+    }
+    setState(() => _media = loaded);
+    await _loadOption(option, savePrevious: false);
+    if (mounted) _showMessage('已切换到${loaded.sourceName ?? '其他资源站'}');
+  }
+
+  PlaybackOption? _matchingOption(
+    MediaItem media,
+    PlaybackOption? current,
+  ) {
+    if (current == null) return null;
+    final currentNumber = _episodeNumber(current);
+    if (currentNumber == null) return null;
+    for (final option in media.playbackOptions) {
+      if (_episodeNumber(option) == currentNumber) return option;
+    }
+    return null;
+  }
+
+  int? _episodeNumber(PlaybackOption option) {
+    final match = RegExp(r'第\s*0*(\d+)\s*集').firstMatch(option.label);
+    return int.tryParse(match?.group(1) ?? '');
   }
 
   Future<void> _openInExternalBrowser() async {
@@ -348,7 +430,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                   opacity: _controlsVisible ? 1 : 0,
                   child: _PlayerControls(
                     controller: controller,
-                    title: widget.media.title,
+                    title: _media.title,
                     isPlaying: value!.isPlaying,
                     speed: _playbackSpeed,
                     canGoPrevious: _currentEpisodeIndex > 0,
@@ -363,6 +445,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     onNext: () => _selectRelativeEpisode(1),
                     onSpeedChanged: _setPlaybackSpeed,
                     onOpenEpisodes: _openEpisodePanel,
+                    canSwitchSource: widget.onSearchOtherSources != null &&
+                        widget.onLoadAlternative != null,
+                    isSwitchingSource: _searchingOtherSources,
+                    onOpenSource: _openSourcePanel,
                     isLandscape: _orientation == _PlayerOrientation.landscape,
                     onOpenInBrowser: _openInExternalBrowser,
                     onToggleOrientation: _toggleOrientation,
@@ -393,6 +479,130 @@ class _EpisodeBottomSheet extends StatefulWidget {
 
   @override
   State<_EpisodeBottomSheet> createState() => _EpisodeBottomSheetState();
+}
+
+class _PlayerSourceSheet extends StatelessWidget {
+  const _PlayerSourceSheet({
+    required this.matches,
+    required this.activeSourceId,
+  });
+
+  final List<MediaItem> matches;
+  final String? activeSourceId;
+
+  @override
+  Widget build(BuildContext context) {
+    final sites = <String, MediaItem>{};
+    for (final media in matches) {
+      final sourceId = media.sourceId?.trim() ?? '';
+      if (sourceId.isNotEmpty) sites.putIfAbsent(sourceId, () => media);
+    }
+    final ordered = sites.values.toList()
+      ..sort((left, right) {
+        if (left.sourceId == activeSourceId) return -1;
+        if (right.sourceId == activeSourceId) return 1;
+        return 0;
+      });
+    return SizedBox(
+      height: MediaQuery.sizeOf(context).height * .68,
+      child: SafeArea(
+        top: false,
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+              child: Text(
+                '切换资源站',
+                style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                      fontWeight: FontWeight.w800,
+                    ),
+              ),
+            ),
+            const Padding(
+              padding: EdgeInsets.fromLTRB(20, 0, 20, 14),
+              child: Text(
+                '将自动定位到相同集数；目标源未提供时播放其第一集。',
+                style: TextStyle(color: CineoColors.textSecondary),
+              ),
+            ),
+            Expanded(
+              child: ListView.separated(
+                padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
+                itemCount: ordered.length,
+                separatorBuilder: (_, __) => const SizedBox(height: 10),
+                itemBuilder: (context, index) {
+                  final media = ordered[index];
+                  final selected = media.sourceId == activeSourceId;
+                  final sourceName = media.sourceName?.trim().isNotEmpty == true
+                      ? media.sourceName!.trim()
+                      : '资源站';
+                  return Material(
+                    color: selected
+                        ? CineoColors.primaryContainer
+                        : CineoColors.surfaceElevated,
+                    borderRadius: BorderRadius.circular(10),
+                    child: InkWell(
+                      key: ValueKey('player-media-site-${media.sourceId}'),
+                      borderRadius: BorderRadius.circular(10),
+                      onTap: () => Navigator.of(context).pop(media),
+                      child: Padding(
+                        padding: const EdgeInsets.all(14),
+                        child: Row(
+                          children: [
+                            Icon(
+                              selected
+                                  ? Icons.check_circle_rounded
+                                  : Icons.video_library_outlined,
+                              color: selected
+                                  ? CineoColors.primary
+                                  : CineoColors.textSecondary,
+                            ),
+                            const SizedBox(width: 12),
+                            Expanded(
+                              child: Column(
+                                crossAxisAlignment: CrossAxisAlignment.start,
+                                children: [
+                                  Text(
+                                    sourceName,
+                                    style: const TextStyle(
+                                      fontWeight: FontWeight.w800,
+                                    ),
+                                  ),
+                                  const SizedBox(height: 3),
+                                  Text(
+                                    media.title,
+                                    maxLines: 1,
+                                    overflow: TextOverflow.ellipsis,
+                                    style: const TextStyle(
+                                      color: CineoColors.textSecondary,
+                                      fontSize: 13,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            Icon(
+                              selected
+                                  ? Icons.check_rounded
+                                  : Icons.chevron_right_rounded,
+                              color: selected
+                                  ? CineoColors.primary
+                                  : CineoColors.textSecondary,
+                            ),
+                          ],
+                        ),
+                      ),
+                    ),
+                  );
+                },
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 class _EpisodeBottomSheetState extends State<_EpisodeBottomSheet> {
@@ -630,6 +840,9 @@ class _PlayerControls extends StatelessWidget {
     required this.onNext,
     required this.onSpeedChanged,
     required this.onOpenEpisodes,
+    required this.canSwitchSource,
+    required this.isSwitchingSource,
+    required this.onOpenSource,
     required this.isLandscape,
     required this.onOpenInBrowser,
     required this.onToggleOrientation,
@@ -650,6 +863,9 @@ class _PlayerControls extends StatelessWidget {
   final VoidCallback onNext;
   final ValueChanged<double> onSpeedChanged;
   final VoidCallback onOpenEpisodes;
+  final bool canSwitchSource;
+  final bool isSwitchingSource;
+  final VoidCallback onOpenSource;
   final bool isLandscape;
   final VoidCallback onOpenInBrowser;
   final VoidCallback onToggleOrientation;
@@ -694,6 +910,18 @@ class _PlayerControls extends StatelessWidget {
                     onPressed: onOpenInBrowser,
                     icon: const Icon(Icons.open_in_browser_rounded),
                   ),
+                  if (canSwitchSource)
+                    IconButton(
+                      tooltip: '切换资源站',
+                      onPressed: isSwitchingSource ? null : onOpenSource,
+                      icon: isSwitchingSource
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(strokeWidth: 2),
+                            )
+                          : const Icon(Icons.switch_video_rounded),
+                    ),
                   IconButton(
                     tooltip: isLandscape ? '竖屏播放' : '横屏播放',
                     onPressed: onToggleOrientation,
