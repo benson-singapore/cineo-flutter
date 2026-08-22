@@ -47,6 +47,15 @@ String playbackUrlForOption(
   return buildM3u8FilterUrl(filterConfig.template, option.url);
 }
 
+List<String> playbackUrlCandidatesForOption(
+  PlaybackOption option,
+  M3u8FilterConfig? filterConfig,
+) {
+  final filteredUrl = playbackUrlForOption(option, filterConfig);
+  if (filteredUrl == option.url) return <String>[option.url];
+  return <String>[filteredUrl, option.url];
+}
+
 VideoFormat? playbackFormatHintForOption(PlaybackOption option) {
   final isM3u8 = option.isHls || option.url.toLowerCase().contains('.m3u8');
   return isM3u8 ? VideoFormat.hls : null;
@@ -176,72 +185,89 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     if (!mounted || generation != _loadGeneration) return;
 
-    final playbackUrl = playbackUrlForOption(
+    final playbackUrls = playbackUrlCandidatesForOption(
       option,
       widget.m3u8FilterSettings?.activeConfig,
     );
     assert(() {
-      debugPrint('[Cineo][Player] load url=$playbackUrl');
+      debugPrint('[Cineo][Player] load urls=$playbackUrls');
       return true;
     }());
     _activeOption = option;
     _lastIsPlaying = null;
     _error = null;
 
-    for (var attempt = 1;
-        attempt <= _maxPlaybackInitializationAttempts;
-        attempt++) {
-      if (!mounted || generation != _loadGeneration) return;
+    for (var urlIndex = 0; urlIndex < playbackUrls.length; urlIndex++) {
+      final playbackUrl = playbackUrls[urlIndex];
+      final attempts = urlIndex == 0 && playbackUrls.length > 1
+          ? _maxPlaybackInitializationAttempts
+          : 1;
 
-      final controller = VideoPlayerController.networkUrl(
-        Uri.parse(playbackUrl),
-        formatHint: playbackFormatHintForOption(option),
-      );
-      _controller = controller;
-      if (mounted) setState(() {});
-      controller.addListener(_onControllerChanged);
+      for (var attempt = 1; attempt <= attempts; attempt++) {
+        if (!mounted || generation != _loadGeneration) return;
 
-      try {
-        await controller.initialize();
-        if (!mounted || generation != _loadGeneration) {
-          controller.removeListener(_onControllerChanged);
-          await controller.dispose();
-          return;
-        }
-
-        final requestedPosition = _positionFor(option, initial: initial);
-        if (requestedPosition > Duration.zero) {
-          final maxPosition = controller.value.duration;
-          await controller.seekTo(
-            requestedPosition > maxPosition ? maxPosition : requestedPosition,
-          );
-        }
-        await controller.setPlaybackSpeed(_playbackSpeed);
-        await controller.play();
-        _saveTimer ??=
-            Timer.periodic(const Duration(seconds: 10), (_) => _save());
+        final controller = VideoPlayerController.networkUrl(
+          Uri.parse(playbackUrl),
+          formatHint: playbackFormatHintForOption(option),
+        );
+        _controller = controller;
         if (mounted) setState(() {});
-        return;
-      } catch (error) {
-        controller.removeListener(_onControllerChanged);
-        if (identical(_controller, controller)) _controller = null;
-        await controller.dispose();
+        controller.addListener(_onControllerChanged);
 
+        try {
+          await controller.initialize();
+          if (!mounted || generation != _loadGeneration) {
+            controller.removeListener(_onControllerChanged);
+            await controller.dispose();
+            return;
+          }
+
+          final requestedPosition = _positionFor(option, initial: initial);
+          if (requestedPosition > Duration.zero) {
+            final maxPosition = controller.value.duration;
+            await controller.seekTo(
+              requestedPosition > maxPosition ? maxPosition : requestedPosition,
+            );
+          }
+          await controller.setPlaybackSpeed(_playbackSpeed);
+          await controller.play();
+          _saveTimer ??=
+              Timer.periodic(const Duration(seconds: 10), (_) => _save());
+          if (mounted) setState(() {});
+          return;
+        } catch (error) {
+          controller.removeListener(_onControllerChanged);
+          if (identical(_controller, controller)) _controller = null;
+          await controller.dispose();
+
+          assert(() {
+            debugPrint(
+              '[Cineo][Player] initialize_failed urlIndex=${urlIndex + 1}/'
+              '${playbackUrls.length} attempt=$attempt/$attempts error=$error',
+            );
+            return true;
+          }());
+
+          if (!mounted || generation != _loadGeneration) return;
+          if (attempt < attempts) {
+            await Future<void>.delayed(_playbackRetryDelay);
+          }
+        }
+      }
+
+      if (urlIndex < playbackUrls.length - 1) {
         assert(() {
           debugPrint(
-            '[Cineo][Player] initialize_failed attempt=$attempt/'
-            '$_maxPlaybackInitializationAttempts error=$error',
+            '[Cineo][Player] fallback_to_original_url '
+            'after_filtered_url_failed',
           );
           return true;
         }());
-
-        if (!mounted || generation != _loadGeneration) return;
-        if (attempt == _maxPlaybackInitializationAttempts) {
-          setState(() => _error = '此播放地址暂时无法播放');
-          return;
-        }
-        await Future<void>.delayed(_playbackRetryDelay);
       }
+    }
+
+    if (mounted && generation == _loadGeneration) {
+      setState(() => _error = '此播放地址暂时无法播放');
     }
   }
 

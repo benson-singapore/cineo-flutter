@@ -52,7 +52,15 @@ void main() {
         playbackUrlForOption(hls, filter),
         contains('https://example.com/hls.m3u8'),
       );
+      expect(
+        playbackUrlCandidatesForOption(hls, filter),
+        <String>[
+          'https://filter.example.test/proxy?url=https://example.com/hls.m3u8',
+          hls.url,
+        ],
+      );
       expect(playbackUrlForOption(mp4, filter), mp4.url);
+      expect(playbackUrlCandidatesForOption(mp4, filter), <String>[mp4.url]);
       expect(playbackUrlForOption(hls, null), hls.url);
     });
 
