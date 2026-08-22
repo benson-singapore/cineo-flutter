@@ -130,6 +130,7 @@ void main() {
 
     expect(find.byType(SliverAppBar), findsNothing);
     expect(find.byTooltip('返回'), findsOneWidget);
+    expect(tester.getTopLeft(find.byTooltip('返回')).dx, lessThan(100));
     final poster = tester.getSize(find.byKey(const ValueKey('detail-poster')));
     expect(poster.width / poster.height, closeTo(2 / 3, .01));
   });

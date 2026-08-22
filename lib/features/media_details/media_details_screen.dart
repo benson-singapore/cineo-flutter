@@ -286,16 +286,20 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                 alignment: Alignment.center,
               ),
             ),
-            Positioned(
-              top: 12,
-              right: 12,
+            Positioned.fill(
               child: SafeArea(
                 bottom: false,
-                child: IconButton(
-                  tooltip: '返回',
-                  color: Colors.white,
-                  onPressed: () => Navigator.of(context).maybePop(),
-                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                child: Align(
+                  alignment: Alignment.topLeft,
+                  child: Padding(
+                    padding: const EdgeInsets.only(left: 12, top: 12),
+                    child: IconButton(
+                      tooltip: '返回',
+                      color: Colors.white,
+                      onPressed: () => Navigator.of(context).maybePop(),
+                      icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                    ),
+                  ),
                 ),
               ),
             ),
