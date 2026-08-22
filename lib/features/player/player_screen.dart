@@ -8,6 +8,7 @@ import 'package:video_player/video_player.dart';
 
 import '../../core/models/media.dart';
 import '../../core/theme/cineo_theme.dart';
+import '../settings/m3u8_filter_settings.dart';
 
 const List<double> supportedPlaybackSpeeds = <double>[
   0.5,
@@ -34,6 +35,20 @@ int playbackEpisodeIndex(List<PlaybackOption> episodes, String optionId) {
   return index < 0 ? 0 : index;
 }
 
+String playbackUrlForOption(
+  PlaybackOption option,
+  M3u8FilterConfig? filterConfig,
+) {
+  final isM3u8 = option.isHls || option.url.toLowerCase().contains('.m3u8');
+  if (!isM3u8 || filterConfig == null) return option.url;
+  return buildM3u8FilterUrl(filterConfig.template, option.url);
+}
+
+VideoFormat? playbackFormatHintForOption(PlaybackOption option) {
+  final isM3u8 = option.isHls || option.url.toLowerCase().contains('.m3u8');
+  return isM3u8 ? VideoFormat.hls : null;
+}
+
 enum _PlayerOrientation { portrait, landscape }
 
 class PlayerScreen extends StatefulWidget {
@@ -43,6 +58,7 @@ class PlayerScreen extends StatefulWidget {
     required this.option,
     required this.initialPosition,
     required this.onProgressChanged,
+    this.m3u8FilterSettings,
     this.episodeId,
     this.episodes = const <PlaybackOption>[],
     this.initialPositions = const <String, Duration>{},
@@ -58,6 +74,7 @@ class PlayerScreen extends StatefulWidget {
   final Duration initialPosition;
   final void Function(MediaItem media, WatchProgress progress)
       onProgressChanged;
+  final M3u8FilterSettings? m3u8FilterSettings;
   final String? episodeId;
 
   /// Options from the currently selected playback line, in episode order.
@@ -156,7 +173,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     if (!mounted || generation != _loadGeneration) return;
 
-    final controller = VideoPlayerController.networkUrl(Uri.parse(option.url));
+    final controller = VideoPlayerController.networkUrl(
+      Uri.parse(
+        playbackUrlForOption(option, widget.m3u8FilterSettings?.activeConfig),
+      ),
+      formatHint: playbackFormatHintForOption(option),
+    );
     _controller = controller;
     _activeOption = option;
     _lastIsPlaying = null;
@@ -344,7 +366,13 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _openInExternalBrowser() async {
-    final rawUrl = _activeOption?.url;
+    final option = _activeOption;
+    final rawUrl = option == null
+        ? null
+        : playbackUrlForOption(
+            option,
+            widget.m3u8FilterSettings?.activeConfig,
+          );
     final uri = rawUrl == null ? null : Uri.tryParse(rawUrl);
     if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
       _showMessage('当前播放地址不可用');

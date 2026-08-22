@@ -23,6 +23,7 @@ import 'features/profile/profile.dart';
 import 'features/search/search_screen.dart';
 import 'features/search/category_browse_screen.dart';
 import 'features/settings/adult_source_settings.dart';
+import 'features/settings/m3u8_filter_settings.dart';
 import 'features/settings/settings_screen.dart';
 import 'features/settings/tmdb_settings.dart';
 import 'features/settings/tmdb_disk_cache_controller.dart';
@@ -45,6 +46,7 @@ class CineoApp extends StatefulWidget {
 class _CineoAppState extends State<CineoApp> {
   final _appLockController = AppLockController();
   final _adultSourceSettings = AdultSourceSettings();
+  final _m3u8FilterSettings = M3u8FilterSettings();
   final _tmdbSettings = TMDBSettings();
   final _tmdbCache = TmdbDiskCache();
   final _updateService = AppUpdateService();
@@ -60,6 +62,7 @@ class _CineoAppState extends State<CineoApp> {
   void initState() {
     super.initState();
     unawaited(_adultSourceSettings.initialize());
+    unawaited(_m3u8FilterSettings.initialize());
     unawaited(_tmdbSettings.initialize());
     unawaited(_tmdbCacheController.initialize());
     unawaited(_updateService.initialize());
@@ -85,6 +88,7 @@ class _CineoAppState extends State<CineoApp> {
           repository: _repository,
           appLockController: _appLockController,
           adultSourceSettings: _adultSourceSettings,
+          m3u8FilterSettings: _m3u8FilterSettings,
           tmdbSettings: _tmdbSettings,
           tmdbMetadata: _tmdbMetadata,
           tmdbCacheController: _tmdbCacheController,
@@ -101,6 +105,7 @@ class CineoShell extends StatefulWidget {
     required this.repository,
     required this.appLockController,
     required this.adultSourceSettings,
+    required this.m3u8FilterSettings,
     required this.tmdbSettings,
     required this.tmdbMetadata,
     required this.tmdbCacheController,
@@ -110,6 +115,7 @@ class CineoShell extends StatefulWidget {
   final LocalMediaRepository repository;
   final AppLockController appLockController;
   final AdultSourceSettings adultSourceSettings;
+  final M3u8FilterSettings m3u8FilterSettings;
   final TMDBSettings tmdbSettings;
   final TmdbMetadataRepository tmdbMetadata;
   final TmdbDiskCacheController tmdbCacheController;
@@ -437,6 +443,7 @@ class _CineoShellState extends State<CineoShell> {
         builder: (_) => PlayerScreen(
           media: media,
           option: option,
+          m3u8FilterSettings: widget.m3u8FilterSettings,
           episodes: lineEpisodes,
           initialPosition: episodePositions[option.id] ?? Duration.zero,
           initialPositions: episodePositions,
@@ -563,6 +570,7 @@ class _CineoShellState extends State<CineoShell> {
         context,
         builder: (_) => SettingsScreen(
           adultSourceSettings: widget.adultSourceSettings,
+          m3u8FilterSettings: widget.m3u8FilterSettings,
           appLockController: widget.appLockController,
           tmdbSettings: widget.tmdbSettings,
           tmdbCacheController: widget.tmdbCacheController,

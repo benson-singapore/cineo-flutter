@@ -5,6 +5,8 @@ import '../../core/theme/cineo_theme.dart';
 import '../app_lock/app_lock_controller.dart';
 import '../app_lock/pin_verification_dialog.dart';
 import 'adult_source_settings.dart';
+import 'm3u8_filter_settings.dart';
+import 'm3u8_filter_settings_screen.dart';
 import 'tmdb_settings.dart';
 import 'tmdb_disk_cache_controller.dart';
 import 'tmdb_settings_screen.dart';
@@ -13,12 +15,14 @@ class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     required this.adultSourceSettings,
+    required this.m3u8FilterSettings,
     required this.tmdbSettings,
     required this.tmdbCacheController,
     this.appLockController,
   });
 
   final AdultSourceSettings adultSourceSettings;
+  final M3u8FilterSettings m3u8FilterSettings;
   final TMDBSettings tmdbSettings;
   final TmdbDiskCacheController tmdbCacheController;
   final AppLockController? appLockController;
@@ -48,9 +52,13 @@ class _SettingsScreenState extends State<SettingsScreen> {
         top: false,
         bottom: false,
         child: AnimatedBuilder(
-          animation: widget.adultSourceSettings,
+          animation: Listenable.merge([
+            widget.adultSourceSettings,
+            widget.m3u8FilterSettings,
+          ]),
           builder: (context, _) {
-            if (!widget.adultSourceSettings.initialized) {
+            if (!widget.adultSourceSettings.initialized ||
+                !widget.m3u8FilterSettings.initialized) {
               return const Center(
                 child: CircularProgressIndicator(),
               );
@@ -94,6 +102,35 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           builder: (_) => TMDBSettingsScreen(
                             settings: widget.tmdbSettings,
                             cacheController: widget.tmdbCacheController,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                ],
+                if (_matches('播放体验 m3u8 M3U8 广告 过滤 代理 视频')) ...[
+                  const _SettingsSectionLabel(title: '播放体验'),
+                  _SettingsPanel(
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
+                      leading: const _SettingsIcon(
+                        icon: Icons.filter_alt_rounded,
+                        color: Color(0xFF2AA889),
+                      ),
+                      title: const Text('M3U8 广告过滤'),
+                      subtitle: Text(
+                        widget.m3u8FilterSettings.activeConfig == null
+                            ? '配置代理后过滤 HLS 视频广告'
+                            : '已启用：${widget.m3u8FilterSettings.activeConfig!.name}',
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded,
+                          color: CineoColors.textSecondary),
+                      onTap: () => Navigator.of(context).push(
+                        adaptivePageRoute(
+                          context,
+                          builder: (_) => M3u8FilterSettingsScreen(
+                            settings: widget.m3u8FilterSettings,
                           ),
                         ),
                       ),
@@ -149,6 +186,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool get _hasMatches =>
       _matches('媒体服务 tmdb 数据增强 海报 剧集 简介') ||
+      _matches('播放体验 m3u8 M3U8 广告 过滤 代理 视频') ||
       _matches('内容访问 成人 标记 视频源 显示 隐藏 播放历史');
 
   bool _matches(String keywords) {
