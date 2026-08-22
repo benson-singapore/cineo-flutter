@@ -73,8 +73,41 @@ class _SourceListScreenState extends State<SourceListScreen> {
   }
 
   Future<void> _toggleSource(MediaSource source, bool enabled) async {
-    await widget.repository.saveSource(source.copyWith(enabled: enabled));
-    await _load();
+    try {
+      await widget.repository.saveSource(source.copyWith(enabled: enabled));
+      await _load();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('更新视频源状态失败，请稍后重试')),
+      );
+    }
+  }
+
+  Future<void> _setDefaultSource(MediaSource source) async {
+    if (!source.enabled ||
+        (source.type != MediaSourceType.macCmsApi &&
+            source.type != MediaSourceType.jsonApi)) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('仅可将已启用的 API 视频源设为默认')),
+      );
+      return;
+    }
+
+    try {
+      await widget.repository.setDefaultSource(source.id);
+      await _load();
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('已将“${source.name}”设为默认视频源')),
+      );
+    } catch (error) {
+      if (!mounted) return;
+      final message = error is StateError ? error.message : '设置默认视频源失败，请稍后重试';
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(message)),
+      );
+    }
   }
 
   Future<void> _deleteSource(MediaSource source) async {
@@ -101,12 +134,39 @@ class _SourceListScreenState extends State<SourceListScreen> {
 
   Future<void> _runTest(MediaSource source) async {
     setState(() => _testing.add(source.id));
-    final passed = await _testSource(source);
+    bool passed = false;
+    Object? error;
+    try {
+      passed = await _testSource(source);
+    } catch (testError) {
+      error = testError;
+    }
     if (!mounted) return;
     setState(() => _testing.remove(source.id));
+    await _load();
+    if (!mounted) return;
+
+    final refreshed =
+        _sources.where((item) => item.id == source.id).firstOrNull;
+    final detail = refreshed?.lastError;
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(passed ? '地址格式检查通过' : '地址检查未通过')),
+      SnackBar(
+        content: Text(
+          error != null
+              ? '连通性测试失败，请检查视频源配置'
+              : passed
+                  ? _successMessage(refreshed)
+                  : detail == null || detail.isEmpty
+                      ? '连通性测试未通过，请检查视频源配置'
+                      : '连通性测试未通过：$detail',
+        ),
+      ),
     );
+  }
+
+  String _successMessage(MediaSource? source) {
+    final latency = source?.lastLatencyMs;
+    return latency == null ? '连通性测试通过' : '连通性测试通过，耗时 ${latency}ms';
   }
 
   Future<void> _openImportDialog() async {
@@ -274,6 +334,7 @@ class _SourceListScreenState extends State<SourceListScreen> {
               onToggle: (enabled) =>
                   _toggleSource(visibleSources[index], enabled),
               onTest: () => _runTest(visibleSources[index]),
+              onSetDefault: () => _setDefaultSource(visibleSources[index]),
               onEdit: () => _openEditor(visibleSources[index]),
               onDelete: () => _deleteSource(visibleSources[index]),
             ),
@@ -290,6 +351,7 @@ class _SourceCard extends StatelessWidget {
     required this.testing,
     required this.onToggle,
     required this.onTest,
+    required this.onSetDefault,
     required this.onEdit,
     required this.onDelete,
   });
@@ -298,6 +360,7 @@ class _SourceCard extends StatelessWidget {
   final bool testing;
   final ValueChanged<bool> onToggle;
   final VoidCallback onTest;
+  final VoidCallback onSetDefault;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
 
@@ -330,8 +393,22 @@ class _SourceCard extends StatelessWidget {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Text(source.name,
-                          style: const TextStyle(fontWeight: FontWeight.w700)),
+                      Row(
+                        children: [
+                          Flexible(
+                            child: Text(
+                              source.name,
+                              overflow: TextOverflow.ellipsis,
+                              style:
+                                  const TextStyle(fontWeight: FontWeight.w700),
+                            ),
+                          ),
+                          if (source.isDefault) ...[
+                            const SizedBox(width: 8),
+                            const _DefaultSourceBadge(),
+                          ],
+                        ],
+                      ),
                       const SizedBox(height: 4),
                       Text(
                         typeLabel,
@@ -355,9 +432,26 @@ class _SourceCard extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 8),
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
+            _SourceHealthSummary(source: source),
+            const SizedBox(height: 8),
+            Wrap(
+              alignment: WrapAlignment.end,
+              spacing: 4,
+              runSpacing: 4,
               children: [
+                if (source.type == MediaSourceType.macCmsApi ||
+                    source.type == MediaSourceType.jsonApi)
+                  TextButton.icon(
+                    onPressed: source.isDefault || !source.enabled
+                        ? null
+                        : onSetDefault,
+                    icon: Icon(
+                      source.isDefault
+                          ? Icons.star
+                          : Icons.star_border_outlined,
+                    ),
+                    label: Text(source.isDefault ? '默认站点' : '设为默认'),
+                  ),
                 TextButton.icon(
                   onPressed: testing ? null : onTest,
                   icon: testing
@@ -366,7 +460,7 @@ class _SourceCard extends StatelessWidget {
                           child: CircularProgressIndicator(strokeWidth: 2),
                         )
                       : const Icon(Icons.network_check),
-                  label: const Text('测试'),
+                  label: const Text('连通性测试 / 测速'),
                 ),
                 IconButton(
                     tooltip: '编辑',
@@ -383,6 +477,77 @@ class _SourceCard extends StatelessWidget {
         ),
       ),
     );
+  }
+}
+
+class _DefaultSourceBadge extends StatelessWidget {
+  const _DefaultSourceBadge();
+
+  @override
+  Widget build(BuildContext context) {
+    final color = Theme.of(context).colorScheme.primary;
+    return DecoratedBox(
+      decoration: BoxDecoration(
+        color: color.withOpacity(0.14),
+        borderRadius: BorderRadius.circular(4),
+        border: Border.all(color: color.withOpacity(0.45)),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+        child: Text(
+          '默认',
+          style: TextStyle(
+            color: color,
+            fontSize: 11,
+            fontWeight: FontWeight.w700,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _SourceHealthSummary extends StatelessWidget {
+  const _SourceHealthSummary({required this.source});
+
+  final MediaSource source;
+
+  @override
+  Widget build(BuildContext context) {
+    final textStyle = TextStyle(color: Colors.grey.shade500, fontSize: 12);
+    final checkedAt = source.lastCheckedAt;
+    final latency = source.lastLatencyMs;
+    final hasError = source.lastError != null && source.lastError!.isNotEmpty;
+
+    if (checkedAt == null && !hasError) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Text('尚未进行连通性测试', style: textStyle),
+      );
+    }
+
+    final status = hasError ? '上次测试失败：${source.lastError}' : '上次测试通过';
+    final latencyText = latency == null ? '' : ' · ${latency}ms';
+    final checkedText =
+        checkedAt == null ? '' : ' · ${_formatCheckedAt(checkedAt)}';
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Text(
+        '$status$latencyText$checkedText',
+        maxLines: 2,
+        overflow: TextOverflow.ellipsis,
+        style: TextStyle(
+          color: hasError ? Colors.red.shade300 : textStyle.color,
+          fontSize: textStyle.fontSize,
+        ),
+      ),
+    );
+  }
+
+  String _formatCheckedAt(DateTime value) {
+    final local = value.toLocal();
+    String twoDigits(int number) => number.toString().padLeft(2, '0');
+    return '${local.month}/${local.day} ${twoDigits(local.hour)}:${twoDigits(local.minute)}';
   }
 }
 

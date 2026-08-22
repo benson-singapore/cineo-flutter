@@ -59,6 +59,8 @@ class _SourceEditorScreenState extends State<SourceEditorScreen> {
       detailUrl: existing?.detailUrl,
       isAdult: existing?.isAdult ?? false,
       cacheTtlSeconds: existing?.cacheTtlSeconds,
+      isDefault: existing?.isDefault ?? false,
+      lastLatencyMs: existing?.lastLatencyMs,
     );
     try {
       await widget.onSave(source);
