@@ -1,7 +1,7 @@
 SHELL := /bin/bash
 
 # 公开版本号；内部构建号单独维护。
-VERSION := 1.0.3
+VERSION := 1.0.4
 BUILD_NUMBER := 4
 BRANCH ?= main
 
