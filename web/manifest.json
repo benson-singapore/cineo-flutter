@@ -1,11 +1,11 @@
 {
-    "name": "cineo_flutter",
-    "short_name": "cineo_flutter",
+    "name": "Cineo",
+    "short_name": "Cineo",
     "start_url": ".",
     "display": "standalone",
-    "background_color": "#0175C2",
-    "theme_color": "#0175C2",
-    "description": "A new Flutter project.",
+    "background_color": "#080909",
+    "theme_color": "#080909",
+    "description": "Cineo 本地优先的个人媒体中心。",
     "orientation": "portrait-primary",
     "prefer_related_applications": false,
     "icons": [
