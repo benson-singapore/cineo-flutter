@@ -1,0 +1,105 @@
+name: Cineo Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'App version, for example 1.2.0'
+        required: true
+        type: string
+      build_number:
+        description: 'Android versionCode / iOS CFBundleVersion'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  android:
+    name: Build signed Android APK
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout requested revision
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.13.9'
+          cache: true
+
+      - name: Set up Android signing
+        env:
+          ANDROID_KEYSTORE_BASE64: ${{ secrets.ANDROID_KEYSTORE_BASE64 }}
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
+          ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
+        run: |
+          mkdir -p android/app/release
+          if [ -n "$ANDROID_KEYSTORE_BASE64" ]; then
+            echo "$ANDROID_KEYSTORE_BASE64" | base64 --decode > android/app/release/cineo-release.keystore
+            cat > android/key.properties <<EOF
+          storePassword=$ANDROID_KEYSTORE_PASSWORD
+          keyPassword=$ANDROID_KEY_PASSWORD
+          keyAlias=$ANDROID_KEY_ALIAS
+          storeFile=app/release/cineo-release.keystore
+          EOF
+          else
+            echo 'ANDROID_* signing secrets are not configured; generating an ephemeral self-signed key for this artifact.'
+            keytool -genkeypair -v \
+              -storetype JKS \
+              -keystore android/app/release/cineo-release.keystore \
+              -alias cineo \
+              -keyalg RSA -keysize 2048 -validity 10000 \
+              -storepass cineo-ephemeral-password \
+              -keypass cineo-ephemeral-password \
+              -dname 'CN=Cineo, OU=Build, O=Cineo, L=Singapore, ST=Singapore, C=SG'
+            cat > android/key.properties <<EOF
+          storePassword=cineo-ephemeral-password
+          keyPassword=cineo-ephemeral-password
+          keyAlias=cineo
+          storeFile=app/release/cineo-release.keystore
+          EOF
+          fi
+
+      - name: Build APK
+        run: flutter build apk --release --build-name "${{ inputs.version }}" --build-number "${{ inputs.build_number }}"
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: cineo-android-${{ inputs.version }}-${{ inputs.build_number }}
+          path: build/app/outputs/flutter-apk/app-release.apk
+          if-no-files-found: error
+
+  ios:
+    name: Build unsigned iOS IPA
+    runs-on: macos-latest
+    steps:
+      - name: Checkout requested revision
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          flutter-version: '3.13.9'
+          cache: true
+
+      - name: Build unsigned iOS app
+        run: flutter build ios --release --no-codesign --build-name "${{ inputs.version }}" --build-number "${{ inputs.build_number }}"
+
+      - name: Package unsigned IPA
+        run: |
+          rm -rf build/ios/unsigned-ipa
+          mkdir -p build/ios/unsigned-ipa/Payload
+          cp -R build/ios/iphoneos/Runner.app build/ios/unsigned-ipa/Payload/Runner.app
+          cd build/ios/unsigned-ipa
+          zip -qry Cineo-unsigned.ipa Payload
+
+      - name: Upload unsigned IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: cineo-ios-unsigned-${{ inputs.version }}-${{ inputs.build_number }}
+          path: build/ios/unsigned-ipa/Cineo-unsigned.ipa
+          if-no-files-found: error

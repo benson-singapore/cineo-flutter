@@ -199,7 +199,82 @@ dart format lib test
 - Android 声明了网络访问权限，并通过原生 `MethodChannel` 提供画中画能力。
 - iOS 当前包含基础 Flutter Runner 配置；画中画能力的实现主要位于 Android 原生入口。
 - Web 工程可构建，但 `sqflite`、安全存储和部分平台能力是否可用取决于所使用的 Flutter 插件实现与运行环境。
-- Release 构建前仍需要配置正式的 Android 签名和 iOS 签名/配置文件；仓库中的 Android release 构建默认使用 debug signing config。
+- Android 本地构建会自动生成自签名 keystore；iOS 构建默认生成未签名 IPA，企业签名在下载后进行。
+
+## 自动版本与 GitHub Actions 构建
+
+仓库提供 `Makefile` 和 `.github/workflows/cineo-build.yml`，用于统一版本号、本地构建和 GitHub Actions 构建。
+
+查看所有命令：
+
+```bash
+make help
+```
+
+常用命令：
+
+```bash
+# 指定版本号，构建号不变（仅修改版本时使用）
+make version VERSION=1.2.0
+
+# 指定版本号和构建号
+make version VERSION=1.2.0+12
+
+# 自动递增版本，并自动递增 Android/iOS build number
+make bump-patch
+make bump-minor
+make bump-major
+
+# 本地生成或复用 Android 自签名 keystore，并构建 APK
+make signing-setup
+make android
+
+# 本地构建未签名 iOS IPA
+make ios
+
+# 修改版本、提交、推送并触发 GitHub Actions
+make release VERSION=1.2.0
+
+# 拉取远端最新 main，递增 patch 版本，推送并触发构建
+make sync-build
+```
+
+`make android` 首次运行会在 `android/app/release/cineo-release.keystore` 生成一个本地 Android 自签名证书，并在 `android/key.properties` 保存构建配置。这两个文件已加入 `.gitignore`，不会提交到仓库。请务必备份 keystore 和密码；以后更新 Android 应用必须继续使用同一个 keystore，否则系统会把它识别为不同的应用，无法覆盖升级。
+
+GitHub Actions 由 `make release` 或 `make sync-build` 通过 GitHub API 触发。触发前需要设置一个具有该仓库 Actions 写入权限的 `GH_TOKEN`：
+
+```bash
+export GH_TOKEN='你的 GitHub Token'
+make release VERSION=1.2.0
+```
+
+也可以直接触发当前版本：
+
+```bash
+make dispatch GH_TOKEN="$GH_TOKEN"
+```
+
+Actions 会上传两个构建产物：
+
+- Android：`app-release.apk`。如果 GitHub Secrets 中没有 Android 签名信息，工作流会为本次构建生成临时自签名 APK；这种 APK 只适合测试，后续版本不能依赖这个临时证书覆盖升级。
+- iOS：`Cineo-unsigned.ipa`。这是未经过 Apple 签名的 IPA，适合下载后使用企业账号或其他合法 Apple 签名流程重新签名。没有 Apple Developer 账号时，无法生成可直接安装或可发布的 Apple 签名 IPA。
+
+如果希望 GitHub Actions 使用固定的 Android 发布证书，可在仓库 Settings → Secrets and variables → Actions 中配置：
+
+| Secret | 内容 |
+| --- | --- |
+| `ANDROID_KEYSTORE_BASE64` | `cineo-release.keystore` 的 Base64 内容 |
+| `ANDROID_KEYSTORE_PASSWORD` | keystore 密码 |
+| `ANDROID_KEY_PASSWORD` | key 密码 |
+| `ANDROID_KEY_ALIAS` | key alias，默认本地脚本使用 `cineo` |
+
+在 macOS 本地构建无签名 IPA：
+
+```bash
+make ios
+```
+
+输出路径为 `build/ios/unsigned-ipa/Cineo.ipa`。GitHub Actions 的输出可从对应 workflow run 的 Artifacts 下载。iOS 的 bundle identifier 当前是 `com.benson.cineo.cineoFlutter`，使用企业账号签名时需要使用与你账号和分发配置匹配的 App ID/profile。
 
 ## 版本信息
 
