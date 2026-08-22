@@ -30,20 +30,20 @@ void main() {
     quality: '线路 B',
   );
 
-  MediaItem buildSeries() {
-    return const MediaItem(
+  MediaItem buildSeries({String description = '测试简介'}) {
+    return MediaItem(
       id: 'series',
       title: '测试剧集',
-      description: '测试简介',
+      description: description,
       year: 2026,
       kind: MediaKind.series,
       posterUrl: '',
       backdropUrl: '',
       genres: ['剧情'],
       rating: 8,
-      duration: Duration(minutes: 40),
-      playbackOptions: [lineAEpisode, lineAEpisodeTwo, lineBEpisode],
-      episodes: [
+      duration: const Duration(minutes: 40),
+      playbackOptions: const [lineAEpisode, lineAEpisodeTwo, lineBEpisode],
+      episodes: const [
         Episode(
           id: 'episode-a-1',
           title: '第01集',
@@ -69,17 +69,60 @@ void main() {
     );
   }
 
-  Widget buildScreen({ValueChanged<PlaybackOption>? onPlay}) {
+  Widget buildScreen({
+    ValueChanged<PlaybackOption>? onPlay,
+    String description = '测试简介',
+  }) {
     return MaterialApp(
       theme: buildCineoTheme(),
       home: MediaDetailsScreen(
-        media: buildSeries(),
+        media: buildSeries(description: description),
         favorite: false,
         onFavoriteChanged: (_) {},
         onPlay: onPlay ?? (_) {},
       ),
     );
   }
+
+  testWidgets('renders formatted HTML description with a collapsible section',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final longDescription = List.filled(
+      12,
+      '这是一段较长的简介内容，用于验证移动端默认折叠。',
+    ).join('<br>');
+
+    await tester.pumpWidget(buildScreen(
+      description:
+          '<p>第一段&nbsp;&amp; 第二段</p><script>不应显示</script>$longDescription',
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('简介'), findsOneWidget);
+    expect(find.textContaining('<p>'), findsNothing);
+    expect(find.textContaining('不应显示'), findsNothing);
+    expect(find.text('展开简介'), findsOneWidget);
+
+    await tester.tap(find.text('展开简介'));
+    await tester.pumpAndSettle();
+    expect(find.text('收起简介'), findsOneWidget);
+
+    await tester.tap(find.text('收起简介'));
+    await tester.pumpAndSettle();
+    expect(find.text('展开简介'), findsOneWidget);
+  });
+
+  testWidgets('shows a friendly empty state when description is missing',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(buildScreen(description: ''));
+    await tester.pumpAndSettle();
+
+    expect(find.text('简介'), findsOneWidget);
+    expect(find.text('暂无简介'), findsOneWidget);
+  });
 
   testWidgets('groups playback options by line and filters episodes',
       (tester) async {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
 import '../../core/theme/cineo_theme.dart';
+import '../../core/text/media_description_formatter.dart';
 
 class MediaDetailsScreen extends StatefulWidget {
   const MediaDetailsScreen({
@@ -173,9 +174,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
               media.genres.map((genre) => Chip(label: Text(genre))).toList(),
         ),
         const SizedBox(height: 18),
-        Text(media.description,
-            style: const TextStyle(
-                color: CineoColors.textSecondary, height: 1.55)),
+        _DescriptionSection(description: media.description),
         const SizedBox(height: 28),
         _sectionTitle('播放来源'),
         const SizedBox(height: 12),
@@ -257,6 +256,68 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   Widget _sectionTitle(String title) {
     return Text(title,
         style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800));
+  }
+}
+
+class _DescriptionSection extends StatefulWidget {
+  const _DescriptionSection({required this.description});
+
+  final String description;
+
+  @override
+  State<_DescriptionSection> createState() => _DescriptionSectionState();
+}
+
+class _DescriptionSectionState extends State<_DescriptionSection> {
+  static const _collapsedLineLimit = 8;
+  bool _expanded = false;
+
+  String get _formattedDescription =>
+      formatMediaDescription(widget.description);
+
+  bool get _isLong {
+    final text = _formattedDescription;
+    return text.length > 320 || '\n'.allMatches(text).length >= 8;
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final description = _formattedDescription;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('简介',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 10),
+        if (description.isEmpty)
+          const Text('暂无简介',
+              style: TextStyle(color: CineoColors.textSecondary, height: 1.55))
+        else ...[
+          Text(
+            description,
+            maxLines: _isLong && !_expanded ? _collapsedLineLimit : null,
+            overflow: _isLong && !_expanded
+                ? TextOverflow.ellipsis
+                : TextOverflow.clip,
+            style: const TextStyle(
+              color: CineoColors.textSecondary,
+              height: 1.65,
+            ),
+          ),
+          if (_isLong)
+            Align(
+              alignment: Alignment.centerLeft,
+              child: TextButton.icon(
+                onPressed: () => setState(() => _expanded = !_expanded),
+                icon: Icon(_expanded
+                    ? Icons.expand_less_rounded
+                    : Icons.expand_more_rounded),
+                label: Text(_expanded ? '收起简介' : '展开简介'),
+              ),
+            ),
+        ],
+      ],
+    );
   }
 }
 
