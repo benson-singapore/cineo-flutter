@@ -261,16 +261,7 @@ class _CineoShellState extends State<CineoShell> {
   }
 
   Future<void> _openMedia(MediaItem media) async {
-    MediaItem resolvedMedia = media;
-    try {
-      resolvedMedia = await widget.repository.loadDetails(media) ?? media;
-    } catch (_) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('详情加载失败，请检查视频源连通性')),
-        );
-      }
-    }
+    final resolvedMedia = await _resolveMediaDetails(media);
     final favorite = await widget.repository.isFavorite(resolvedMedia.id);
     final history = await widget.repository.watchHistory();
     final recentEpisodeId = history
@@ -310,6 +301,47 @@ class _CineoShellState extends State<CineoShell> {
       ),
     );
     await _refresh();
+  }
+
+  Future<MediaItem> _resolveMediaDetails(MediaItem media) async {
+    MediaItem resolvedMedia = media;
+    try {
+      resolvedMedia = await widget.repository.loadDetails(media) ?? media;
+    } catch (_) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('详情加载失败，请检查视频源连通性')),
+        );
+      }
+    }
+    return resolvedMedia;
+  }
+
+  Future<void> _resumeMedia(MediaItem media) async {
+    final resolvedMedia = await _resolveMediaDetails(media);
+    final history = await widget.repository.watchHistory();
+    PlaybackOption? selectedOption;
+    for (final entry in history) {
+      if (entry.mediaId != resolvedMedia.id || entry.episodeId == null) {
+        continue;
+      }
+      for (final option in resolvedMedia.playbackOptions) {
+        if (option.id == entry.episodeId) {
+          selectedOption = option;
+          break;
+        }
+      }
+      if (selectedOption != null) break;
+    }
+    selectedOption ??= resolvedMedia.playbackOptions.firstOrNull;
+    if (!mounted) return;
+    if (selectedOption == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('暂时无法恢复此视频的播放地址')),
+      );
+      return;
+    }
+    await _openPlayer(resolvedMedia, selectedOption);
   }
 
   Future<TmdbMediaDetails?> _loadTmdbDetails(MediaItem media) async {
@@ -520,6 +552,7 @@ class _CineoShellState extends State<CineoShell> {
         onRetry: _refresh,
         onRefresh: _refresh,
         onOpenMedia: (media) => unawaited(_openMedia(media)),
+        onContinueWatching: (media) => unawaited(_resumeMedia(media)),
         onSeeAll: (title, items, categoryIds) =>
             unawaited(_openCategoryBrowse(title, items, categoryIds)),
       ),

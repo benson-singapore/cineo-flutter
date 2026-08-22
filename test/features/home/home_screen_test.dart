@@ -30,13 +30,16 @@ Widget _subject({
   required HomeRailSeeAllCallback onSeeAll,
   List<String> selectedSourceCategoryIds = const [],
   Future<void> Function()? onRefresh,
+  List<MediaItem> continueWatching = const [],
+  ValueChanged<MediaItem>? onContinueWatching,
 }) {
   return MaterialApp(
     theme: buildCineoTheme(),
     home: HomeScreen(
       items: items,
-      continueWatching: const [],
+      continueWatching: continueWatching,
       onOpenMedia: (_) {},
+      onContinueWatching: onContinueWatching,
       selectedSourceCategoryIds: selectedSourceCategoryIds,
       onSeeAll: onSeeAll,
       onRefresh: onRefresh,
@@ -45,6 +48,31 @@ Widget _subject({
 }
 
 void main() {
+  testWidgets('hero prioritizes and resumes the latest continued media',
+      (tester) async {
+    final recommended = _media('recommended-1', '推荐视频');
+    final resumed = _media('resume-1', '上次观看的视频');
+    MediaItem? selected;
+
+    await tester.pumpWidget(
+      _subject(
+        items: [recommended],
+        continueWatching: [resumed],
+        onContinueWatching: (media) => selected = media,
+        onSeeAll: (_, __, ___) {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(
+        find.byKey(const ValueKey('home-hero-media-resume-1')), findsOneWidget);
+    expect(find.text('继续观看'), findsWidgets);
+
+    await tester.ensureVisible(find.byKey(const ValueKey('home-hero-action')));
+    await tester.tap(find.byKey(const ValueKey('home-hero-action')));
+    expect(selected, same(resumed));
+  });
+
   testWidgets('short drama rail sends its real category id', (tester) async {
     final items = [
       _media('1', '短剧一', categoryId: 'tid-short', genres: ['短剧']),
@@ -65,11 +93,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.drag(
-      find.byType(CustomScrollView),
-      const Offset(0, -700),
+    await tester.scrollUntilVisible(
+      find.byTooltip('查看全部短剧'),
+      300,
+      scrollable: find.byType(Scrollable).first,
     );
-    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('查看全部短剧').first);
 
     expect(title, '短剧');
@@ -93,11 +121,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.drag(
-      find.byType(CustomScrollView),
-      const Offset(0, -500),
+    await tester.scrollUntilVisible(
+      find.byTooltip('查看全部为你推荐'),
+      300,
+      scrollable: find.byType(Scrollable).first,
     );
-    await tester.pumpAndSettle();
     await tester.tap(find.byTooltip('查看全部为你推荐').first);
 
     expect(categoryIds, ['tid-series', 'tid-b']);
