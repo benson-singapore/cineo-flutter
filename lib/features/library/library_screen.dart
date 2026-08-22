@@ -102,6 +102,18 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _load();
   }
 
+  Future<void> _removeFavorite(MediaItem media) async {
+    try {
+      await widget.repository.setFavorite(media, false);
+      await _load();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('取消收藏失败，请稍后重试')),
+      );
+    }
+  }
+
   Future<void> _clearHistory() async {
     if (_history.isEmpty) return;
     final confirmed = await showDialog<bool>(
@@ -226,6 +238,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       emptyTitle: '还没有收藏内容',
                       emptyIcon: Icons.bookmark_border,
                       onTap: widget.onMediaTap,
+                      onRemove: _removeFavorite,
                     )
                   : _HistoryList(
                       entries: _history,
@@ -242,12 +255,14 @@ class _MediaGrid extends StatelessWidget {
     required this.emptyTitle,
     required this.emptyIcon,
     this.onTap,
+    this.onRemove,
   });
 
   final List<MediaItem> items;
   final String emptyTitle;
   final IconData emptyIcon;
   final ValueChanged<MediaItem>? onTap;
+  final ValueChanged<MediaItem>? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -266,6 +281,7 @@ class _MediaGrid extends StatelessWidget {
       itemBuilder: (context, index) => _MediaTile(
         media: items[index],
         onTap: onTap == null ? null : () => onTap!(items[index]),
+        onRemove: onRemove == null ? null : () => onRemove!(items[index]),
       ),
     );
   }
@@ -301,10 +317,11 @@ class _HistoryList extends StatelessWidget {
 }
 
 class _MediaTile extends StatelessWidget {
-  const _MediaTile({required this.media, this.onTap});
+  const _MediaTile({required this.media, this.onTap, this.onRemove});
 
   final MediaItem media;
   final VoidCallback? onTap;
+  final VoidCallback? onRemove;
 
   @override
   Widget build(BuildContext context) {
@@ -315,9 +332,35 @@ class _MediaTile extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Expanded(
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: MediaImage(url: media.posterUrl),
+            child: Stack(
+              fit: StackFit.expand,
+              children: [
+                ClipRRect(
+                  borderRadius: BorderRadius.circular(8),
+                  child: MediaImage(url: media.posterUrl),
+                ),
+                if (onRemove != null)
+                  Positioned(
+                    top: 6,
+                    right: 6,
+                    child: Material(
+                      color: Colors.black.withOpacity(.68),
+                      shape: const CircleBorder(),
+                      child: IconButton(
+                        tooltip: '取消收藏',
+                        onPressed: onRemove,
+                        constraints: const BoxConstraints.tightFor(
+                          width: 36,
+                          height: 36,
+                        ),
+                        padding: EdgeInsets.zero,
+                        iconSize: 20,
+                        color: Colors.white,
+                        icon: const Icon(Icons.favorite_rounded),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 8),
