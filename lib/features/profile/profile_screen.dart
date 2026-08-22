@@ -38,7 +38,7 @@ class ProfileScreen extends StatelessWidget {
           return SafeArea(
             bottom: false,
             child: ListView(
-              padding: const EdgeInsets.fromLTRB(20, 18, 20, 128),
+              padding: const EdgeInsets.fromLTRB(20, 12, 20, 116),
               children: [
                 Text(
                   '我的',
@@ -47,9 +47,9 @@ class ProfileScreen extends StatelessWidget {
                         letterSpacing: 0,
                       ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 14),
                 _ProfileHeader(lockEnabled: lockEnabled),
-                const SizedBox(height: 28),
+                const SizedBox(height: 20),
                 _Section(
                   title: '本地内容',
                   children: [
@@ -65,7 +65,7 @@ class ProfileScreen extends StatelessWidget {
                         onTap: onOpenHistory),
                   ],
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 18),
                 _Section(
                   title: '应用设置',
                   children: [
@@ -101,7 +101,7 @@ class ProfileScreen extends StatelessWidget {
                       ),
                   ],
                 ),
-                const SizedBox(height: 24),
+                const SizedBox(height: 18),
                 AnimatedBuilder(
                   animation: updateService ?? Listenable.merge(const []),
                   builder: (context, _) => Column(
@@ -139,7 +139,7 @@ class _ProfileHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.fromLTRB(20, 20, 16, 20),
+      padding: const EdgeInsets.fromLTRB(18, 16, 14, 16),
       decoration: BoxDecoration(
         color: CineoColors.surface,
         borderRadius: BorderRadius.circular(28),
@@ -152,7 +152,7 @@ class _ProfileHeader extends StatelessWidget {
             child: Icon(Icons.person_outline,
                 color: CineoColors.primaryLight, size: 30),
           ),
-          const SizedBox(width: 16),
+          const SizedBox(width: 14),
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -185,7 +185,7 @@ class _Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 8, bottom: 9),
+          padding: const EdgeInsets.only(left: 8, bottom: 6),
           child: Text(
             title,
             style: Theme.of(context).textTheme.labelLarge?.copyWith(
@@ -246,15 +246,15 @@ class _ProfileTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
-      minVerticalPadding: 10,
+      contentPadding: const EdgeInsets.fromLTRB(16, 6, 12, 6),
+      minVerticalPadding: 6,
       leading: DecoratedBox(
         decoration: BoxDecoration(
           color: color,
           borderRadius: BorderRadius.circular(12),
         ),
         child: Padding(
-          padding: const EdgeInsets.all(9),
+          padding: const EdgeInsets.all(8),
           child: Icon(icon, color: Colors.white, size: 20),
         ),
       ),
