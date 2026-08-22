@@ -37,12 +37,28 @@ class TmdbMediaDetails extends TmdbMediaMatch {
     required super.rating,
     required this.runtime,
     this.seasons = const [],
+    this.cast = const [],
   });
 
   final int? runtime;
   final List<TmdbSeasonMetadata> seasons;
+  final List<TmdbCastMember> cast;
 
   bool get isTv => mediaType == TmdbMediaType.tv;
+}
+
+class TmdbCastMember {
+  const TmdbCastMember({
+    required this.id,
+    required this.name,
+    required this.character,
+    required this.profileUrl,
+  });
+
+  final int id;
+  final String name;
+  final String character;
+  final String profileUrl;
 }
 
 class TmdbSeasonMetadata {

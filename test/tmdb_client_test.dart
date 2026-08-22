@@ -204,6 +204,16 @@ void main() {
           'backdrop_path': null,
           'vote_average': 7.2,
           'runtime': 113,
+          'credits': {
+            'cast': [
+              {
+                'id': 101,
+                'name': '测试演员',
+                'character': '主角',
+                'profile_path': '/actor.jpg',
+              },
+            ],
+          },
         }),
       ),
     );
@@ -224,6 +234,9 @@ void main() {
     expect(details?.year, 2023);
     expect(details?.runtime, 113);
     expect(details?.posterUrl, 'https://image.tmdb.org/t/p/w500/fallback.jpg');
+    expect(details?.cast.single.name, '测试演员');
+    expect(details?.cast.single.profileUrl,
+        'https://image.tmdb.org/t/p/w185/actor.jpg');
     expect(details?.seasons, isEmpty);
   });
 

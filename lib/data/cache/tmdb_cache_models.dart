@@ -37,11 +37,13 @@ class TmdbCacheModelCodec {
       ...encodeMatch(value),
       'runtime': value.runtime,
       'seasons': value.seasons.map(encodeSeason).toList(),
+      'cast': value.cast.map(encodeCastMember).toList(),
     };
   }
 
   static TmdbMediaDetails decodeDetails(Map<String, dynamic> json) {
     final seasons = json['seasons'];
+    final cast = json['cast'];
     return TmdbMediaDetails(
       id: _asInt(json['id']),
       mediaType: _mediaType(json['media_type']),
@@ -59,6 +61,30 @@ class TmdbCacheModelCodec {
               .map((item) => decodeSeason(Map<String, dynamic>.from(item)))
               .toList()
           : const <TmdbSeasonMetadata>[],
+      cast: cast is List
+          ? cast
+              .whereType<Map>()
+              .map((item) => decodeCastMember(Map<String, dynamic>.from(item)))
+              .toList()
+          : const <TmdbCastMember>[],
+    );
+  }
+
+  static Map<String, dynamic> encodeCastMember(TmdbCastMember value) {
+    return <String, dynamic>{
+      'id': value.id,
+      'name': value.name,
+      'character': value.character,
+      'profile_url': value.profileUrl,
+    };
+  }
+
+  static TmdbCastMember decodeCastMember(Map<String, dynamic> json) {
+    return TmdbCastMember(
+      id: _asInt(json['id']),
+      name: _asString(json['name']),
+      character: _asString(json['character']),
+      profileUrl: _asString(json['profile_url']),
     );
   }
 

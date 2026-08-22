@@ -118,7 +118,10 @@ class TmdbClient {
     final path = match.mediaType == TmdbMediaType.tv
         ? 'tv/${match.id}'
         : 'movie/${match.id}';
-    final payload = await _request(path, const {'language': 'zh-CN'});
+    final payload = await _request(path, const {
+      'language': 'zh-CN',
+      'append_to_response': 'credits',
+    });
     return _detailsFromMap(payload, match);
   }
 
@@ -211,6 +214,7 @@ class TmdbClient {
             : _imageUrl(raw['backdrop_path'], size: 'w780'),
         rating: _number(raw['vote_average']) ?? match.rating,
         runtime: _int(raw['runtime']),
+        cast: _castFromDetails(raw),
       );
     }
     final seasonNumbers = _list(raw['seasons'])
@@ -239,6 +243,29 @@ class TmdbClient {
       rating: _number(raw['vote_average']) ?? match.rating,
       runtime: _firstRuntime(raw['episode_run_time']),
       seasons: seasons,
+      cast: _castFromDetails(raw),
+    );
+  }
+
+  List<TmdbCastMember> _castFromDetails(Map<String, dynamic> raw) {
+    final credits = raw['credits'];
+    if (credits is! Map) return const [];
+    return _list(credits['cast'])
+        .map(_castMemberFromMap)
+        .whereType<TmdbCastMember>()
+        .take(20)
+        .toList(growable: false);
+  }
+
+  TmdbCastMember? _castMemberFromMap(Map<String, dynamic> raw) {
+    final id = _int(raw['id']);
+    final name = _text(raw['name']);
+    if (id == null || name.isEmpty) return null;
+    return TmdbCastMember(
+      id: id,
+      name: name,
+      character: _text(raw['character']),
+      profileUrl: _imageUrl(raw['profile_path'], size: 'w185'),
     );
   }
 

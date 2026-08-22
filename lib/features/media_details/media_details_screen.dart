@@ -398,6 +398,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           const SizedBox(height: 12),
           _PlaybackList(options: _activeOptions, onPlay: widget.onPlay),
         ],
+        if (_tmdbDetails?.cast.isNotEmpty == true) ...[
+          const SizedBox(height: 30),
+          _CastSection(cast: _tmdbDetails!.cast),
+        ],
         if (widget.onSearchOtherSources != null) ...[
           const SizedBox(height: 28),
           OutlinedButton.icon(
@@ -446,7 +450,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
-          height: 180,
+          height: 184,
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             itemCount: preview.length,
@@ -460,7 +464,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                       ? _tmdbDetails!.posterUrl
                       : widget.media.posterUrl);
               return SizedBox(
-                width: 150,
+                width: 220,
                 child: InkWell(
                   key: ValueKey('preview-${episode.id}'),
                   borderRadius: BorderRadius.circular(8),
@@ -472,7 +476,9 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Expanded(
+                      AspectRatio(
+                        key: ValueKey('preview-image-${episode.id}'),
+                        aspectRatio: 16 / 9,
                         child: Stack(
                           fit: StackFit.expand,
                           children: [
@@ -578,7 +584,7 @@ class _DescriptionSection extends StatefulWidget {
 }
 
 class _DescriptionSectionState extends State<_DescriptionSection> {
-  static const _collapsedLineLimit = 8;
+  static const _collapsedLineLimit = 5;
   bool _expanded = false;
 
   String get _formattedDescription =>
@@ -586,7 +592,7 @@ class _DescriptionSectionState extends State<_DescriptionSection> {
 
   bool get _isLong {
     final text = _formattedDescription;
-    return text.length > 320 || '\n'.allMatches(text).length >= 8;
+    return text.length > 200 || '\n'.allMatches(text).length >= 5;
   }
 
   @override
@@ -625,6 +631,71 @@ class _DescriptionSectionState extends State<_DescriptionSection> {
               ),
             ),
         ],
+      ],
+    );
+  }
+}
+
+class _CastSection extends StatelessWidget {
+  const _CastSection({required this.cast});
+
+  final List<TmdbCastMember> cast;
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      key: const ValueKey('cast-section'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('演员',
+            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        const SizedBox(height: 12),
+        SizedBox(
+          height: 146,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: cast.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 14),
+            itemBuilder: (context, index) {
+              final member = cast[index];
+              return SizedBox(
+                width: 82,
+                child: Column(
+                  children: [
+                    ClipOval(
+                      child: SizedBox.square(
+                        dimension: 76,
+                        child: MediaImage(
+                          url: member.profileUrl,
+                          placeholderIcon: Icons.person_outline_rounded,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Text(
+                      member.name,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.w700),
+                    ),
+                    if (member.character.isNotEmpty)
+                      Text(
+                        member.character,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: CineoColors.textSecondary,
+                        ),
+                      ),
+                  ],
+                ),
+              );
+            },
+          ),
+        ),
       ],
     );
   }

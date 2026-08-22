@@ -114,6 +114,22 @@ void main() {
     expect(find.text('展开简介'), findsOneWidget);
   });
 
+  testWidgets('uses a five-line summary and 16:9 episode previews',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final longDescription = List.filled(6, '这是用于简介折叠展示的内容。').join('\n');
+
+    await tester.pumpWidget(buildScreen(description: longDescription));
+    await tester.pumpAndSettle();
+
+    expect(find.text('展开简介'), findsOneWidget);
+    final image = tester.getSize(
+      find.byKey(const ValueKey('preview-image-episode-a-1')),
+    );
+    expect(image.width / image.height, closeTo(16 / 9, .01));
+  });
+
   testWidgets('shows a friendly empty state when description is missing',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
@@ -232,6 +248,14 @@ void main() {
       backdropUrl: '',
       rating: 8.6,
       runtime: 45,
+      cast: [
+        TmdbCastMember(
+          id: 99,
+          name: '演员甲',
+          character: '主角',
+          profileUrl: '',
+        ),
+      ],
       seasons: [
         TmdbSeasonMetadata(
           id: 1,
@@ -281,6 +305,8 @@ void main() {
     expect(find.text('来自 TMDB 的简介'), findsOneWidget);
     expect(find.textContaining('8.6 分'), findsOneWidget);
     expect(find.textContaining('开端'), findsOneWidget);
+    expect(find.byKey(const ValueKey('cast-section')), findsOneWidget);
+    expect(find.text('演员甲'), findsOneWidget);
 
     await tester.tap(find.text('查看全部'));
     await tester.pumpAndSettle();

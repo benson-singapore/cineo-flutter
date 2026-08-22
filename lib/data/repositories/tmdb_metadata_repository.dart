@@ -138,6 +138,16 @@ class TmdbMetadataRepository {
       rating: details.rating,
       runtime: details.runtime,
       seasons: seasons,
+      cast: await Future.wait(
+        details.cast.map(
+          (member) async => TmdbCastMember(
+            id: member.id,
+            name: member.name,
+            character: member.character,
+            profileUrl: await local(member.profileUrl),
+          ),
+        ),
+      ),
     );
   }
 
@@ -149,6 +159,9 @@ class TmdbMetadataRepository {
       for (final episode in season.episodes) {
         if (episode.stillUrl.trim().isNotEmpty) yield episode.stillUrl;
       }
+    }
+    for (final member in details.cast) {
+      if (member.profileUrl.trim().isNotEmpty) yield member.profileUrl;
     }
   }
 }
