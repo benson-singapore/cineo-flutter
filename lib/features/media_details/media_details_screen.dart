@@ -42,7 +42,6 @@ class MediaDetailsScreen extends StatefulWidget {
 class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   late bool _favorite = widget.favorite;
   String? _selectedSourceName;
-  Episode? _selectedEpisode;
   bool _searchingOtherSources = false;
   TmdbMediaDetails? _tmdbDetails;
   bool _tmdbLoading = false;
@@ -163,7 +162,6 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       for (final episode in widget.media.episodes) {
         final option = episode.playbackOption;
         if (episode.id == initialEpisodeId || option?.id == initialEpisodeId) {
-          _selectedEpisode = episode;
           _selectedSeason = episode.season > 0 ? episode.season : null;
           if (option != null) _selectedSourceName = _lineName(option);
           break;
@@ -376,7 +374,6 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             selectedSourceName: _activeSourceName,
             onChanged: (value) => setState(() {
               _selectedSourceName = value;
-              _selectedEpisode = null;
               final seasons = _sourceSeasons;
               _selectedSeason = seasons.isEmpty ? null : seasons.first;
             }),
@@ -392,23 +389,11 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
               selectedSeason: _selectedSeason,
               onChanged: (season) => setState(() {
                 _selectedSeason = season;
-                _selectedEpisode = null;
               }),
             ),
             const SizedBox(height: 14),
           ],
           _buildEpisodePreview(context),
-          const SizedBox(height: 12),
-          _EpisodeList(
-            episodes: _activeEpisodes,
-            selectedEpisode: _selectedEpisode,
-            onSelected: (episode) {
-              setState(() => _selectedEpisode = episode);
-              if (episode.playbackOption != null) {
-                widget.onPlay(episode.playbackOption!);
-              }
-            },
-          ),
         ] else if (_activeOptions.isNotEmpty) ...[
           const SizedBox(height: 12),
           _PlaybackList(options: _activeOptions, onPlay: widget.onPlay),
@@ -436,9 +421,16 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       children: [
         _sectionTitle('剧集'),
         const Spacer(),
-        if (count > 0)
+        if (count > 0) ...[
           Text('$count 集',
               style: const TextStyle(color: CineoColors.textSecondary)),
+          const SizedBox(width: 8),
+          TextButton.icon(
+            onPressed: _openEpisodeLibrary,
+            icon: const Icon(Icons.grid_view_rounded, size: 18),
+            label: const Text('查看全部'),
+          ),
+        ],
       ],
     );
   }
@@ -470,11 +462,11 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
               return SizedBox(
                 width: 150,
                 child: InkWell(
+                  key: ValueKey('preview-${episode.id}'),
                   borderRadius: BorderRadius.circular(8),
                   onTap: episode.playbackOption == null
                       ? null
                       : () {
-                          setState(() => _selectedEpisode = episode);
                           widget.onPlay(episode.playbackOption!);
                         },
                   child: Column(
@@ -524,25 +516,21 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             },
           ),
         ),
-        Align(
-          alignment: Alignment.centerRight,
-          child: TextButton.icon(
-            onPressed: () => Navigator.of(context).push<void>(
-              MaterialPageRoute(
-                builder: (_) => EpisodeLibraryScreen(
-                  media: widget.media,
-                  episodes: _activeEpisodes,
-                  tmdbSeason: _selectedTmdbSeason,
-                  fallbackPosterUrl: widget.media.posterUrl,
-                  onPlay: widget.onPlay,
-                ),
-              ),
-            ),
-            icon: const Icon(Icons.grid_view_rounded, size: 18),
-            label: const Text('查看全部'),
-          ),
-        ),
       ],
+    );
+  }
+
+  void _openEpisodeLibrary() {
+    Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => EpisodeLibraryScreen(
+          media: widget.media,
+          episodes: _activeEpisodes,
+          tmdbSeason: _selectedTmdbSeason,
+          fallbackPosterUrl: widget.media.posterUrl,
+          onPlay: widget.onPlay,
+        ),
+      ),
     );
   }
 
@@ -660,21 +648,73 @@ class _SourceSelector extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return DropdownButtonFormField<String>(
-      value: selectedSourceName,
-      decoration: const InputDecoration(
-        labelText: '选择来源',
-        prefixIcon: Icon(Icons.dns_outlined),
+    return SizedBox(
+      height: 50,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: sourceNames.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 10),
+        itemBuilder: (context, index) {
+          final name = sourceNames[index];
+          final selected = name == selectedSourceName;
+          return Semantics(
+            selected: selected,
+            button: true,
+            label: '播放来源 $name',
+            child: Material(
+              color: selected
+                  ? CineoColors.primary.withOpacity(.16)
+                  : CineoColors.surface,
+              borderRadius: BorderRadius.circular(8),
+              child: InkWell(
+                key: ValueKey('source-$name'),
+                borderRadius: BorderRadius.circular(8),
+                onTap: () => onChanged(name),
+                child: Container(
+                  constraints: const BoxConstraints(minWidth: 116),
+                  padding: const EdgeInsets.symmetric(horizontal: 14),
+                  decoration: BoxDecoration(
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(
+                      color: selected
+                          ? CineoColors.primary
+                          : CineoColors.textSecondary.withOpacity(.22),
+                    ),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        selected
+                            ? Icons.play_circle_filled_rounded
+                            : Icons.play_circle_outline_rounded,
+                        size: 20,
+                        color: selected
+                            ? CineoColors.primary
+                            : CineoColors.textSecondary,
+                      ),
+                      const SizedBox(width: 8),
+                      Flexible(
+                        child: Text(
+                          name,
+                          overflow: TextOverflow.ellipsis,
+                          style: TextStyle(
+                            fontWeight:
+                                selected ? FontWeight.w700 : FontWeight.w600,
+                            color: selected
+                                ? CineoColors.textPrimary
+                                : CineoColors.textSecondary,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          );
+        },
       ),
-      items: sourceNames
-          .map((name) => DropdownMenuItem(
-                value: name,
-                child: Text(name, overflow: TextOverflow.ellipsis),
-              ))
-          .toList(),
-      onChanged: (value) {
-        if (value != null) onChanged(value);
-      },
     );
   }
 }
@@ -743,27 +783,6 @@ class _PlaybackList extends StatelessWidget {
   }
 }
 
-class _EpisodeList extends StatelessWidget {
-  const _EpisodeList({
-    required this.episodes,
-    required this.selectedEpisode,
-    required this.onSelected,
-  });
-
-  final List<Episode> episodes;
-  final Episode? selectedEpisode;
-  final ValueChanged<Episode> onSelected;
-
-  @override
-  Widget build(BuildContext context) {
-    return _EpisodePicker(
-      episodes: episodes,
-      selectedEpisode: selectedEpisode,
-      onSelected: onSelected,
-    );
-  }
-}
-
 /// Formats an episode using the source label when it contains a usable number.
 /// MacCMS labels are inconsistent, so the model number remains the fallback.
 String formatEpisodeLabel(Episode episode) {
@@ -782,165 +801,6 @@ String formatEpisodeLabel(Episode episode) {
   }
   if (episode.number > 0) return '第${episode.number}集';
   return episode.title.trim().isEmpty ? '正片' : episode.title.trim();
-}
-
-class _EpisodePicker extends StatefulWidget {
-  const _EpisodePicker({
-    required this.episodes,
-    required this.selectedEpisode,
-    required this.onSelected,
-  });
-
-  final List<Episode> episodes;
-  final Episode? selectedEpisode;
-  final ValueChanged<Episode> onSelected;
-
-  @override
-  State<_EpisodePicker> createState() => _EpisodePickerState();
-}
-
-class _EpisodePickerState extends State<_EpisodePicker> {
-  final _scrollController = ScrollController();
-  bool _ascending = true;
-  bool _showBackToTop = false;
-
-  List<Episode> get _sortedEpisodes {
-    final result = [...widget.episodes];
-    result.sort((a, b) {
-      final comparison = a.number.compareTo(b.number);
-      return _ascending ? comparison : -comparison;
-    });
-    return result;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _scrollController.addListener(_handleScroll);
-    _scheduleSelectedEpisodeScroll();
-  }
-
-  @override
-  void didUpdateWidget(covariant _EpisodePicker oldWidget) {
-    super.didUpdateWidget(oldWidget);
-    if (oldWidget.selectedEpisode?.id != widget.selectedEpisode?.id ||
-        oldWidget.episodes.length != widget.episodes.length) {
-      _scheduleSelectedEpisodeScroll();
-    }
-  }
-
-  @override
-  void dispose() {
-    _scrollController
-      ..removeListener(_handleScroll)
-      ..dispose();
-    super.dispose();
-  }
-
-  void _handleScroll() {
-    final shouldShow =
-        _scrollController.hasClients && _scrollController.offset > 180;
-    if (shouldShow != _showBackToTop && mounted) {
-      setState(() => _showBackToTop = shouldShow);
-    }
-  }
-
-  void _scheduleSelectedEpisodeScroll() {
-    final selectedId = widget.selectedEpisode?.id;
-    if (selectedId == null) return;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || !_scrollController.hasClients) return;
-      final index =
-          _sortedEpisodes.indexWhere((episode) => episode.id == selectedId);
-      if (index < 0) return;
-      final rows = (index / 3).floor();
-      final target = (rows * 52).toDouble();
-      final maxExtent = _scrollController.position.maxScrollExtent;
-      _scrollController.animateTo(
-        target > maxExtent ? maxExtent : target,
-        duration: const Duration(milliseconds: 240),
-        curve: Curves.easeOut,
-      );
-    });
-  }
-
-  void _toggleOrder() {
-    setState(() => _ascending = !_ascending);
-    _scheduleSelectedEpisodeScroll();
-  }
-
-  void _backToTop() {
-    _scrollController.animateTo(
-      0,
-      duration: const Duration(milliseconds: 240),
-      curve: Curves.easeOut,
-    );
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    if (widget.episodes.isEmpty) {
-      return const _InlineEmpty(message: '当前线路暂无剧集');
-    }
-    final episodes = _sortedEpisodes;
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Row(
-          children: [
-            Text('${episodes.length} 集',
-                style: const TextStyle(color: CineoColors.textSecondary)),
-            const Spacer(),
-            TextButton.icon(
-              onPressed: _toggleOrder,
-              icon:
-                  Icon(_ascending ? Icons.south_rounded : Icons.north_rounded),
-              label: Text(_ascending ? '正序' : '倒序'),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        SizedBox(
-          height: 292,
-          child: Stack(
-            children: [
-              GridView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.only(right: 4, bottom: 52),
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 128,
-                  mainAxisExtent: 44,
-                  crossAxisSpacing: 8,
-                  mainAxisSpacing: 8,
-                ),
-                itemCount: episodes.length,
-                itemBuilder: (context, index) {
-                  final episode = episodes[index];
-                  return ChoiceChip(
-                    key: ValueKey(episode.id),
-                    label: Text(formatEpisodeLabel(episode)),
-                    selected: widget.selectedEpisode?.id == episode.id,
-                    onSelected: (_) => widget.onSelected(episode),
-                  );
-                },
-              ),
-              if (_showBackToTop)
-                Positioned(
-                  right: 4,
-                  bottom: 4,
-                  child: FloatingActionButton.small(
-                    heroTag: null,
-                    tooltip: '回到顶部',
-                    onPressed: _backToTop,
-                    child: const Icon(Icons.vertical_align_top_rounded),
-                  ),
-                ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
 }
 
 class _InlineEmpty extends StatelessWidget {

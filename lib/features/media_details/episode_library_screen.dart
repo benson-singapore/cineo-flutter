@@ -65,11 +65,9 @@ class EpisodeLibraryScreen extends StatelessWidget {
                         final title = metadata?.name.trim().isNotEmpty == true
                             ? metadata!.name
                             : '第${episode.number}集';
-                        final overview = metadata?.overview.trim() ?? '';
                         return _EpisodeTile(
                           episode: episode,
                           title: title,
-                          overview: overview,
                           imageUrl: _imageFor(metadata),
                           rating: metadata?.rating ?? 0,
                           onPlay: episode.playbackOption == null
@@ -83,8 +81,8 @@ class EpisodeLibraryScreen extends StatelessWidget {
                         const SliverGridDelegateWithFixedCrossAxisCount(
                       crossAxisCount: 2,
                       crossAxisSpacing: 12,
-                      mainAxisSpacing: 18,
-                      childAspectRatio: .72,
+                      mainAxisSpacing: 22,
+                      childAspectRatio: 1.35,
                     ),
                   ),
                 ),
@@ -98,7 +96,6 @@ class _EpisodeTile extends StatelessWidget {
   const _EpisodeTile({
     required this.episode,
     required this.title,
-    required this.overview,
     required this.imageUrl,
     required this.rating,
     required this.onPlay,
@@ -106,7 +103,6 @@ class _EpisodeTile extends StatelessWidget {
 
   final Episode episode;
   final String title;
-  final String overview;
   final String imageUrl;
   final double rating;
   final VoidCallback? onPlay;
@@ -120,8 +116,8 @@ class _EpisodeTile extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            flex: 5,
+          AspectRatio(
+            aspectRatio: 16 / 9,
             child: Stack(
               fit: StackFit.expand,
               children: [
@@ -140,9 +136,13 @@ class _EpisodeTile extends StatelessWidget {
                     ),
                     child: Padding(
                       padding: const EdgeInsets.symmetric(
-                          horizontal: 6, vertical: 3),
-                      child: Text('第${episode.number}集',
-                          style: const TextStyle(fontSize: 11)),
+                        horizontal: 6,
+                        vertical: 3,
+                      ),
+                      child: Text(
+                        '第${episode.number}集',
+                        style: const TextStyle(fontSize: 11),
+                      ),
                     ),
                   ),
                 ),
@@ -150,25 +150,35 @@ class _EpisodeTile extends StatelessWidget {
                   Positioned(
                     right: 8,
                     bottom: 8,
-                    child: Text(rating.toStringAsFixed(1),
-                        style: const TextStyle(
-                            fontSize: 12, fontWeight: FontWeight.w700)),
+                    child: DecoratedBox(
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(.72),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 5,
+                          vertical: 2,
+                        ),
+                        child: Text(
+                          rating.toStringAsFixed(1),
+                          style: const TextStyle(
+                            fontSize: 11,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                    ),
                   ),
               ],
             ),
           ),
           const SizedBox(height: 8),
-          Text(title,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-              style: const TextStyle(fontWeight: FontWeight.w700)),
-          const SizedBox(height: 3),
           Text(
-            overview.isEmpty ? '暂无简介' : overview,
-            maxLines: 2,
+            '第${episode.number}集${title.trim().isEmpty ? '' : ' · $title'}',
+            maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(
-                color: CineoColors.textSecondary, fontSize: 12, height: 1.3),
+            style: const TextStyle(fontWeight: FontWeight.w700),
           ),
         ],
       ),

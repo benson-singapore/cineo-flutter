@@ -125,7 +125,7 @@ void main() {
     expect(find.text('暂无简介'), findsOneWidget);
   });
 
-  testWidgets('groups playback options by line and filters episodes',
+  testWidgets('groups playback options by line and filters episode previews',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -134,36 +134,33 @@ void main() {
 
     expect(find.text('线路 A'), findsOneWidget);
     expect(find.text('线路 A · 第01集'), findsNothing);
-    expect(find.byKey(const ValueKey('episode-a-1')), findsOneWidget);
-    expect(find.byKey(const ValueKey('episode-a-2')), findsOneWidget);
-    expect(find.byKey(const ValueKey('episode-b-1')), findsNothing);
+    expect(find.byKey(const ValueKey('preview-episode-a-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('preview-episode-a-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('preview-episode-b-1')), findsNothing);
 
-    await tester.tap(find.byType(DropdownButtonFormField<String>));
+    final sourceB = find.byKey(
+      const ValueKey('source-线路 B'),
+      skipOffstage: false,
+    );
+    await tester.ensureVisible(sourceB);
+    await tester.tap(sourceB);
     await tester.pumpAndSettle();
-    expect(find.text('线路 B'), findsOneWidget);
-    expect(find.text('线路 B · 第01集'), findsNothing);
-
-    await tester.tap(find.text('线路 B').last);
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('episode-a-1')), findsNothing);
-    expect(find.byKey(const ValueKey('episode-a-2')), findsNothing);
-    expect(find.byKey(const ValueKey('episode-b-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('preview-episode-a-1')), findsNothing);
+    expect(find.byKey(const ValueKey('preview-episode-a-2')), findsNothing);
+    expect(find.byKey(const ValueKey('preview-episode-b-1')), findsOneWidget);
   });
 
-  testWidgets('toggles episode order and keeps concise episode labels',
+  testWidgets('removes the inline episode picker from the detail screen',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));
     await tester.pumpWidget(buildScreen());
     await tester.pumpAndSettle();
 
-    expect(find.text('正序'), findsOneWidget);
-    expect(find.text('第1集'), findsNWidgets(1));
-    expect(find.text('第2集'), findsOneWidget);
-
-    await tester.tap(find.text('正序'));
-    await tester.pumpAndSettle();
-    expect(find.text('倒序'), findsOneWidget);
+    expect(find.text('正序'), findsNothing);
+    expect(find.text('倒序'), findsNothing);
+    expect(find.byType(ChoiceChip), findsNothing);
+    expect(find.text('查看全部'), findsOneWidget);
   });
 
   test('formats inconsistent source episode labels', () {
@@ -283,13 +280,13 @@ void main() {
     expect(find.text('TMDB 剧集名'), findsOneWidget);
     expect(find.text('来自 TMDB 的简介'), findsOneWidget);
     expect(find.textContaining('8.6 分'), findsOneWidget);
-    expect(find.text('开端'), findsOneWidget);
+    expect(find.textContaining('开端'), findsOneWidget);
 
     await tester.tap(find.text('查看全部'));
     await tester.pumpAndSettle();
     expect(find.text('第1季 · 全部剧集'), findsOneWidget);
     expect(find.byKey(const ValueKey('library-episode-a-1')), findsOneWidget);
-    expect(find.text('开端'), findsOneWidget);
+    expect(find.textContaining('开端'), findsOneWidget);
   });
 
   testWidgets('falls back when TMDB loading fails', (tester) async {
