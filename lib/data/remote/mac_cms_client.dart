@@ -1,6 +1,9 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
+
+import 'package:flutter/foundation.dart';
 
 import '../../core/models/media.dart';
 import '../../core/models/media_source.dart';
@@ -35,6 +38,7 @@ class MacCmsClient {
   final Duration timeout;
   final int maxAttempts;
   final Duration retryDelay;
+  int _requestSequence = 0;
 
   Future<List<MediaItem>> list(
     MediaSource source, {
@@ -123,20 +127,67 @@ class MacCmsClient {
         ...parameters
       },
     );
-    final raw = await _fetchWithRetry(uri);
+    final requestId = ++_requestSequence;
+    final operation = parameters['ac'] ?? 'unknown';
+    final stopwatch = Stopwatch()..start();
+    _debugLog(
+      'request=$requestId phase=start source=${source.id} '
+      'operation=$operation uri=${_safeUri(uri)}',
+    );
+    final raw = await _fetchWithRetry(uri, requestId: requestId);
     try {
-      return jsonDecode(raw);
-    } on FormatException {
+      final payload = jsonDecode(raw);
+      stopwatch.stop();
+      _debugLog(
+        'request=$requestId phase=decoded source=${source.id} '
+        'operation=$operation elapsedMs=${stopwatch.elapsedMilliseconds} '
+        'payload=${_payloadSummary(payload)}',
+      );
+      return payload;
+    } on FormatException catch (error, stackTrace) {
+      stopwatch.stop();
+      _debugError(
+        'request=$requestId phase=decode_failed source=${source.id} '
+        'operation=$operation elapsedMs=${stopwatch.elapsedMilliseconds} '
+        'characters=${raw.length}',
+        error,
+        stackTrace,
+      );
       throw const FormatException('站点返回的不是有效 JSON');
     }
   }
 
-  Future<String> _fetchWithRetry(Uri uri) async {
+  Future<String> _fetchWithRetry(Uri uri, {required int requestId}) async {
     for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      final stopwatch = Stopwatch()..start();
       try {
-        return await _fetcher(uri).timeout(timeout);
+        _debugLog(
+          'request=$requestId phase=fetch attempt=$attempt/$maxAttempts '
+          'uri=${_safeUri(uri)}',
+        );
+        final response = await _fetcher(uri).timeout(timeout);
+        stopwatch.stop();
+        _debugLog(
+          'request=$requestId phase=fetch_complete '
+          'attempt=$attempt/$maxAttempts '
+          'elapsedMs=${stopwatch.elapsedMilliseconds} '
+          'characters=${response.length}',
+        );
+        return response;
       } catch (error, stackTrace) {
-        if (!_isTransientNetworkError(error) || attempt == maxAttempts) {
+        stopwatch.stop();
+        final canRetry =
+            _isTransientNetworkError(error) && attempt < maxAttempts;
+        _debugError(
+          'request=$requestId phase=fetch_failed '
+          'attempt=$attempt/$maxAttempts '
+          'elapsedMs=${stopwatch.elapsedMilliseconds} retry=$canRetry '
+          'uri=${_safeUri(uri)}',
+          error,
+          stackTrace,
+          includeStack: !canRetry,
+        );
+        if (!canRetry) {
           Error.throwWithStackTrace(error, stackTrace);
         }
         await Future<void>.delayed(retryDelay);
@@ -271,20 +322,134 @@ class MacCmsClient {
   }
 
   static Future<String> _defaultFetch(Uri uri) async {
-    final client = HttpClient();
+    final client = HttpClient()..autoUncompress = false;
     try {
       final request = await client.getUrl(uri);
       request.headers.set(HttpHeaders.acceptHeader, 'application/json');
+      request.headers.set(HttpHeaders.acceptEncodingHeader, 'identity');
       request.headers.set(HttpHeaders.cacheControlHeader, 'no-cache');
       request.headers.set(HttpHeaders.pragmaHeader, 'no-cache');
       final response = await request.close();
+      _debugLog(
+        'phase=response_headers status=${response.statusCode} '
+        'contentLength=${response.contentLength} '
+        'encoding=${response.headers.value(HttpHeaders.contentEncodingHeader) ?? 'identity'} '
+        'uri=${_safeUri(uri)}',
+      );
       if (response.statusCode < 200 || response.statusCode >= 300) {
         throw HttpException('站点返回 HTTP ${response.statusCode}', uri: uri);
       }
-      return response.transform(utf8.decoder).join();
+      // Keep the client alive until the complete response stream is consumed.
+      // Returning this future directly would enter `finally` immediately and
+      // force-close larger responses before all chunks arrive.
+      return await _readResponseBody(response, uri);
     } finally {
       client.close(force: true);
     }
+  }
+
+  static Future<String> _readResponseBody(
+    HttpClientResponse response,
+    Uri uri,
+  ) {
+    final completer = Completer<String>();
+    final bytes = BytesBuilder(copy: false);
+    late StreamSubscription<List<int>> subscription;
+    subscription = response.listen(
+      bytes.add,
+      onError: (Object error, StackTrace stackTrace) {
+        final receivedBytes = bytes.takeBytes();
+        final body = _decodeCompleteJson(receivedBytes);
+        if (_isPrematureClose(error) && body != null) {
+          _debugLog(
+            'phase=early_close_recovered bytes=${utf8.encode(body).length} '
+            'uri=${_safeUri(uri)}',
+          );
+          completer.complete(body);
+        } else {
+          _debugError(
+            'phase=response_stream_failed receivedBytes=${receivedBytes.length} '
+            'completeJson=${body != null} uri=${_safeUri(uri)}',
+            error,
+            stackTrace,
+          );
+          completer.completeError(error, stackTrace);
+        }
+      },
+      onDone: () {
+        if (!completer.isCompleted) {
+          try {
+            completer.complete(utf8.decode(bytes.takeBytes()));
+          } catch (error, stackTrace) {
+            completer.completeError(error, stackTrace);
+          }
+        }
+      },
+      cancelOnError: true,
+    );
+    return completer.future.whenComplete(subscription.cancel);
+  }
+
+  static bool _isPrematureClose(Object error) =>
+      error is HttpException &&
+      error.message.contains('Connection closed while receiving data');
+
+  static String? _decodeCompleteJson(Uint8List bytes) {
+    try {
+      final body = utf8.decode(bytes);
+      jsonDecode(body);
+      return body;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static String _payloadSummary(Object? payload) {
+    if (payload is! Map) return payload.runtimeType.toString();
+    final list = payload['list'] ?? payload['data'];
+    final count = list is List
+        ? list.length
+        : list is Map && list['list'] is List
+            ? (list['list'] as List).length
+            : null;
+    return 'map keys=${payload.keys.take(8).join(',')} listCount=${count ?? 'unknown'}';
+  }
+
+  static Uri _safeUri(Uri uri) {
+    final parameters = Map<String, String>.from(uri.queryParameters);
+    if (parameters.containsKey('wd')) parameters['wd'] = '<redacted>';
+    parameters.remove('_');
+    return uri.replace(
+      queryParameters: parameters.isEmpty ? null : parameters,
+    );
+  }
+
+  static void _debugLog(String message) {
+    assert(() {
+      debugPrint('[Cineo][MacCMS] $message');
+      return true;
+    }());
+  }
+
+  static void _debugError(
+    String message,
+    Object error,
+    StackTrace stackTrace, {
+    bool includeStack = false,
+  }) {
+    assert(() {
+      debugPrint(
+        '[Cineo][MacCMS] $message error=${error.runtimeType}: $error',
+      );
+      if (includeStack) {
+        debugPrintStack(
+          label: '[Cineo][MacCMS] stack',
+          stackTrace: stackTrace,
+          maxFrames: 12,
+        );
+      }
+      return true;
+    }());
   }
 
   static String _string(Object? value) => value?.toString().trim() ?? '';

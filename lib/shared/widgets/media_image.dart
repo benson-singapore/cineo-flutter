@@ -29,7 +29,20 @@ class MediaImage extends StatelessWidget {
               fit: fit,
               alignment: alignment,
               filterQuality: FilterQuality.medium,
-              errorBuilder: (context, error, stackTrace) => _fallback(),
+              errorBuilder: (context, error, stackTrace) {
+                assert(() {
+                  final uri = Uri.tryParse(url);
+                  final safeUrl = uri == null
+                      ? '<invalid-url>'
+                      : uri.replace(query: '', fragment: '').toString();
+                  debugPrint(
+                    '[Cineo][Image] phase=load_failed url=$safeUrl '
+                    'error=${error.runtimeType}: $error',
+                  );
+                  return true;
+                }());
+                return _fallback();
+              },
               loadingBuilder: (context, child, loadingProgress) {
                 if (loadingProgress == null) return child;
                 return Stack(

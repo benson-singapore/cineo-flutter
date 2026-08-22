@@ -104,6 +104,12 @@ class _CineoShellState extends State<CineoShell> {
 
   Future<void> _refresh() async {
     final revision = ++_refreshRevision;
+    final stopwatch = Stopwatch()..start();
+    _debugLog(
+      'home_refresh phase=start revision=$revision '
+      'category=${_selectedCategory.type.name} '
+      'sourceCategories=${_selectedCategory.sourceCategoryIds.length}',
+    );
     if (mounted) {
       setState(() {
         _loading = true;
@@ -128,6 +134,12 @@ class _CineoShellState extends State<CineoShell> {
         for (final item in items) item.id: item,
       };
       if (!mounted || revision != _refreshRevision) return;
+      stopwatch.stop();
+      _debugLog(
+        'home_refresh phase=complete revision=$revision '
+        'elapsedMs=${stopwatch.elapsedMilliseconds} items=${items.length} '
+        'progress=${progress.length} searchHistory=${history.length}',
+      );
       setState(() {
         _items = items;
         _continueWatching = [
@@ -142,7 +154,14 @@ class _CineoShellState extends State<CineoShell> {
         _loading = false;
       });
       unawaited(_refreshCategories(revision));
-    } catch (error) {
+    } catch (error, stackTrace) {
+      stopwatch.stop();
+      _debugError(
+        'home_refresh phase=failed revision=$revision '
+        'elapsedMs=${stopwatch.elapsedMilliseconds}',
+        error,
+        stackTrace,
+      );
       if (!mounted || revision != _refreshRevision) return;
       setState(() {
         _loading = false;
@@ -164,7 +183,12 @@ class _CineoShellState extends State<CineoShell> {
           _selectedCategory = categories.first;
         }
       });
-    } catch (_) {
+    } catch (error, stackTrace) {
+      _debugError(
+        'category_refresh phase=failed revision=$revision',
+        error,
+        stackTrace,
+      );
       // Category metadata is optional; the content list remains usable.
     }
   }
@@ -359,4 +383,27 @@ class _CineoShellState extends State<CineoShell> {
       ),
     );
   }
+}
+
+void _debugLog(String message) {
+  assert(() {
+    debugPrint('[Cineo][App] $message');
+    return true;
+  }());
+}
+
+void _debugError(
+  String message,
+  Object error,
+  StackTrace stackTrace,
+) {
+  assert(() {
+    debugPrint('[Cineo][App] $message error=${error.runtimeType}: $error');
+    debugPrintStack(
+      label: '[Cineo][App] stack',
+      stackTrace: stackTrace,
+      maxFrames: 12,
+    );
+    return true;
+  }());
 }

@@ -121,4 +121,77 @@ void main() {
     await expectLater(client.list(source), throwsA(isA<HttpException>()));
     expect(attempts, 1);
   });
+
+  test('accepts complete JSON when a source closes a chunked response early',
+      () async {
+    final server = await ServerSocket.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(server.close);
+    server.listen((socket) async {
+      await socket.first;
+      final body = jsonEncode({
+        'list': [
+          {
+            'vod_id': '101',
+            'vod_name': '非标准传输的影片',
+            'vod_pic': '/poster.jpg',
+          },
+        ],
+      });
+      socket.add(utf8.encode(
+        'HTTP/1.1 200 OK\r\n'
+        'Content-Type: application/json\r\n'
+        'Transfer-Encoding: chunked\r\n'
+        'Connection: close\r\n'
+        '\r\n'
+        '${utf8.encode(body).length.toRadixString(16)}\r\n'
+        '$body\r\n',
+      ));
+      await socket.flush();
+      await socket.close();
+    });
+    final localSource = MediaSource(
+      id: 'early-close',
+      name: '提前断开的视频源',
+      type: MediaSourceType.macCmsApi,
+      baseUrl: 'http://${server.address.address}:${server.port}/vod',
+    );
+
+    final items = await MacCmsClient(maxAttempts: 1).list(localSource);
+
+    expect(items.single.title, '非标准传输的影片');
+    expect(items.single.posterUrl, contains('/poster.jpg'));
+  });
+
+  test('keeps the HTTP client open while a large response is streaming',
+      () async {
+    final server = await HttpServer.bind(InternetAddress.loopbackIPv4, 0);
+    addTearDown(() => server.close(force: true));
+    server.listen((request) async {
+      request.response.headers.contentType = ContentType.json;
+      request.response.write('{"list":[');
+      for (var index = 0; index < 80; index++) {
+        if (index > 0) request.response.write(',');
+        request.response.write(jsonEncode({
+          'vod_id': '$index',
+          'vod_name': '分块影片 $index',
+          'vod_content': List.filled(1000, '内容').join(),
+        }));
+        await request.response.flush();
+        await Future<void>.delayed(const Duration(milliseconds: 1));
+      }
+      request.response.write(']}');
+      await request.response.close();
+    });
+    final localSource = MediaSource(
+      id: 'streaming',
+      name: '分块响应视频源',
+      type: MediaSourceType.macCmsApi,
+      baseUrl: 'http://${server.address.address}:${server.port}/vod',
+    );
+
+    final items = await MacCmsClient(maxAttempts: 1).list(localSource);
+
+    expect(items, hasLength(80));
+    expect(items.last.title, '分块影片 79');
+  });
 }
