@@ -1,23 +1,32 @@
 import 'package:flutter/material.dart';
 
 abstract class CineoColors {
-  static const background = Color(0xFF090A0C);
-  static const surface = Color(0xFF16181D);
-  static const surfaceElevated = Color(0xFF20232A);
-  static const primary = Color(0xFFE34C51);
-  static const textPrimary = Color(0xFFF4F4F5);
-  static const textSecondary = Color(0xFFAAADB5);
-  static const divider = Color(0xFF2A2D33);
+  static const background = Color(0xFF080909);
+  static const surface = Color(0xFF141414);
+  static const surfaceElevated = Color(0xFF20201F);
+  static const surfaceOverlay = Color(0xFF292827);
+  static const primary = Color(0xFFFFA13A);
+  static const primaryLight = Color(0xFFFFC467);
+  static const primaryContainer = Color(0xFF4B2E13);
+  static const textPrimary = Color(0xFFF8F7F4);
+  static const textSecondary = Color(0xFFACA9A4);
+  static const divider = Color(0xFF343230);
+  static const glass = Color(0xE01A1918);
 }
 
 ThemeData buildCineoTheme() {
   const scheme = ColorScheme.dark(
     primary: CineoColors.primary,
-    secondary: CineoColors.primary,
+    onPrimary: Color(0xFF251300),
+    primaryContainer: CineoColors.primaryContainer,
+    onPrimaryContainer: CineoColors.primaryLight,
+    secondary: CineoColors.primaryLight,
     surface: CineoColors.surface,
     background: CineoColors.background,
-    onPrimary: Colors.white,
     onSurface: CineoColors.textPrimary,
+    surfaceVariant: CineoColors.surfaceElevated,
+    outline: CineoColors.divider,
+    outlineVariant: CineoColors.divider,
   );
   return ThemeData(
     useMaterial3: true,
@@ -25,11 +34,19 @@ ThemeData buildCineoTheme() {
     colorScheme: scheme,
     scaffoldBackgroundColor: CineoColors.background,
     dividerColor: CineoColors.divider,
+    splashFactory: InkSparkle.splashFactory,
+    visualDensity: VisualDensity.standard,
     appBarTheme: const AppBarTheme(
       backgroundColor: CineoColors.background,
       foregroundColor: CineoColors.textPrimary,
       elevation: 0,
       surfaceTintColor: Colors.transparent,
+      centerTitle: false,
+      titleTextStyle: TextStyle(
+        color: CineoColors.textPrimary,
+        fontSize: 24,
+        fontWeight: FontWeight.w800,
+      ),
     ),
     cardTheme: const CardTheme(
       color: CineoColors.surface,
@@ -41,19 +58,78 @@ ThemeData buildCineoTheme() {
     ),
     inputDecorationTheme: const InputDecorationTheme(
       filled: true,
-      fillColor: CineoColors.surface,
+      fillColor: CineoColors.surfaceElevated,
+      hintStyle: TextStyle(color: CineoColors.textSecondary),
+      contentPadding: EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.all(Radius.circular(8)),
+        borderRadius: BorderRadius.all(Radius.circular(14)),
         borderSide: BorderSide.none,
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.all(Radius.circular(8)),
-        borderSide: BorderSide.none,
+        borderRadius: BorderRadius.all(Radius.circular(14)),
+        borderSide: BorderSide(color: CineoColors.divider),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.all(Radius.circular(8)),
-        borderSide: BorderSide(color: CineoColors.primary),
+        borderRadius: BorderRadius.all(Radius.circular(14)),
+        borderSide: BorderSide(color: CineoColors.primary, width: 1.5),
       ),
+    ),
+    navigationBarTheme: const NavigationBarThemeData(
+      height: 76,
+      backgroundColor: CineoColors.glass,
+      surfaceTintColor: Colors.transparent,
+      indicatorColor: CineoColors.primaryContainer,
+      labelTextStyle: MaterialStatePropertyAll(
+        TextStyle(fontWeight: FontWeight.w700, fontSize: 12),
+      ),
+      iconTheme: MaterialStatePropertyAll(
+        IconThemeData(size: 24),
+      ),
+    ),
+    tabBarTheme: const TabBarTheme(
+      indicatorColor: CineoColors.primary,
+      labelColor: CineoColors.primaryLight,
+      unselectedLabelColor: CineoColors.textSecondary,
+      labelStyle: TextStyle(fontWeight: FontWeight.w700),
+      dividerColor: CineoColors.divider,
+    ),
+    chipTheme: const ChipThemeData(
+      backgroundColor: CineoColors.surfaceElevated,
+      selectedColor: CineoColors.primaryContainer,
+      secondarySelectedColor: CineoColors.primaryContainer,
+      labelStyle: TextStyle(color: CineoColors.textPrimary),
+      secondaryLabelStyle: TextStyle(
+        color: CineoColors.primaryLight,
+        fontWeight: FontWeight.w700,
+      ),
+      side: BorderSide(color: CineoColors.divider),
+      shape: StadiumBorder(),
+    ),
+    filledButtonTheme: FilledButtonThemeData(
+      style: FilledButton.styleFrom(
+        backgroundColor: CineoColors.primary,
+        foregroundColor: const Color(0xFF251300),
+        elevation: 0,
+        padding: const EdgeInsets.symmetric(horizontal: 18, vertical: 13),
+        shape: const StadiumBorder(),
+        textStyle: const TextStyle(fontWeight: FontWeight.w800),
+      ),
+    ),
+    outlinedButtonTheme: OutlinedButtonThemeData(
+      style: OutlinedButton.styleFrom(
+        foregroundColor: CineoColors.textPrimary,
+        side: const BorderSide(color: CineoColors.divider),
+        shape: const StadiumBorder(),
+      ),
+    ),
+    floatingActionButtonTheme: const FloatingActionButtonThemeData(
+      backgroundColor: CineoColors.primary,
+      foregroundColor: Color(0xFF251300),
+      shape: StadiumBorder(),
+    ),
+    progressIndicatorTheme: const ProgressIndicatorThemeData(
+      color: CineoColors.primary,
+      linearTrackColor: CineoColors.surfaceOverlay,
     ),
   );
 }

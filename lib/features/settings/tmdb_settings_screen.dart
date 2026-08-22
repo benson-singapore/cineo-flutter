@@ -2,6 +2,7 @@ import 'dart:async';
 
 import 'package:flutter/material.dart';
 
+import '../../core/theme/cineo_theme.dart';
 import 'tmdb_cache_settings.dart';
 import 'tmdb_settings.dart';
 
@@ -63,10 +64,16 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
   Widget _buildBody(BuildContext context) {
     final theme = Theme.of(context);
     return ListView(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 32),
+      padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
       children: [
-        Text('TMDB 数据服务', style: theme.textTheme.titleLarge),
-        const SizedBox(height: 8),
+        Row(
+          children: [
+            const Icon(Icons.auto_awesome, color: CineoColors.primary),
+            const SizedBox(width: 10),
+            Text('TMDB 数据服务', style: theme.textTheme.titleLarge),
+          ],
+        ),
+        const SizedBox(height: 10),
         Text(
           '配置后可为影视详情补充海报、剧集信息和每集简介。Token 仅保存在本机安全存储中。',
           style: theme.textTheme.bodyMedium?.copyWith(
@@ -76,51 +83,7 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
         const SizedBox(height: 20),
         _buildStatus(context),
         const SizedBox(height: 16),
-        TextField(
-          controller: _tokenController,
-          enabled: !_settings.isBusy,
-          obscureText: _obscureToken,
-          autocorrect: false,
-          enableSuggestions: false,
-          textInputAction: TextInputAction.done,
-          onSubmitted: (_) => _saveToken(),
-          decoration: InputDecoration(
-            labelText: 'TMDB API Token',
-            hintText: '请输入 Token',
-            border: const OutlineInputBorder(),
-            suffixIcon: IconButton(
-              tooltip: _obscureToken ? '显示 Token' : '隐藏 Token',
-              onPressed: _settings.isBusy
-                  ? null
-                  : () => setState(() => _obscureToken = !_obscureToken),
-              icon: Icon(
-                _obscureToken
-                    ? Icons.visibility_outlined
-                    : Icons.visibility_off_outlined,
-              ),
-            ),
-          ),
-        ),
-        const SizedBox(height: 12),
-        Row(
-          children: [
-            Expanded(
-              child: FilledButton.icon(
-                onPressed: _settings.isBusy ? null : _saveToken,
-                icon: const Icon(Icons.save_outlined),
-                label: const Text('保存配置'),
-              ),
-            ),
-            const SizedBox(width: 12),
-            OutlinedButton.icon(
-              onPressed: _settings.isBusy || !_settings.configured
-                  ? null
-                  : _clearToken,
-              icon: const Icon(Icons.delete_outline),
-              label: const Text('清除'),
-            ),
-          ],
-        ),
+        _buildTokenPanel(context),
         if (_settings.isBusy) ...[
           const SizedBox(height: 16),
           const LinearProgressIndicator(),
@@ -131,6 +94,71 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
         ],
         _buildCacheSection(context),
       ],
+    );
+  }
+
+  Widget _buildTokenPanel(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 16),
+      decoration: BoxDecoration(
+        color: CineoColors.surface,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: CineoColors.divider),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('访问凭证',
+              style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                    fontWeight: FontWeight.w700,
+                  )),
+          const SizedBox(height: 12),
+          TextField(
+            controller: _tokenController,
+            enabled: !_settings.isBusy,
+            obscureText: _obscureToken,
+            autocorrect: false,
+            enableSuggestions: false,
+            textInputAction: TextInputAction.done,
+            onSubmitted: (_) => _saveToken(),
+            decoration: InputDecoration(
+              labelText: 'TMDB API Token',
+              hintText: '请输入 Token',
+              prefixIcon: const Icon(Icons.key_outlined),
+              suffixIcon: IconButton(
+                tooltip: _obscureToken ? '显示 Token' : '隐藏 Token',
+                onPressed: _settings.isBusy
+                    ? null
+                    : () => setState(() => _obscureToken = !_obscureToken),
+                icon: Icon(
+                  _obscureToken
+                      ? Icons.visibility_outlined
+                      : Icons.visibility_off_outlined,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 12),
+          Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              FilledButton.icon(
+                onPressed: _settings.isBusy ? null : _saveToken,
+                icon: const Icon(Icons.save_outlined),
+                label: const Text('保存配置'),
+              ),
+              OutlinedButton.icon(
+                onPressed: _settings.isBusy || !_settings.configured
+                    ? null
+                    : _clearToken,
+                icon: const Icon(Icons.delete_outline),
+                label: const Text('清除'),
+              ),
+            ],
+          ),
+        ],
+      ),
     );
   }
 
@@ -160,7 +188,7 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               ListTile(
-                contentPadding: EdgeInsets.zero,
+                contentPadding: const EdgeInsets.fromLTRB(0, 4, 0, 4),
                 leading:
                     Icon(Icons.cached_outlined, color: colorScheme.primary),
                 title: const Text('TMDB 缓存'),
@@ -181,7 +209,7 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
               ),
               const Divider(height: 1),
               ListTile(
-                contentPadding: EdgeInsets.zero,
+                contentPadding: const EdgeInsets.fromLTRB(0, 4, 0, 4),
                 leading: const Icon(Icons.timer_outlined),
                 title: const Text('缓存保留时间'),
                 subtitle: const Text('超过保留时间的缓存可手动清理'),
@@ -202,26 +230,23 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
                 ),
               ],
               const SizedBox(height: 8),
-              Row(
+              Wrap(
+                spacing: 10,
+                runSpacing: 10,
                 children: [
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: controller.isBusy
-                          ? null
-                          : () => _cleanupExpired(controller),
-                      icon: const Icon(Icons.auto_delete_outlined),
-                      label: const Text('清理过期缓存'),
-                    ),
+                  OutlinedButton.icon(
+                    onPressed: controller.isBusy
+                        ? null
+                        : () => _cleanupExpired(controller),
+                    icon: const Icon(Icons.auto_delete_outlined),
+                    label: const Text('清理过期缓存'),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: OutlinedButton.icon(
-                      onPressed: controller.isBusy || stats.fileCount == 0
-                          ? null
-                          : () => _confirmClearCache(context, controller),
-                      icon: const Icon(Icons.delete_sweep_outlined),
-                      label: const Text('清空全部'),
-                    ),
+                  OutlinedButton.icon(
+                    onPressed: controller.isBusy || stats.fileCount == 0
+                        ? null
+                        : () => _confirmClearCache(context, controller),
+                    icon: const Icon(Icons.delete_sweep_outlined),
+                    label: const Text('清空全部'),
                   ),
                 ],
               ),
@@ -344,7 +369,9 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
-        color: colorScheme.surface,
+        color: configured
+            ? CineoColors.primaryContainer.withOpacity(.45)
+            : CineoColors.surface,
         borderRadius: BorderRadius.circular(8),
         border: Border.all(color: colorScheme.outlineVariant),
       ),
@@ -352,8 +379,7 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
         children: [
           Icon(
             configured ? Icons.check_circle_outline : Icons.info_outline,
-            color:
-                configured ? colorScheme.primary : colorScheme.onSurfaceVariant,
+            color: configured ? CineoColors.primary : CineoColors.textSecondary,
           ),
           const SizedBox(width: 12),
           Expanded(

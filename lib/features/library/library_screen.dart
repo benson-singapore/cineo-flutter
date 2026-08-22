@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
+import '../../core/theme/cineo_theme.dart';
 import '../../data/repositories/media_repository.dart';
+import '../../shared/widgets/media_image.dart';
 
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
@@ -83,15 +85,16 @@ class _LibraryScreenState extends State<LibraryScreen>
           IconButton(
             tooltip: '刷新',
             onPressed: _load,
-            icon: const Icon(Icons.refresh),
+            icon: const Icon(Icons.refresh_rounded),
           ),
         ],
         bottom: TabBar(
           controller: _tabController,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           tabs: const [
-            Tab(text: '收藏'),
-            Tab(text: '继续观看'),
-            Tab(text: '播放历史'),
+            Tab(icon: Icon(Icons.bookmark_outline), text: '收藏'),
+            Tab(icon: Icon(Icons.play_circle_outline), text: '继续观看'),
+            Tab(icon: Icon(Icons.history_rounded), text: '播放历史'),
           ],
         ),
       ),
@@ -140,12 +143,12 @@ class _MediaGrid extends StatelessWidget {
       return _EmptyState(title: emptyTitle, icon: emptyIcon);
     }
     return GridView.builder(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
       gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 180,
-        mainAxisSpacing: 16,
+        maxCrossAxisExtent: 172,
+        mainAxisSpacing: 20,
         crossAxisSpacing: 12,
-        childAspectRatio: .58,
+        childAspectRatio: .61,
       ),
       itemCount: items.length,
       itemBuilder: (context, index) => _MediaTile(
@@ -168,9 +171,9 @@ class _HistoryList extends StatelessWidget {
       return const _EmptyState(title: '还没有播放记录', icon: Icons.history);
     }
     return ListView.separated(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
       itemCount: entries.length,
-      separatorBuilder: (_, __) => const SizedBox(height: 12),
+      separatorBuilder: (_, __) => const SizedBox(height: 14),
       itemBuilder: (context, index) {
         final entry = entries[index];
         return _HistoryTile(
@@ -199,7 +202,7 @@ class _MediaTile extends StatelessWidget {
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(8),
-              child: _Poster(url: media.posterUrl),
+              child: MediaImage(url: media.posterUrl),
             ),
           ),
           const SizedBox(height: 8),
@@ -207,12 +210,15 @@ class _MediaTile extends StatelessWidget {
             media.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w600),
+            style: const TextStyle(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 3),
           Text(
             '${media.year}  ·  ${media.rating.toStringAsFixed(1)} 分',
-            style: TextStyle(color: Colors.grey.shade500, fontSize: 12),
+            style: const TextStyle(
+              color: CineoColors.textSecondary,
+              fontSize: 12,
+            ),
           ),
         ],
       ),
@@ -229,53 +235,61 @@ class _HistoryTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final progress = entry.progress.fraction;
-    return ListTile(
-      onTap: onTap,
-      contentPadding: EdgeInsets.zero,
-      leading: SizedBox(
-        width: 72,
-        height: 96,
-        child: ClipRRect(
-          borderRadius: BorderRadius.circular(6),
-          child: _Poster(url: entry.media.posterUrl),
-        ),
-      ),
-      title:
-          Text(entry.media.title, maxLines: 1, overflow: TextOverflow.ellipsis),
-      subtitle: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const SizedBox(height: 6),
-          Text(
-            entry.progress.episodeId == null
-                ? '电影'
-                : '第 ${entry.progress.episodeId} 集',
-            style: TextStyle(color: Colors.grey.shade500),
+    return Material(
+      color: CineoColors.surface,
+      borderRadius: BorderRadius.circular(8),
+      child: InkWell(
+        onTap: onTap,
+        borderRadius: BorderRadius.circular(8),
+        child: Padding(
+          padding: const EdgeInsets.all(10),
+          child: Row(
+            children: [
+              SizedBox(
+                width: 68,
+                height: 94,
+                child: ClipRRect(
+                  borderRadius: BorderRadius.circular(6),
+                  child: MediaImage(url: entry.media.posterUrl),
+                ),
+              ),
+              const SizedBox(width: 14),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Text(
+                      entry.media.title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
+                            fontWeight: FontWeight.w800,
+                          ),
+                    ),
+                    const SizedBox(height: 6),
+                    Text(
+                      entry.progress.episodeId == null
+                          ? '电影'
+                          : '第 ${entry.progress.episodeId} 集',
+                      style: const TextStyle(
+                        color: CineoColors.textSecondary,
+                        fontSize: 12,
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    LinearProgressIndicator(value: progress, minHeight: 4),
+                  ],
+                ),
+              ),
+              const SizedBox(width: 8),
+              const Icon(
+                Icons.chevron_right_rounded,
+                color: CineoColors.textSecondary,
+              ),
+            ],
           ),
-          const SizedBox(height: 10),
-          LinearProgressIndicator(value: progress, minHeight: 3),
-        ],
-      ),
-      trailing: const Icon(Icons.chevron_right),
-    );
-  }
-}
-
-class _Poster extends StatelessWidget {
-  const _Poster({required this.url});
-
-  final String url;
-
-  @override
-  Widget build(BuildContext context) {
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      width: double.infinity,
-      errorBuilder: (_, __, ___) => ColoredBox(
-        color: Colors.grey.shade900,
-        child: const Center(
-            child: Icon(Icons.movie_outlined, color: Colors.white54)),
+        ),
       ),
     );
   }
@@ -293,9 +307,15 @@ class _EmptyState extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 48, color: Colors.grey.shade600),
-          const SizedBox(height: 12),
-          Text(title, style: TextStyle(color: Colors.grey.shade500)),
+          Icon(icon, size: 48, color: CineoColors.textSecondary),
+          const SizedBox(height: 14),
+          Text(
+            title,
+            style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                  color: CineoColors.textSecondary,
+                  fontWeight: FontWeight.w700,
+                ),
+          ),
         ],
       ),
     );

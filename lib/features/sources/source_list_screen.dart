@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/media_source.dart';
+import '../../core/theme/cineo_theme.dart';
 import '../../data/repositories/media_repository.dart';
 import '../settings/adult_source_settings.dart';
 import 'source_config_importer.dart';
@@ -327,10 +328,15 @@ class _SourceListScreenState extends State<SourceListScreen> {
           if (_loading) return const Center(child: CircularProgressIndicator());
           if (_error != null) {
             return Center(
-              child: OutlinedButton.icon(
-                onPressed: _load,
-                icon: const Icon(Icons.refresh),
-                label: const Text('加载失败，重试'),
+              child: _SourceFeedback(
+                icon: Icons.cloud_off_outlined,
+                title: '视频源加载失败',
+                subtitle: '请检查本地配置后重试',
+                action: OutlinedButton.icon(
+                  onPressed: _load,
+                  icon: const Icon(Icons.refresh),
+                  label: const Text('重新加载'),
+                ),
               ),
             );
           }
@@ -351,8 +357,9 @@ class _SourceListScreenState extends State<SourceListScreen> {
             child: Column(
               children: [
                 Material(
-                  color: Theme.of(context).scaffoldBackgroundColor,
+                  color: CineoColors.background,
                   child: TabBar(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
                     tabs: [
                       Tab(text: '收藏源 ${favoriteSources.length}'),
                       Tab(text: '普通源 ${regularSources.length}'),
@@ -446,6 +453,17 @@ class _SourceCard extends StatelessWidget {
       MediaSourceType.demo => '演示媒体库',
     };
     return Card(
+      clipBehavior: Clip.antiAlias,
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: BorderSide(
+          color: source.lastError != null && source.lastError!.isNotEmpty
+              ? Theme.of(context).colorScheme.error.withOpacity(.55)
+              : source.enabled
+                  ? CineoColors.divider
+                  : CineoColors.divider.withOpacity(.65),
+        ),
+      ),
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 14, 8, 12),
         child: Column(
@@ -453,8 +471,9 @@ class _SourceCard extends StatelessWidget {
             Row(
               children: [
                 CircleAvatar(
-                  backgroundColor:
-                      Theme.of(context).colorScheme.primaryContainer,
+                  backgroundColor: source.enabled
+                      ? CineoColors.primaryContainer
+                      : CineoColors.surfaceElevated,
                   child: Icon(
                     source.type == MediaSourceType.direct
                         ? Icons.play_circle
@@ -485,8 +504,8 @@ class _SourceCard extends StatelessWidget {
                       const SizedBox(height: 4),
                       Text(
                         typeLabel,
-                        style: TextStyle(
-                            color: Colors.grey.shade500, fontSize: 12),
+                        style: const TextStyle(
+                            color: CineoColors.textSecondary, fontSize: 12),
                       ),
                     ],
                   ),
@@ -501,7 +520,8 @@ class _SourceCard extends StatelessWidget {
                 source.baseUrl,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
-                style: TextStyle(color: Colors.grey.shade400, fontSize: 13),
+                style: const TextStyle(
+                    color: CineoColors.textSecondary, fontSize: 13),
               ),
             ),
             const SizedBox(height: 8),
@@ -641,15 +661,21 @@ class _SourceHealthSummary extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final textStyle = TextStyle(color: Colors.grey.shade500, fontSize: 12);
+    const textStyle = TextStyle(
+      color: CineoColors.textSecondary,
+      fontSize: 12,
+    );
     final checkedAt = source.lastCheckedAt;
     final latency = source.lastLatencyMs;
     final hasError = source.lastError != null && source.lastError!.isNotEmpty;
 
     if (checkedAt == null && !hasError) {
-      return Align(
+      return const Align(
         alignment: Alignment.centerLeft,
-        child: Text('尚未进行连通性测试', style: textStyle),
+        child: Text(
+          '尚未进行连通性测试',
+          style: TextStyle(color: CineoColors.textSecondary, fontSize: 12),
+        ),
       );
     }
 
@@ -664,7 +690,8 @@ class _SourceHealthSummary extends StatelessWidget {
         maxLines: 2,
         overflow: TextOverflow.ellipsis,
         style: TextStyle(
-          color: hasError ? Colors.red.shade300 : textStyle.color,
+          color:
+              hasError ? Theme.of(context).colorScheme.error : textStyle.color,
           fontSize: textStyle.fontSize,
         ),
       ),
@@ -699,14 +726,15 @@ class _AdultSourcesProtectedState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            Icon(Icons.lock_outline, size: 52, color: Colors.grey.shade600),
+            const Icon(Icons.lock_outline,
+                size: 52, color: CineoColors.primary),
             const SizedBox(height: 12),
-            Text('成人来源已隐藏', style: TextStyle(color: Colors.grey.shade400)),
+            Text('成人来源已隐藏', style: Theme.of(context).textTheme.titleMedium),
             const SizedBox(height: 6),
-            Text(
+            const Text(
               '请在设置中启用成人标记，并完成 PIN 验证后查看',
               textAlign: TextAlign.center,
-              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+              style: TextStyle(color: CineoColors.textSecondary, fontSize: 12),
             ),
           ],
         ),
@@ -727,17 +755,48 @@ class _SourceEmptyState extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Center(
+      child: _SourceFeedback(
+        icon: Icons.dns_outlined,
+        title: title,
+        subtitle: subtitle,
+      ),
+    );
+  }
+}
+
+class _SourceFeedback extends StatelessWidget {
+  const _SourceFeedback({
+    required this.icon,
+    required this.title,
+    required this.subtitle,
+    this.action,
+  });
+
+  final IconData icon;
+  final String title;
+  final String subtitle;
+  final Widget? action;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.all(24),
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(Icons.dns_outlined, size: 52, color: Colors.grey.shade600),
-          const SizedBox(height: 12),
-          Text(title, style: TextStyle(color: Colors.grey.shade500)),
+          Icon(icon, size: 48, color: CineoColors.primary),
+          const SizedBox(height: 14),
+          Text(title, style: Theme.of(context).textTheme.titleMedium),
           const SizedBox(height: 6),
           Text(
             subtitle,
-            style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            textAlign: TextAlign.center,
+            style: const TextStyle(color: CineoColors.textSecondary),
           ),
+          if (action != null) ...[
+            const SizedBox(height: 18),
+            action!,
+          ],
         ],
       ),
     );

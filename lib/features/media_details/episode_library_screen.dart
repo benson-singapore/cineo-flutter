@@ -53,40 +53,77 @@ class EpisodeLibraryScreen extends StatelessWidget {
               child: Text('当前来源暂无剧集',
                   style: TextStyle(color: CineoColors.textSecondary)),
             )
-          : CustomScrollView(
-              slivers: [
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
-                  sliver: SliverGrid(
-                    delegate: SliverChildBuilderDelegate(
-                      (context, index) {
-                        final episode = sortedEpisodes[index];
-                        final metadata = _metadataFor(episode);
-                        final title = metadata?.name.trim().isNotEmpty == true
-                            ? metadata!.name
-                            : '第${episode.number}集';
-                        return _EpisodeTile(
-                          episode: episode,
-                          title: title,
-                          imageUrl: _imageFor(metadata),
-                          rating: metadata?.rating ?? 0,
-                          onPlay: episode.playbackOption == null
-                              ? null
-                              : () => onPlay(episode.playbackOption!),
-                        );
-                      },
-                      childCount: sortedEpisodes.length,
+          : LayoutBuilder(
+              builder: (context, constraints) {
+                final columns = constraints.maxWidth >= 760
+                    ? 4
+                    : constraints.maxWidth >= 520
+                        ? 3
+                        : 2;
+                return CustomScrollView(
+                  slivers: [
+                    SliverToBoxAdapter(
+                      child: Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 3,
+                              height: 18,
+                              decoration: BoxDecoration(
+                                color: CineoColors.primary,
+                                borderRadius: BorderRadius.circular(2),
+                              ),
+                            ),
+                            const SizedBox(width: 8),
+                            Text(
+                              '${sortedEpisodes.length} 集',
+                              style: const TextStyle(
+                                fontSize: 16,
+                                fontWeight: FontWeight.w800,
+                              ),
+                            ),
+                            const Spacer(),
+                            const Icon(Icons.swipe_rounded,
+                                size: 16, color: CineoColors.textSecondary),
+                          ],
+                        ),
+                      ),
                     ),
-                    gridDelegate:
-                        const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 22,
-                      childAspectRatio: 1.35,
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+                      sliver: SliverGrid(
+                        delegate: SliverChildBuilderDelegate(
+                          (context, index) {
+                            final episode = sortedEpisodes[index];
+                            final metadata = _metadataFor(episode);
+                            final title =
+                                metadata?.name.trim().isNotEmpty == true
+                                    ? metadata!.name
+                                    : '第${episode.number}集';
+                            return _EpisodeTile(
+                              episode: episode,
+                              title: title,
+                              imageUrl: _imageFor(metadata),
+                              rating: metadata?.rating ?? 0,
+                              onPlay: episode.playbackOption == null
+                                  ? null
+                                  : () => onPlay(episode.playbackOption!),
+                            );
+                          },
+                          childCount: sortedEpisodes.length,
+                        ),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: columns,
+                          crossAxisSpacing: 12,
+                          mainAxisSpacing: 18,
+                          childAspectRatio: columns >= 4 ? 1.25 : 1.3,
+                        ),
+                      ),
                     ),
-                  ),
-                ),
-              ],
+                  ],
+                );
+              },
             ),
     );
   }
@@ -113,74 +150,94 @@ class _EpisodeTile extends StatelessWidget {
       key: ValueKey('library-${episode.id}'),
       borderRadius: BorderRadius.circular(8),
       onTap: onPlay,
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          AspectRatio(
-            aspectRatio: 16 / 9,
-            child: Stack(
-              fit: StackFit.expand,
-              children: [
-                MediaImage(
-                  url: imageUrl,
-                  borderRadius: BorderRadius.circular(8),
-                  placeholderIcon: Icons.live_tv_outlined,
-                ),
-                Positioned(
-                  left: 8,
-                  top: 8,
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(.78),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 6,
-                        vertical: 3,
+      child: DecoratedBox(
+        decoration: BoxDecoration(
+          color: CineoColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: CineoColors.divider),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(6),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      MediaImage(
+                        url: imageUrl,
+                        borderRadius: BorderRadius.circular(6),
+                        placeholderIcon: Icons.live_tv_outlined,
                       ),
-                      child: Text(
-                        '第${episode.number}集',
-                        style: const TextStyle(fontSize: 11),
-                      ),
-                    ),
-                  ),
-                ),
-                if (rating > 0)
-                  Positioned(
-                    right: 8,
-                    bottom: 8,
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: Colors.black.withOpacity(.72),
-                        borderRadius: BorderRadius.circular(4),
-                      ),
-                      child: Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 5,
-                          vertical: 2,
-                        ),
-                        child: Text(
-                          rating.toStringAsFixed(1),
-                          style: const TextStyle(
-                            fontSize: 11,
-                            fontWeight: FontWeight.w700,
+                      Positioned(
+                        left: 7,
+                        top: 7,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(.78),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 6,
+                              vertical: 3,
+                            ),
+                            child: Text(
+                              '第${episode.number}集',
+                              style: const TextStyle(
+                                color: CineoColors.primaryLight,
+                                fontSize: 11,
+                                fontWeight: FontWeight.w700,
+                              ),
+                            ),
                           ),
                         ),
                       ),
-                    ),
+                      if (rating > 0)
+                        Positioned(
+                          right: 7,
+                          bottom: 7,
+                          child: DecoratedBox(
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(.72),
+                              borderRadius: BorderRadius.circular(4),
+                            ),
+                            child: Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 5,
+                                vertical: 2,
+                              ),
+                              child: Text(
+                                rating.toStringAsFixed(1),
+                                style: const TextStyle(
+                                  color: CineoColors.primaryLight,
+                                  fontSize: 11,
+                                  fontWeight: FontWeight.w800,
+                                ),
+                              ),
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
-              ],
-            ),
+                ),
+              ),
+              const SizedBox(height: 7),
+              Text(
+                '第${episode.number}集${title.trim().isEmpty ? '' : ' · $title'}',
+                maxLines: 1,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                ),
+              ),
+            ],
           ),
-          const SizedBox(height: 8),
-          Text(
-            '第${episode.number}集${title.trim().isEmpty ? '' : ' · $title'}',
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(fontWeight: FontWeight.w700),
-          ),
-        ],
+        ),
       ),
     );
   }

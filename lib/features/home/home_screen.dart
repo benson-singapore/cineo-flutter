@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/home_category_rail.dart';
 import '../../core/models/media.dart';
 import '../../core/theme/cineo_theme.dart';
+import '../../shared/widgets/cineo_brand_mark.dart';
 import '../../shared/widgets/content_state_view.dart';
 import '../../shared/widgets/media_image.dart';
 import '../../shared/widgets/media_rail.dart';
@@ -121,19 +122,14 @@ class HomeScreen extends StatelessWidget {
       backgroundColor: CineoColors.background,
       surfaceTintColor: Colors.transparent,
       titleSpacing: 20,
-      title: const _CineoWordmark(),
+      title: const CineoBrandMark(),
       actions: [
         IconButton(
           onPressed: () {},
           tooltip: '搜索',
-          icon: const Icon(Icons.search_rounded),
+          icon: const Icon(Icons.search_rounded, size: 25),
         ),
-        IconButton(
-          onPressed: () {},
-          tooltip: '通知',
-          icon: const Icon(Icons.notifications_none_rounded),
-        ),
-        const SizedBox(width: 8),
+        const SizedBox(width: 12),
       ],
     );
   }
@@ -167,37 +163,6 @@ class HomeScreen extends StatelessWidget {
       result.add(value);
     }
     return List.unmodifiable(result);
-  }
-}
-
-class _CineoWordmark extends StatelessWidget {
-  const _CineoWordmark();
-
-  @override
-  Widget build(BuildContext context) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          width: 25,
-          height: 25,
-          decoration: BoxDecoration(
-            color: CineoColors.primary,
-            borderRadius: BorderRadius.circular(7),
-          ),
-          child: const Icon(Icons.play_arrow_rounded, size: 18),
-        ),
-        const SizedBox(width: 9),
-        const Text(
-          'CINEO',
-          style: TextStyle(
-            fontSize: 18,
-            fontWeight: FontWeight.w900,
-            letterSpacing: 1.4,
-          ),
-        ),
-      ],
-    );
   }
 }
 
@@ -282,19 +247,14 @@ class _HeroBanner extends StatelessWidget {
                               height: 1.35,
                             ),
                       ),
-                      const SizedBox(height: 14),
+                      const SizedBox(height: 18),
                       FilledButton.icon(
                         key: const ValueKey('home-hero-action'),
                         onPressed: () => onTap(media),
                         icon: const Icon(Icons.play_arrow_rounded),
                         label: Text(resumeAvailable ? '继续观看' : '立即播放'),
                         style: FilledButton.styleFrom(
-                          padding: const EdgeInsets.symmetric(
-                            horizontal: 18,
-                            vertical: 10,
-                          ),
-                          backgroundColor: CineoColors.primary,
-                          foregroundColor: Colors.white,
+                          padding: const EdgeInsets.symmetric(horizontal: 20),
                         ),
                       ),
                     ],

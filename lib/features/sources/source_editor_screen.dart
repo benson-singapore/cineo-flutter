@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/media_source.dart';
+import '../../core/theme/cineo_theme.dart';
 
 class SourceEditorScreen extends StatefulWidget {
   const SourceEditorScreen({
@@ -83,81 +84,108 @@ class _SourceEditorScreenState extends State<SourceEditorScreen> {
       body: Form(
         key: _formKey,
         child: ListView(
-          padding: const EdgeInsets.all(20),
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
           children: [
-            TextFormField(
-              controller: _nameController,
-              textInputAction: TextInputAction.next,
-              decoration: const InputDecoration(
-                labelText: '名称',
-                hintText: '例如：家庭媒体库',
-                prefixIcon: Icon(Icons.label_outline),
-              ),
-              validator: (value) =>
-                  value == null || value.trim().isEmpty ? '请输入名称' : null,
+            Text(
+              _editing ? '更新视频源配置' : '添加一个视频源',
+              style: Theme.of(context).textTheme.titleLarge,
             ),
-            const SizedBox(height: 18),
-            DropdownButtonFormField<MediaSourceType>(
-              value: _type,
-              decoration: const InputDecoration(
-                labelText: '类型',
-                prefixIcon: Icon(Icons.category_outlined),
-              ),
-              items: const [
-                DropdownMenuItem(
-                  value: MediaSourceType.direct,
-                  child: Text('直链 HLS / MP4'),
-                ),
-                DropdownMenuItem(
-                  value: MediaSourceType.macCmsApi,
-                  child: Text('MacCMS 兼容 API'),
-                ),
-                DropdownMenuItem(
-                  value: MediaSourceType.jsonApi,
-                  child: Text('JSON API'),
-                ),
-              ],
-              onChanged: (value) {
-                if (value != null) setState(() => _type = value);
-              },
+            const SizedBox(height: 6),
+            const Text(
+              '填写名称、类型和地址，保存后可在来源列表中测试连通性。',
+              style: TextStyle(color: CineoColors.textSecondary),
             ),
-            const SizedBox(height: 18),
-            TextFormField(
-              controller: _urlController,
-              keyboardType: TextInputType.url,
-              textInputAction: TextInputAction.done,
-              decoration: InputDecoration(
-                labelText:
-                    _type == MediaSourceType.direct ? 'HLS / MP4 地址' : 'API 地址',
-                hintText: _type == MediaSourceType.direct
-                    ? 'https://example.com/video.m3u8'
-                    : 'https://example.com/api',
-                prefixIcon: const Icon(Icons.link),
+            const SizedBox(height: 20),
+            Container(
+              padding: const EdgeInsets.fromLTRB(16, 16, 16, 18),
+              decoration: BoxDecoration(
+                color: CineoColors.surface,
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: CineoColors.divider),
               ),
-              validator: (value) {
-                final uri = Uri.tryParse(value?.trim() ?? '');
-                if (uri == null ||
-                    !{'http', 'https'}.contains(uri.scheme.toLowerCase())) {
-                  return '请输入 http 或 https 地址';
-                }
-                if (_type == MediaSourceType.direct &&
-                    !(uri.path.toLowerCase().endsWith('.m3u8') ||
-                        uri.path.toLowerCase().endsWith('.mp4'))) {
-                  return '直链地址需要以 .m3u8 或 .mp4 结尾';
-                }
-                return null;
-              },
+              child: Column(
+                children: [
+                  TextFormField(
+                    controller: _nameController,
+                    textInputAction: TextInputAction.next,
+                    decoration: const InputDecoration(
+                      labelText: '名称',
+                      hintText: '例如：家庭媒体库',
+                      prefixIcon: Icon(Icons.label_outline),
+                    ),
+                    validator: (value) =>
+                        value == null || value.trim().isEmpty ? '请输入名称' : null,
+                  ),
+                  const SizedBox(height: 18),
+                  DropdownButtonFormField<MediaSourceType>(
+                    value: _type,
+                    decoration: const InputDecoration(
+                      labelText: '类型',
+                      prefixIcon: Icon(Icons.category_outlined),
+                    ),
+                    items: const [
+                      DropdownMenuItem(
+                        value: MediaSourceType.direct,
+                        child: Text('直链 HLS / MP4'),
+                      ),
+                      DropdownMenuItem(
+                        value: MediaSourceType.macCmsApi,
+                        child: Text('MacCMS 兼容 API'),
+                      ),
+                      DropdownMenuItem(
+                        value: MediaSourceType.jsonApi,
+                        child: Text('JSON API'),
+                      ),
+                    ],
+                    onChanged: (value) {
+                      if (value != null) setState(() => _type = value);
+                    },
+                  ),
+                  const SizedBox(height: 18),
+                  TextFormField(
+                    controller: _urlController,
+                    keyboardType: TextInputType.url,
+                    textInputAction: TextInputAction.done,
+                    decoration: InputDecoration(
+                      labelText: _type == MediaSourceType.direct
+                          ? 'HLS / MP4 地址'
+                          : 'API 地址',
+                      hintText: _type == MediaSourceType.direct
+                          ? 'https://example.com/video.m3u8'
+                          : 'https://example.com/api',
+                      prefixIcon: const Icon(Icons.link),
+                    ),
+                    validator: (value) {
+                      final uri = Uri.tryParse(value?.trim() ?? '');
+                      if (uri == null ||
+                          !{'http', 'https'}
+                              .contains(uri.scheme.toLowerCase())) {
+                        return '请输入 http 或 https 地址';
+                      }
+                      if (_type == MediaSourceType.direct &&
+                          !(uri.path.toLowerCase().endsWith('.m3u8') ||
+                              uri.path.toLowerCase().endsWith('.mp4'))) {
+                        return '直链地址需要以 .m3u8 或 .mp4 结尾';
+                      }
+                      return null;
+                    },
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 30),
-            FilledButton.icon(
-              onPressed: _saving ? null : _save,
-              icon: _saving
-                  ? const SizedBox.square(
-                      dimension: 18,
-                      child: CircularProgressIndicator(strokeWidth: 2),
-                    )
-                  : const Icon(Icons.save_outlined),
-              label: Text(_saving ? '保存中...' : '保存视频源'),
+            const SizedBox(height: 24),
+            SizedBox(
+              width: double.infinity,
+              child: FilledButton.icon(
+                onPressed: _saving ? null : _save,
+                icon: _saving
+                    ? const SizedBox.square(
+                        dimension: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(Icons.save_outlined),
+                label: Text(_saving ? '保存中...' : '保存视频源'),
+              ),
             ),
           ],
         ),

@@ -258,7 +258,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             pinned: true,
             backgroundColor: CineoColors.background,
             surfaceTintColor: Colors.transparent,
-            title: const Text('详情'),
+            title: const Text(
+              '详情',
+              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
+            ),
             actions: [
               if (widget.onSearchTmdbMatches != null &&
                   widget.onSelectTmdbMatch != null)
@@ -338,18 +341,48 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   }
 
   Widget _buildBody(BuildContext context, MediaItem media) {
-    final metadata = [
-      if (_displayYear > 0) '$_displayYear',
-      media.kind == MediaKind.series ? '剧集' : '电影',
-      if (_displayRating > 0) '${_displayRating.toStringAsFixed(1)} 分',
-      if (_displayRuntime != null) _displayRuntime!,
-    ].join('  ·  ');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Text(metadata,
-            style: const TextStyle(color: CineoColors.textSecondary)),
-        const SizedBox(height: 12),
+        Container(
+          width: double.infinity,
+          padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+          decoration: BoxDecoration(
+            color: CineoColors.surface,
+            borderRadius: BorderRadius.circular(10),
+            border: Border.all(color: CineoColors.divider),
+          ),
+          child: Wrap(
+            spacing: 12,
+            runSpacing: 8,
+            crossAxisAlignment: WrapCrossAlignment.center,
+            children: [
+              if (_displayRating > 0)
+                _InfoBadge(
+                  icon: Icons.star_rounded,
+                  label: '${_displayRating.toStringAsFixed(1)} 分',
+                  color: CineoColors.primary,
+                ),
+              if (_displayYear > 0)
+                _InfoBadge(
+                  icon: Icons.calendar_today_rounded,
+                  label: '$_displayYear',
+                ),
+              _InfoBadge(
+                icon: media.kind == MediaKind.series
+                    ? Icons.tv_rounded
+                    : Icons.movie_outlined,
+                label: media.kind == MediaKind.series ? '剧集' : '电影',
+              ),
+              if (_displayRuntime != null)
+                _InfoBadge(
+                  icon: Icons.schedule_rounded,
+                  label: _displayRuntime!,
+                ),
+            ],
+          ),
+        ),
+        const SizedBox(height: 14),
         Wrap(
           spacing: 8,
           runSpacing: 8,
@@ -360,7 +393,11 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
         if (_tmdbLoading)
           const Padding(
             padding: EdgeInsets.only(bottom: 12),
-            child: LinearProgressIndicator(minHeight: 2),
+            child: LinearProgressIndicator(
+              minHeight: 2,
+              color: CineoColors.primary,
+              backgroundColor: CineoColors.surfaceOverlay,
+            ),
           ),
         _DescriptionSection(description: _displayDescription),
         const SizedBox(height: 28),
@@ -569,8 +606,55 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   }
 
   Widget _sectionTitle(String title) {
-    return Text(title,
-        style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800));
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          width: 3,
+          height: 18,
+          decoration: BoxDecoration(
+            color: CineoColors.primary,
+            borderRadius: BorderRadius.circular(2),
+          ),
+        ),
+        const SizedBox(width: 8),
+        Text(title,
+            style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+      ],
+    );
+  }
+}
+
+class _InfoBadge extends StatelessWidget {
+  const _InfoBadge({
+    required this.icon,
+    required this.label,
+    this.color = CineoColors.textSecondary,
+  });
+
+  final IconData icon;
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 15, color: color),
+        const SizedBox(width: 5),
+        Text(
+          label,
+          style: TextStyle(
+            color: color,
+            fontSize: 13,
+            fontWeight: color == CineoColors.primary
+                ? FontWeight.w800
+                : FontWeight.w600,
+          ),
+        ),
+      ],
+    );
   }
 }
 

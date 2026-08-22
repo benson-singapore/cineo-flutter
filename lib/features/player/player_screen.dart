@@ -364,7 +364,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
       child: SizedBox(
         width: width,
         child: Material(
-          color: const Color(0xff171717),
+          color: const Color(0xff111110),
           child: SafeArea(
             left: false,
             child: Stack(
@@ -376,9 +376,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
                       padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
                       child: Row(
                         children: [
+                          Container(
+                            width: 3,
+                            height: 18,
+                            decoration: BoxDecoration(
+                              color: CineoColors.primary,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          const SizedBox(width: 8),
                           Expanded(
                             child: Text(
-                              '选集  ${_episodes.length}集',
+                              '选集  ${_episodes.length} 集',
                               style: const TextStyle(
                                 fontSize: 16,
                                 fontWeight: FontWeight.w600,
@@ -406,6 +415,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                           final selected = episode.id == _activeOption?.id;
                           return ListTile(
                             dense: true,
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            contentPadding: const EdgeInsets.symmetric(
+                              horizontal: 12,
+                            ),
                             selected: selected,
                             selectedTileColor:
                                 CineoColors.primary.withOpacity(.18),
@@ -417,7 +432,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
                                   ? CineoColors.primary
                                   : CineoColors.textSecondary,
                             ),
-                            title: Text(episodeDisplayLabel(episode)),
+                            title: Text(
+                              episodeDisplayLabel(episode),
+                              style: TextStyle(
+                                color: selected
+                                    ? CineoColors.primaryLight
+                                    : CineoColors.textPrimary,
+                                fontWeight: selected
+                                    ? FontWeight.w800
+                                    : FontWeight.w600,
+                              ),
+                            ),
                             onTap: () => _selectEpisode(episode),
                           );
                         },
@@ -486,93 +511,124 @@ class _PlayerControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return ColoredBox(
-      color: Colors.black45,
-      child: Column(
-        children: [
-          Row(
+    return DecoratedBox(
+      decoration: const BoxDecoration(
+        gradient: LinearGradient(
+          begin: Alignment.topCenter,
+          end: Alignment.bottomCenter,
+          colors: [Colors.black54, Colors.transparent, Color(0xCC000000)],
+          stops: [0, .32, 1],
+        ),
+      ),
+      child: SafeArea(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+          child: Column(
             children: [
-              IconButton(
-                tooltip: '返回',
-                onPressed: onClose,
-                icon: const Icon(Icons.arrow_back),
-              ),
-              Expanded(
-                child:
-                    Text(title, maxLines: 1, overflow: TextOverflow.ellipsis),
-              ),
-              _PictureInPictureButton(
-                available: pictureInPictureAvailable,
-                onPressed: onPictureInPicture,
-              ),
-            ],
-          ),
-          const Spacer(),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              IconButton(
-                tooltip: '上一集',
-                onPressed: canGoPrevious ? onPrevious : null,
-                icon: const Icon(Icons.skip_previous),
-              ),
-              IconButton(
-                tooltip: isPlaying ? '暂停' : '播放',
-                iconSize: 56,
-                onPressed: onPlayPause,
-                icon: Icon(
-                  isPlaying
-                      ? Icons.pause_circle_filled
-                      : Icons.play_circle_fill,
-                ),
-              ),
-              IconButton(
-                tooltip: '下一集',
-                onPressed: canGoNext ? onNext : null,
-                icon: const Icon(Icons.skip_next),
-              ),
-            ],
-          ),
-          VideoProgressIndicator(
-            controller,
-            allowScrubbing: true,
-            colors: const VideoProgressColors(
-              playedColor: CineoColors.primary,
-              bufferedColor: Colors.white38,
-              backgroundColor: Colors.white24,
-            ),
-          ),
-          Row(
-            mainAxisAlignment: MainAxisAlignment.end,
-            children: [
-              PopupMenuButton<double>(
-                tooltip: '播放速度',
-                initialValue: speed,
-                onSelected: onSpeedChanged,
-                itemBuilder: (context) => supportedPlaybackSpeeds
-                    .map(
-                      (value) => PopupMenuItem<double>(
-                        value: value,
-                        child: Text('${value}x'),
+              Row(
+                children: [
+                  IconButton(
+                    tooltip: '返回',
+                    onPressed: onClose,
+                    icon: const Icon(Icons.arrow_back_rounded),
+                  ),
+                  Expanded(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
                       ),
-                    )
-                    .toList(),
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  child: Text('${speed}x'),
+                    ),
+                  ),
+                  _PictureInPictureButton(
+                    available: pictureInPictureAvailable,
+                    onPressed: onPictureInPicture,
+                  ),
+                ],
+              ),
+              const Spacer(),
+              Container(
+                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(.42),
+                  borderRadius: BorderRadius.circular(26),
+                  border: Border.all(color: Colors.white12),
+                ),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    IconButton(
+                      tooltip: '上一集',
+                      onPressed: canGoPrevious ? onPrevious : null,
+                      icon: const Icon(Icons.skip_previous_rounded),
+                    ),
+                    IconButton(
+                      tooltip: isPlaying ? '暂停' : '播放',
+                      iconSize: 54,
+                      color: CineoColors.primary,
+                      onPressed: onPlayPause,
+                      icon: Icon(
+                        isPlaying
+                            ? Icons.pause_circle_filled_rounded
+                            : Icons.play_circle_fill_rounded,
+                      ),
+                    ),
+                    IconButton(
+                      tooltip: '下一集',
+                      onPressed: canGoNext ? onNext : null,
+                      icon: const Icon(Icons.skip_next_rounded),
+                    ),
+                  ],
                 ),
               ),
-              if (hasEpisodes)
-                IconButton(
-                  tooltip: '打开选集',
-                  onPressed: onOpenEpisodes,
-                  icon: const Icon(Icons.list_alt),
+              const SizedBox(height: 18),
+              VideoProgressIndicator(
+                controller,
+                allowScrubbing: true,
+                colors: const VideoProgressColors(
+                  playedColor: CineoColors.primary,
+                  bufferedColor: Colors.white38,
+                  backgroundColor: Colors.white24,
                 ),
-              const SizedBox(width: 8),
+              ),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  PopupMenuButton<double>(
+                    tooltip: '播放速度',
+                    initialValue: speed,
+                    onSelected: onSpeedChanged,
+                    itemBuilder: (context) => supportedPlaybackSpeeds
+                        .map(
+                          (value) => PopupMenuItem<double>(
+                            value: value,
+                            child: Text('${value}x'),
+                          ),
+                        )
+                        .toList(),
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      child: Text(
+                        '${speed}x',
+                        style: const TextStyle(fontWeight: FontWeight.w700),
+                      ),
+                    ),
+                  ),
+                  if (hasEpisodes)
+                    IconButton(
+                      tooltip: '打开选集',
+                      onPressed: onOpenEpisodes,
+                      icon: const Icon(Icons.list_alt_rounded),
+                    ),
+                  const SizedBox(width: 8),
+                ],
+              ),
             ],
           ),
-          const SizedBox(height: 8),
-        ],
+        ),
       ),
     );
   }

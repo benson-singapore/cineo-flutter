@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/theme/cineo_theme.dart';
 import '../app_lock/app_lock_controller.dart';
 
 class ProfileScreen extends StatelessWidget {
@@ -26,12 +27,13 @@ class ProfileScreen extends StatelessWidget {
     return Scaffold(
       appBar: AppBar(title: const Text('我的')),
       body: ListView(
-        padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
+        padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
         children: [
           _ProfileHeader(lockEnabled: lockEnabled),
-          const SizedBox(height: 24),
+          const SizedBox(height: 28),
           _Section(
             title: '本地内容',
+            icon: Icons.video_library_outlined,
             children: [
               _ProfileTile(
                   icon: Icons.bookmark_outline,
@@ -41,9 +43,10 @@ class ProfileScreen extends StatelessWidget {
                   icon: Icons.history, title: '播放历史', onTap: onOpenLibrary),
             ],
           ),
-          const SizedBox(height: 20),
+          const SizedBox(height: 24),
           _Section(
             title: '应用设置',
+            icon: Icons.tune_outlined,
             children: [
               _ProfileTile(
                   icon: Icons.link, title: '视频源管理', onTap: onOpenSources),
@@ -62,8 +65,12 @@ class ProfileScreen extends StatelessWidget {
           ),
           const SizedBox(height: 24),
           Center(
-            child: Text('Cineo · 本地优先媒体中心',
-                style: Theme.of(context).textTheme.bodySmall),
+            child: Text(
+              'Cineo · 本地优先媒体中心',
+              style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                    color: CineoColors.textSecondary,
+                  ),
+            ),
           ),
         ],
       ),
@@ -79,18 +86,19 @@ class _ProfileHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Container(
-      padding: const EdgeInsets.all(20),
+      padding: const EdgeInsets.fromLTRB(20, 20, 16, 20),
       decoration: BoxDecoration(
-        color: Theme.of(context).colorScheme.surface,
+        color: CineoColors.surface,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: CineoColors.divider),
       ),
       child: Row(
         children: [
-          CircleAvatar(
+          const CircleAvatar(
             radius: 28,
-            backgroundColor: Theme.of(context).colorScheme.primary,
-            child:
-                const Icon(Icons.person_outline, color: Colors.white, size: 30),
+            backgroundColor: CineoColors.primaryContainer,
+            child: Icon(Icons.person_outline,
+                color: CineoColors.primaryLight, size: 30),
           ),
           const SizedBox(width: 16),
           Expanded(
@@ -100,11 +108,13 @@ class _ProfileHeader extends StatelessWidget {
                 Text('本地用户', style: Theme.of(context).textTheme.titleLarge),
                 const SizedBox(height: 4),
                 Text(lockEnabled ? '应用锁已开启' : '数据保存在本机',
-                    style: Theme.of(context).textTheme.bodyMedium),
+                    style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                          color: CineoColors.textSecondary,
+                        )),
               ],
             ),
           ),
-          const Icon(Icons.chevron_right),
+          const Icon(Icons.chevron_right, color: CineoColors.textSecondary),
         ],
       ),
     );
@@ -112,9 +122,11 @@ class _ProfileHeader extends StatelessWidget {
 }
 
 class _Section extends StatelessWidget {
-  const _Section({required this.title, required this.children});
+  const _Section(
+      {required this.title, required this.icon, required this.children});
 
   final String title;
+  final IconData icon;
   final List<Widget> children;
 
   @override
@@ -123,14 +135,27 @@ class _Section extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Padding(
-          padding: const EdgeInsets.only(left: 4, bottom: 8),
-          child: Text(title, style: Theme.of(context).textTheme.labelLarge),
+          padding: const EdgeInsets.only(left: 4, bottom: 10),
+          child: Row(
+            children: [
+              Icon(icon, size: 18, color: CineoColors.primary),
+              const SizedBox(width: 8),
+              Text(
+                title,
+                style: Theme.of(context).textTheme.labelLarge?.copyWith(
+                      color: CineoColors.primaryLight,
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+            ],
+          ),
         ),
         Container(
           clipBehavior: Clip.antiAlias,
           decoration: BoxDecoration(
-            color: Theme.of(context).colorScheme.surface,
+            color: CineoColors.surface,
             borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: CineoColors.divider),
           ),
           child: Column(children: children),
         ),
@@ -149,9 +174,20 @@ class _ProfileTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return ListTile(
-      leading: Icon(icon),
-      title: Text(title),
-      trailing: const Icon(Icons.chevron_right, size: 20),
+      minVerticalPadding: 12,
+      leading: DecoratedBox(
+        decoration: BoxDecoration(
+          color: CineoColors.surfaceElevated,
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Padding(
+          padding: const EdgeInsets.all(9),
+          child: Icon(icon, color: CineoColors.primaryLight, size: 20),
+        ),
+      ),
+      title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
+      trailing: const Icon(Icons.chevron_right,
+          size: 20, color: CineoColors.textSecondary),
       onTap: onTap,
     );
   }
