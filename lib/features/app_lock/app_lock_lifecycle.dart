@@ -32,9 +32,12 @@ class _AppLockLifecycleState extends State<AppLockLifecycle>
 
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
-    if (state == AppLifecycleState.paused ||
-        state == AppLifecycleState.detached) {
-      widget.controller.lock();
+    if (state == AppLifecycleState.resumed) {
+      widget.controller.handleResume();
+    } else if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.detached ||
+        state == AppLifecycleState.hidden) {
+      widget.controller.handleBackground();
     }
   }
 

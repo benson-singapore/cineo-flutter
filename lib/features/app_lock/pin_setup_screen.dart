@@ -1,17 +1,20 @@
 import 'package:flutter/material.dart';
 
 import 'app_lock_controller.dart';
+import 'app_lock_service.dart';
 import 'pin_pad.dart';
 
 class PinSetupScreen extends StatefulWidget {
   const PinSetupScreen({
     required this.controller,
     this.onComplete,
+    this.requireCurrentPin = false,
     super.key,
   });
 
   final AppLockController controller;
   final VoidCallback? onComplete;
+  final bool requireCurrentPin;
 
   @override
   State<PinSetupScreen> createState() => _PinSetupScreenState();
@@ -19,25 +22,74 @@ class PinSetupScreen extends StatefulWidget {
 
 class _PinSetupScreenState extends State<PinSetupScreen> {
   String _pin = '';
+  String _currentPin = '';
   String? _firstPin;
   String? _message;
   bool _saving = false;
+  bool _currentPinVerified = false;
 
-  String get _title => _firstPin == null ? '设置应用锁' : '再次输入 PIN';
-  String get _subtitle =>
-      _firstPin == null ? '设置 6 位数字 PIN，保护本机数据' : '请再次输入 PIN 以确认';
+  bool get _needsCurrentPin =>
+      widget.requireCurrentPin &&
+      widget.controller.hasPin &&
+      !_currentPinVerified;
+
+  String get _title {
+    if (_needsCurrentPin) {
+      return '验证当前 PIN';
+    }
+    return _firstPin == null ? '设置应用锁' : '再次输入 PIN';
+  }
+
+  String get _subtitle {
+    if (_needsCurrentPin) {
+      return '请输入当前 PIN 后继续';
+    }
+    return _firstPin == null ? '设置 6 位数字 PIN，保护本机数据' : '请再次输入 PIN 以确认';
+  }
 
   void _onChanged(String value) {
     if (_saving) {
       return;
     }
     setState(() {
-      _pin = value;
+      if (_needsCurrentPin) {
+        _currentPin = value;
+      } else {
+        _pin = value;
+      }
       _message = null;
     });
     if (value.length == 6) {
-      Future<void>.microtask(_submit);
+      Future<void>.microtask(
+        _needsCurrentPin ? _verifyCurrentPin : _submit,
+      );
     }
+  }
+
+  Future<void> _verifyCurrentPin() async {
+    if (_currentPin.length != 6 || _saving) {
+      return;
+    }
+    setState(() => _saving = true);
+    final result = await widget.controller.verifyPin(_currentPin);
+    if (!mounted) {
+      return;
+    }
+    setState(() {
+      _saving = false;
+      _currentPin = '';
+      if (result.isSuccess) {
+        _currentPinVerified = true;
+        _message = null;
+      } else {
+        _message = switch (result.status) {
+          PinVerificationStatus.invalidPin => 'PIN 不正确，请重试',
+          PinVerificationStatus.temporarilyLocked => '尝试次数过多，请稍后再试',
+          PinVerificationStatus.notConfigured => '应用锁尚未设置',
+          PinVerificationStatus.success => null,
+        };
+      }
+    });
   }
 
   Future<void> _submit() async {
@@ -63,6 +115,7 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
       await widget.controller.setupPin(_pin);
       if (mounted) {
         widget.onComplete?.call();
+        Navigator.of(context).pop();
       }
     } on ArgumentError catch (error) {
       if (mounted) {
@@ -97,7 +150,11 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
                         style: TextStyle(
                             color: Theme.of(context).colorScheme.error)),
                   ),
-                PinPad(value: _pin, onChanged: _onChanged, enabled: !_saving),
+                PinPad(
+                  value: _needsCurrentPin ? _currentPin : _pin,
+                  onChanged: _onChanged,
+                  enabled: !_saving,
+                ),
                 if (_saving) ...[
                   const SizedBox(height: 20),
                   const CircularProgressIndicator(),

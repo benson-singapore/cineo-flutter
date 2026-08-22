@@ -13,6 +13,26 @@ enum PinVerificationStatus {
   notConfigured,
 }
 
+enum AppLockGracePeriod {
+  immediate(0, '立即'),
+  fiveMinutes(5, '5 分钟'),
+  fifteenMinutes(15, '15 分钟'),
+  thirtyMinutes(30, '30 分钟'),
+  sixtyMinutes(60, '60 分钟');
+
+  const AppLockGracePeriod(this.minutes, this.label);
+
+  final int minutes;
+  final String label;
+
+  static AppLockGracePeriod fromMinutes(int? minutes) {
+    return AppLockGracePeriod.values.firstWhere(
+      (period) => period.minutes == minutes,
+      orElse: () => AppLockGracePeriod.thirtyMinutes,
+    );
+  }
+}
+
 class PinVerificationResult {
   const PinVerificationResult({
     required this.status,
@@ -29,22 +49,35 @@ class PinVerificationResult {
 
 /// Stores only a salted PBKDF2 verifier. The PIN itself never leaves memory.
 class AppLockService {
-  AppLockService({FlutterSecureStorage? secureStorage})
-      : _secureStorage = secureStorage ?? const FlutterSecureStorage();
+  AppLockService({
+    FlutterSecureStorage? secureStorage,
+    SharedPreferences? preferences,
+    DateTime Function()? now,
+  })  : _secureStorage = secureStorage ?? const FlutterSecureStorage(),
+        _preferencesOverride = preferences,
+        _now = now ?? DateTime.now;
 
   static const _saltKey = 'cineo.app_lock.pin_salt';
   static const _verifierKey = 'cineo.app_lock.pin_verifier';
   static const _failedAttemptsKey = 'cineo.app_lock.failed_attempts';
   static const _lockoutUntilKey = 'cineo.app_lock.lockout_until_ms';
+  static const _gracePeriodMinutesKey = 'cineo.app_lock.grace_period_minutes';
+  static const _sessionVerifiedAtKey = 'cineo.app_lock.session_verified_at_ms';
+  static const defaultGracePeriod = AppLockGracePeriod.thirtyMinutes;
   static const _iterations = 120000;
   static const _derivedKeyLength = 32;
   static const _baseLockout = Duration(seconds: 2);
   static const _maxLockout = Duration(minutes: 5);
 
   final FlutterSecureStorage _secureStorage;
+  final SharedPreferences? _preferencesOverride;
+  final DateTime Function() _now;
   bool _isLocked = false;
 
   bool get isLocked => _isLocked;
+
+  Future<SharedPreferences> get _preferences async =>
+      _preferencesOverride ?? await SharedPreferences.getInstance();
 
   Future<bool> get hasPin async {
     final salt = await _secureStorage.read(key: _saltKey);
@@ -57,6 +90,7 @@ class AppLockService {
 
   Future<void> lock() async {
     if (await hasPin) {
+      await _clearVerifiedSession();
       _isLocked = true;
     }
   }
@@ -76,7 +110,44 @@ class AppLockService {
       value: base64UrlEncode(verifier),
     );
     await _clearLockout();
+    await _markSessionVerified();
     _isLocked = false;
+  }
+
+  Future<AppLockGracePeriod> getGracePeriod() async {
+    final preferences = await _preferences;
+    return AppLockGracePeriod.fromMinutes(
+      preferences.getInt(_gracePeriodMinutesKey),
+    );
+  }
+
+  Future<void> setGracePeriod(AppLockGracePeriod period) async {
+    final preferences = await _preferences;
+    await preferences.setInt(_gracePeriodMinutesKey, period.minutes);
+    if (period == AppLockGracePeriod.immediate && await hasPin) {
+      await _clearVerifiedSession();
+      _isLocked = true;
+    }
+  }
+
+  Future<void> restoreSession() async {
+    if (!await hasPin) {
+      _isLocked = false;
+      return;
+    }
+    _isLocked = !await _hasValidVerifiedSession();
+  }
+
+  Future<void> handleBackground() async {
+    if (!await hasPin) return;
+    if (await getGracePeriod() == AppLockGracePeriod.immediate) {
+      await _clearVerifiedSession();
+      _isLocked = true;
+    }
+  }
+
+  Future<void> handleResume() async {
+    await restoreSession();
   }
 
   Future<PinVerificationResult> verifyPin(String pin) async {
@@ -113,6 +184,7 @@ class AppLockService {
     final actual = _deriveKey(utf8.encode(pin), salt);
     if (_constantTimeEquals(actual, expected)) {
       await _clearLockout();
+      await _markSessionVerified();
       _isLocked = false;
       return const PinVerificationResult(status: PinVerificationStatus.success);
     }
@@ -124,6 +196,7 @@ class AppLockService {
     await _secureStorage.delete(key: _saltKey);
     await _secureStorage.delete(key: _verifierKey);
     await _clearLockout();
+    await _clearVerifiedSession();
     _isLocked = false;
   }
 
@@ -134,11 +207,11 @@ class AppLockService {
     final lockout = Duration(
       seconds: min(requestedSeconds, _maxLockout.inSeconds),
     );
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await _preferences;
     await preferences.setInt(_failedAttemptsKey, attempts);
     await preferences.setInt(
       _lockoutUntilKey,
-      DateTime.now().add(lockout).millisecondsSinceEpoch,
+      _now().add(lockout).millisecondsSinceEpoch,
     );
     return PinVerificationResult(
       status: PinVerificationStatus.invalidPin,
@@ -148,18 +221,18 @@ class AppLockService {
   }
 
   Future<int> _failedAttempts() async {
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await _preferences;
     return preferences.getInt(_failedAttemptsKey) ?? 0;
   }
 
   Future<Duration> _remainingLockout() async {
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await _preferences;
     final until = preferences.getInt(_lockoutUntilKey);
     if (until == null) {
       return Duration.zero;
     }
     final remaining =
-        Duration(milliseconds: until - DateTime.now().millisecondsSinceEpoch);
+        Duration(milliseconds: until - _now().millisecondsSinceEpoch);
     if (remaining <= Duration.zero) {
       await _clearLockout();
       return Duration.zero;
@@ -168,9 +241,42 @@ class AppLockService {
   }
 
   Future<void> _clearLockout() async {
-    final preferences = await SharedPreferences.getInstance();
+    final preferences = await _preferences;
     await preferences.remove(_failedAttemptsKey);
     await preferences.remove(_lockoutUntilKey);
+  }
+
+  Future<void> _markSessionVerified() async {
+    final period = await getGracePeriod();
+    final preferences = await _preferences;
+    if (period == AppLockGracePeriod.immediate) {
+      await preferences.remove(_sessionVerifiedAtKey);
+      return;
+    }
+    await preferences.setInt(
+        _sessionVerifiedAtKey, _now().millisecondsSinceEpoch);
+  }
+
+  Future<void> _clearVerifiedSession() async {
+    final preferences = await _preferences;
+    await preferences.remove(_sessionVerifiedAtKey);
+  }
+
+  Future<bool> _hasValidVerifiedSession() async {
+    final preferences = await _preferences;
+    final verifiedAt = preferences.getInt(_sessionVerifiedAtKey);
+    if (verifiedAt == null) {
+      return false;
+    }
+
+    final period = await getGracePeriod();
+    final expiresAt =
+        verifiedAt + period.minutes * Duration.millisecondsPerMinute;
+    if (_now().millisecondsSinceEpoch < expiresAt) {
+      return true;
+    }
+    await _clearVerifiedSession();
+    return false;
   }
 
   static void _validatePin(String pin) {

@@ -10,26 +10,34 @@ class AppLockController extends ChangeNotifier {
   bool _initialized = false;
   bool _hasPin = false;
   bool _isBusy = false;
+  AppLockGracePeriod _gracePeriod = AppLockService.defaultGracePeriod;
 
   bool get initialized => _initialized;
   bool get hasPin => _hasPin;
   bool get isLocked => service.isLocked;
   bool get isBusy => _isBusy;
+  AppLockGracePeriod get gracePeriod => _gracePeriod;
 
   Future<void> initialize() async {
     if (_initialized) {
       return;
     }
     _hasPin = await service.hasPin;
-    if (_hasPin) {
-      await service.lock();
-    }
+    _gracePeriod = await service.getGracePeriod();
+    await service.restoreSession();
     _initialized = true;
     notifyListeners();
   }
 
   Future<void> refresh() async {
     _hasPin = await service.hasPin;
+    _gracePeriod = await service.getGracePeriod();
+    notifyListeners();
+  }
+
+  Future<void> setGracePeriod(AppLockGracePeriod period) async {
+    await service.setGracePeriod(period);
+    _gracePeriod = period;
     notifyListeners();
   }
 
@@ -67,6 +75,16 @@ class AppLockController extends ChangeNotifier {
   Future<void> clearPin() async {
     await service.clearPin();
     _hasPin = false;
+    notifyListeners();
+  }
+
+  Future<void> handleBackground() async {
+    await service.handleBackground();
+    notifyListeners();
+  }
+
+  Future<void> handleResume() async {
+    await service.handleResume();
     notifyListeners();
   }
 }
