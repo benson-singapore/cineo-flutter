@@ -41,12 +41,42 @@ class MediaCategoryAdapter {
   const MediaCategoryAdapter._();
 
   static List<UnifiedCategory> adapt(List<RemoteCategory> categories) {
-    final byId = {for (final category in categories) category.id: category};
+    final byId = <String, RemoteCategory>{};
+    for (final category in categories) {
+      byId.putIfAbsent(category.id, () => category);
+    }
+
+    final childrenById = <String, Set<String>>{};
+    for (final category in categories) {
+      final parentId = category.parentId;
+      if (parentId == null || parentId.isEmpty || !byId.containsKey(parentId)) {
+        continue;
+      }
+      childrenById.putIfAbsent(parentId, () => <String>{}).add(category.id);
+    }
+
+    final cycleIds = _cycleIds(byId);
     final grouped = <UnifiedMediaType, List<String>>{};
+    final groupedIds = <UnifiedMediaType, Set<String>>{};
     for (final category in categories) {
       final type = _typeFor(category, byId);
       if (type == null) continue;
-      grouped.putIfAbsent(type, () => []).add(category.id);
+
+      // A request should target the leaves of a source's category tree. The
+      // parent category is still useful for resolving the unified type, but
+      // requesting both parent and child IDs duplicates the same catalog.
+      final children = childrenById[category.id] ?? const <String>{};
+      final hasNonCycleChild =
+          children.any((childId) => !cycleIds.contains(childId));
+      final hasKnownChild = children.isNotEmpty;
+      if (hasKnownChild &&
+          (!cycleIds.contains(category.id) || hasNonCycleChild)) {
+        continue;
+      }
+
+      final ids = grouped.putIfAbsent(type, () => []);
+      final seen = groupedIds.putIfAbsent(type, () => <String>{});
+      if (seen.add(category.id)) ids.add(category.id);
     }
     return [
       const UnifiedCategory(
@@ -60,6 +90,30 @@ class MediaCategoryAdapter {
             sourceCategoryIds: List.unmodifiable(grouped[type]!),
           ),
     ];
+  }
+
+  static Set<String> _cycleIds(Map<String, RemoteCategory> byId) {
+    final cycleIds = <String>{};
+    for (final startId in byId.keys) {
+      final path = <String>[];
+      final positions = <String, int>{};
+      var currentId = startId;
+      while (true) {
+        final cycleStart = positions[currentId];
+        if (cycleStart != null) {
+          cycleIds.addAll(path.skip(cycleStart));
+          break;
+        }
+        if (!byId.containsKey(currentId)) break;
+
+        positions[currentId] = path.length;
+        path.add(currentId);
+        final parentId = byId[currentId]!.parentId;
+        if (parentId == null || parentId.isEmpty) break;
+        currentId = parentId;
+      }
+    }
+    return cycleIds;
   }
 
   static UnifiedMediaType? _typeFor(
