@@ -7,6 +7,7 @@ class Episode {
     required this.season,
     required this.number,
     this.duration = const Duration(minutes: 42),
+    this.playbackOption,
   });
 
   final String id;
@@ -14,6 +15,7 @@ class Episode {
   final int season;
   final int number;
   final Duration duration;
+  final PlaybackOption? playbackOption;
 }
 
 class PlaybackOption {
@@ -48,6 +50,10 @@ class MediaItem {
     required this.duration,
     this.episodes = const [],
     this.playbackOptions = const [],
+    this.sourceId,
+    this.remoteId,
+    this.category,
+    this.categoryId,
   });
 
   final String id;
@@ -62,6 +68,10 @@ class MediaItem {
   final Duration duration;
   final List<Episode> episodes;
   final List<PlaybackOption> playbackOptions;
+  final String? sourceId;
+  final String? remoteId;
+  final String? category;
+  final String? categoryId;
 }
 
 class WatchProgress {

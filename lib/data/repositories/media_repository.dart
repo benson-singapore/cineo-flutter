@@ -18,4 +18,6 @@ abstract class MediaRepository {
   Future<void> saveSource(MediaSource source);
   Future<void> deleteSource(String id);
   Future<bool> testSource(MediaSource source);
+  Future<MediaSource?> defaultSource();
+  Future<void> setDefaultSource(String id);
 }

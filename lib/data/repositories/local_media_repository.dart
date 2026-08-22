@@ -4,6 +4,8 @@ import 'package:sqflite/sqflite.dart';
 import '../../core/demo/demo_content.dart';
 import '../../core/models/media.dart';
 import '../../core/models/media_source.dart';
+import '../remote/mac_cms_client.dart';
+import '../remote/media_category_adapter.dart';
 import 'media_repository.dart';
 
 /// SQLite-backed storage for local user state.
@@ -14,10 +16,12 @@ class LocalMediaRepository implements MediaRepository {
   LocalMediaRepository({
     this.catalog = const <MediaItem>[],
     this.databasePath,
-  });
+    MacCmsClient? macCmsClient,
+  }) : _macCmsClient = macCmsClient ?? MacCmsClient();
 
   final List<MediaItem> catalog;
   final String? databasePath;
+  final MacCmsClient _macCmsClient;
   late final Future<Database> _database = _openDatabase();
 
   Future<Database> _openDatabase() async {
@@ -25,7 +29,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     return openDatabase(
       resolvedPath,
-      version: 2,
+      version: 3,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -55,7 +59,9 @@ class LocalMediaRepository implements MediaRepository {
             external_id TEXT,
             detail_url TEXT,
             is_adult INTEGER NOT NULL DEFAULT 0,
-            cache_ttl_seconds INTEGER
+            cache_ttl_seconds INTEGER,
+            is_default INTEGER NOT NULL DEFAULT 0,
+            last_latency_ms INTEGER
           )
         ''');
         await database.execute('''
@@ -78,6 +84,14 @@ class LocalMediaRepository implements MediaRepository {
             'ALTER TABLE sources ADD COLUMN cache_ttl_seconds INTEGER',
           );
         }
+        if (oldVersion < 3) {
+          await database.execute(
+            'ALTER TABLE sources ADD COLUMN is_default INTEGER NOT NULL DEFAULT 0',
+          );
+          await database.execute(
+            'ALTER TABLE sources ADD COLUMN last_latency_ms INTEGER',
+          );
+        }
       },
     );
   }
@@ -85,12 +99,18 @@ class LocalMediaRepository implements MediaRepository {
   Future<Database> get _db => _database;
 
   @override
-  Future<List<MediaItem>> featured() async => catalog.take(10).toList();
+  Future<List<MediaItem>> featured() async {
+    final source = await defaultSource();
+    if (source == null) return catalog.take(10).toList();
+    return _macCmsClient.list(source);
+  }
 
   @override
   Future<List<MediaItem>> search(String query) async {
     final normalizedQuery = query.trim().toLowerCase();
     if (normalizedQuery.isEmpty) return featured();
+    final source = await defaultSource();
+    if (source != null) return _macCmsClient.list(source, query: normalizedQuery);
     return catalog.where((media) {
       final searchable = [
         media.title,
@@ -229,11 +249,17 @@ class LocalMediaRepository implements MediaRepository {
 
   @override
   Future<void> saveSource(MediaSource source) async {
-    await (await _db).insert(
-      'sources',
-      _sourceToRow(source),
-      conflictAlgorithm: ConflictAlgorithm.replace,
-    );
+    final database = await _db;
+    await database.transaction((transaction) async {
+      if (source.isDefault) {
+        await transaction.update('sources', {'is_default': 0});
+      }
+      await transaction.insert(
+        'sources',
+        _sourceToRow(source),
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
+    });
   }
 
   @override
@@ -252,7 +278,126 @@ class LocalMediaRepository implements MediaRepository {
       final lowerPath = uri.path.toLowerCase();
       return lowerPath.endsWith('.m3u8') || lowerPath.endsWith('.mp4');
     }
-    return true;
+    final result = await _macCmsClient.probe(source);
+    await saveSource(source.copyWith(
+      lastCheckedAt: DateTime.now(),
+      lastLatencyMs: result.latencyMs,
+      lastError: result.error,
+      clearLastError: result.isReachable,
+    ));
+    return result.isReachable;
+  }
+
+  @override
+  Future<MediaSource?> defaultSource() async {
+    final rows = await (await _db).query(
+      'sources',
+      where: 'is_default = 1 AND enabled = 1',
+      limit: 1,
+    );
+    return rows.isEmpty ? null : _sourceFromRow(rows.single);
+  }
+
+  @override
+  Future<void> setDefaultSource(String id) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      final row = await transaction.query('sources', where: 'id = ?', whereArgs: [id], limit: 1);
+      if (row.isEmpty) throw StateError('未找到视频源');
+      final source = _sourceFromRow(row.single);
+      if (!source.enabled || (source.type != MediaSourceType.macCmsApi && source.type != MediaSourceType.jsonApi)) {
+        throw StateError('仅可将已启用的 API 视频源设为默认');
+      }
+      await transaction.update('sources', {'is_default': 0});
+      await transaction.update('sources', {'is_default': 1}, where: 'id = ?', whereArgs: [id]);
+    });
+  }
+
+  Future<List<MediaItem>> browseDefaultSource({String? category}) async {
+    final source = await defaultSource();
+    if (source == null) return catalog.take(10).toList();
+    return _macCmsClient.list(source, category: category);
+  }
+
+  Future<List<MediaItem>> browseDefaultSourceCategories(
+    List<String> categoryIds,
+  ) async {
+    if (categoryIds.isEmpty) return browseDefaultSource();
+    final source = await defaultSource();
+    if (source == null) {
+      return catalog
+          .where((item) => _matchesLocalCategory(item, categoryIds))
+          .toList(growable: false);
+    }
+    final results = await Future.wait(
+      categoryIds.map((id) => _macCmsClient.list(source, category: id)),
+    );
+    final seen = <String>{};
+    return results
+        .expand((items) => items)
+        .where((item) => seen.add(item.id))
+        .toList(growable: false);
+  }
+
+  Future<List<UnifiedCategory>> defaultSourceCategories() async {
+    final source = await defaultSource();
+    if (source == null) {
+      return const [
+        UnifiedCategory(type: UnifiedMediaType.all, sourceCategoryIds: []),
+        UnifiedCategory(type: UnifiedMediaType.movie, sourceCategoryIds: []),
+        UnifiedCategory(type: UnifiedMediaType.series, sourceCategoryIds: []),
+      ];
+    }
+    return MediaCategoryAdapter.adapt(await _macCmsClient.categories(source));
+  }
+
+  Future<List<MediaItem>> searchDefaultSource(
+    String query, {
+    List<String> categoryIds = const [],
+  }) async {
+    if (categoryIds.isEmpty) return search(query);
+    final source = await defaultSource();
+    if (source == null) return search(query);
+    final results = await Future.wait(categoryIds.map(
+      (categoryId) => _macCmsClient.list(source, query: query, category: categoryId),
+    ));
+    final seen = <String>{};
+    return results
+        .expand((items) => items)
+        .where((item) => seen.add(item.id))
+        .toList(growable: false);
+  }
+
+  bool _matchesLocalCategory(MediaItem item, List<String> categoryIds) {
+    // Demo content has no source category IDs. Its filtering remains a
+    // graceful fallback until the user selects a configured API source.
+    return categoryIds.isEmpty ||
+        item.categoryId == null ||
+        categoryIds.contains(item.categoryId);
+  }
+
+  Future<MediaItem?> loadDetails(MediaItem item) async {
+    if (item.sourceId == null || item.remoteId == null) return item;
+    final sourceRows = await (await _db).query('sources', where: 'id = ?', whereArgs: [item.sourceId], limit: 1);
+    if (sourceRows.isEmpty) return item;
+    return _macCmsClient.detail(_sourceFromRow(sourceRows.single), item.remoteId!);
+  }
+
+  Future<List<MediaItem>> searchOtherSources(MediaItem media, {bool includeAdult = false}) async {
+    final allSources = await sources();
+    final candidates = allSources.where((source) =>
+        source.enabled &&
+        source.id != media.sourceId &&
+        (source.type == MediaSourceType.macCmsApi || source.type == MediaSourceType.jsonApi) &&
+        (includeAdult || !source.isAdult));
+    final results = await Future.wait(candidates.map((source) async {
+      try {
+        return await _macCmsClient.list(source, query: media.title);
+      } catch (_) {
+        return const <MediaItem>[];
+      }
+    }));
+    return results.expand((items) => items).toList(growable: false);
   }
 
   Future<void> close() async {
@@ -284,6 +429,8 @@ class LocalMediaRepository implements MediaRepository {
       'detail_url': source.detailUrl,
       'is_adult': source.isAdult ? 1 : 0,
       'cache_ttl_seconds': source.cacheTtlSeconds,
+      'is_default': source.isDefault ? 1 : 0,
+      'last_latency_ms': source.lastLatencyMs,
     };
   }
 
@@ -307,6 +454,8 @@ class LocalMediaRepository implements MediaRepository {
       detailUrl: row['detail_url'] as String?,
       isAdult: (row['is_adult'] as int? ?? 0) == 1,
       cacheTtlSeconds: row['cache_ttl_seconds'] as int?,
+      isDefault: (row['is_default'] as int? ?? 0) == 1,
+      lastLatencyMs: row['last_latency_ms'] as int?,
     );
   }
 }

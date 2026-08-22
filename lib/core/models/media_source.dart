@@ -13,6 +13,8 @@ class MediaSource {
     this.detailUrl,
     this.isAdult = false,
     this.cacheTtlSeconds,
+    this.isDefault = false,
+    this.lastLatencyMs,
   });
 
   final String id;
@@ -26,6 +28,8 @@ class MediaSource {
   final String? detailUrl;
   final bool isAdult;
   final int? cacheTtlSeconds;
+  final bool isDefault;
+  final int? lastLatencyMs;
 
   MediaSource copyWith({
     String? name,
@@ -37,6 +41,9 @@ class MediaSource {
     String? detailUrl,
     bool? isAdult,
     int? cacheTtlSeconds,
+    bool? isDefault,
+    int? lastLatencyMs,
+    bool clearLastError = false,
   }) {
     return MediaSource(
       id: id,
@@ -45,11 +52,13 @@ class MediaSource {
       baseUrl: baseUrl ?? this.baseUrl,
       enabled: enabled ?? this.enabled,
       lastCheckedAt: lastCheckedAt ?? this.lastCheckedAt,
-      lastError: lastError,
+      lastError: clearLastError ? null : (lastError ?? this.lastError),
       externalId: externalId ?? this.externalId,
       detailUrl: detailUrl ?? this.detailUrl,
       isAdult: isAdult ?? this.isAdult,
       cacheTtlSeconds: cacheTtlSeconds ?? this.cacheTtlSeconds,
+      isDefault: isDefault ?? this.isDefault,
+      lastLatencyMs: lastLatencyMs ?? this.lastLatencyMs,
     );
   }
 }
