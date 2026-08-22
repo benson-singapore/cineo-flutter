@@ -19,6 +19,9 @@ const List<double> supportedPlaybackSpeeds = <double>[
   2,
 ];
 
+const int _maxPlaybackInitializationAttempts = 3;
+const Duration _playbackRetryDelay = Duration(milliseconds: 500);
+
 /// Keeps episode labels readable when a source prefixes its own name, such
 /// as "source-a · 第01集".
 String episodeDisplayLabel(PlaybackOption option) {
@@ -173,42 +176,72 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
     if (!mounted || generation != _loadGeneration) return;
 
-    final controller = VideoPlayerController.networkUrl(
-      Uri.parse(
-        playbackUrlForOption(option, widget.m3u8FilterSettings?.activeConfig),
-      ),
-      formatHint: playbackFormatHintForOption(option),
+    final playbackUrl = playbackUrlForOption(
+      option,
+      widget.m3u8FilterSettings?.activeConfig,
     );
-    _controller = controller;
+    assert(() {
+      debugPrint('[Cineo][Player] load url=$playbackUrl');
+      return true;
+    }());
     _activeOption = option;
     _lastIsPlaying = null;
     _error = null;
-    if (mounted) setState(() {});
-    controller.addListener(_onControllerChanged);
 
-    try {
-      await controller.initialize();
-      if (!mounted || generation != _loadGeneration) {
-        controller.removeListener(_onControllerChanged);
-        await controller.dispose();
-        return;
-      }
+    for (var attempt = 1;
+        attempt <= _maxPlaybackInitializationAttempts;
+        attempt++) {
+      if (!mounted || generation != _loadGeneration) return;
 
-      final requestedPosition = _positionFor(option, initial: initial);
-      if (requestedPosition > Duration.zero) {
-        final maxPosition = controller.value.duration;
-        await controller.seekTo(
-          requestedPosition > maxPosition ? maxPosition : requestedPosition,
-        );
-      }
-      await controller.setPlaybackSpeed(_playbackSpeed);
-      await controller.play();
-      _saveTimer ??=
-          Timer.periodic(const Duration(seconds: 10), (_) => _save());
+      final controller = VideoPlayerController.networkUrl(
+        Uri.parse(playbackUrl),
+        formatHint: playbackFormatHintForOption(option),
+      );
+      _controller = controller;
       if (mounted) setState(() {});
-    } catch (_) {
-      if (generation != _loadGeneration) return;
-      if (mounted) setState(() => _error = '此播放地址暂时无法播放');
+      controller.addListener(_onControllerChanged);
+
+      try {
+        await controller.initialize();
+        if (!mounted || generation != _loadGeneration) {
+          controller.removeListener(_onControllerChanged);
+          await controller.dispose();
+          return;
+        }
+
+        final requestedPosition = _positionFor(option, initial: initial);
+        if (requestedPosition > Duration.zero) {
+          final maxPosition = controller.value.duration;
+          await controller.seekTo(
+            requestedPosition > maxPosition ? maxPosition : requestedPosition,
+          );
+        }
+        await controller.setPlaybackSpeed(_playbackSpeed);
+        await controller.play();
+        _saveTimer ??=
+            Timer.periodic(const Duration(seconds: 10), (_) => _save());
+        if (mounted) setState(() {});
+        return;
+      } catch (error) {
+        controller.removeListener(_onControllerChanged);
+        if (identical(_controller, controller)) _controller = null;
+        await controller.dispose();
+
+        assert(() {
+          debugPrint(
+            '[Cineo][Player] initialize_failed attempt=$attempt/'
+            '$_maxPlaybackInitializationAttempts error=$error',
+          );
+          return true;
+        }());
+
+        if (!mounted || generation != _loadGeneration) return;
+        if (attempt == _maxPlaybackInitializationAttempts) {
+          setState(() => _error = '此播放地址暂时无法播放');
+          return;
+        }
+        await Future<void>.delayed(_playbackRetryDelay);
+      }
     }
   }
 

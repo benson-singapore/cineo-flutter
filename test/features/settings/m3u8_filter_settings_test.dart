@@ -11,14 +11,14 @@ void main() {
     SharedPreferences.setMockInitialValues({});
   });
 
-  test('validates and encodes the M3U8 URL in a filter template', () {
+  test('validates and inserts the raw M3U8 URL in a filter template', () {
     const source = 'https://video.example.test/main.m3u8?token=a&part=1';
 
     expect(isValidM3u8FilterTemplate(_template), isTrue);
     expect(
       buildM3u8FilterUrl(_template, source),
       'https://filter.example.test/proxy?rule=auto_full&url='
-      'https%3A%2F%2Fvideo.example.test%2Fmain.m3u8%3Ftoken%3Da%26part%3D1',
+      'https://video.example.test/main.m3u8?token=a&part=1',
     );
     expect(isValidM3u8FilterTemplate('https://filter.example.test/proxy'),
         isFalse);

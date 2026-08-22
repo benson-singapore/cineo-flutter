@@ -50,7 +50,7 @@ void main() {
 
       expect(
         playbackUrlForOption(hls, filter),
-        contains('https%3A%2F%2Fexample.com%2Fhls.m3u8'),
+        contains('https://example.com/hls.m3u8'),
       );
       expect(playbackUrlForOption(mp4, filter), mp4.url);
       expect(playbackUrlForOption(hls, null), hls.url);

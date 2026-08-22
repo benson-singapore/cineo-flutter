@@ -74,9 +74,9 @@ bool isValidM3u8FilterTemplate(String template) {
 
 String buildM3u8FilterUrl(String template, String m3u8Url) {
   if (!isValidM3u8FilterTemplate(template)) return m3u8Url;
-  return template
-      .trim()
-      .replaceAll(m3u8FilterUrlPlaceholder, Uri.encodeComponent(m3u8Url));
+  // The filter API expects the source URL as a raw query value. Encoding the
+  // whole URL makes this service return 502 instead of an HLS playlist.
+  return template.trim().replaceAll(m3u8FilterUrlPlaceholder, m3u8Url);
 }
 
 class M3u8FilterSettings extends ChangeNotifier {
