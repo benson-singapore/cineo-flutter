@@ -1,8 +1,11 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
+import '../../core/models/tmdb_media.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../core/text/media_description_formatter.dart';
+import '../../shared/widgets/media_image.dart';
+import 'episode_library_screen.dart';
 
 class MediaDetailsScreen extends StatefulWidget {
   const MediaDetailsScreen({
@@ -14,6 +17,7 @@ class MediaDetailsScreen extends StatefulWidget {
     this.initialEpisodeId,
     this.onSearchOtherSources,
     this.onOpenAlternative,
+    this.onLoadTmdbDetails,
   });
 
   final MediaItem media;
@@ -23,6 +27,7 @@ class MediaDetailsScreen extends StatefulWidget {
   final String? initialEpisodeId;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
   final ValueChanged<MediaItem>? onOpenAlternative;
+  final Future<TmdbMediaDetails?> Function(MediaItem media)? onLoadTmdbDetails;
 
   @override
   State<MediaDetailsScreen> createState() => _MediaDetailsScreenState();
@@ -33,6 +38,9 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   String? _selectedSourceName;
   Episode? _selectedEpisode;
   bool _searchingOtherSources = false;
+  TmdbMediaDetails? _tmdbDetails;
+  bool _tmdbLoading = false;
+  int? _selectedSeason;
 
   List<PlaybackOption> get _options => widget.media.playbackOptions;
 
@@ -53,27 +61,136 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     final episodesWithLines = widget.media.episodes
         .where((episode) => episode.playbackOption != null)
         .toList();
-    if (episodesWithLines.isEmpty) return widget.media.episodes;
+    final episodes = episodesWithLines.isEmpty
+        ? widget.media.episodes.toList()
+        : episodesWithLines;
 
     final activeName = _activeSourceName;
-    if (activeName == null) return const [];
-    return episodesWithLines
-        .where((episode) => _lineName(episode.playbackOption!) == activeName)
-        .toList();
+    final sourceEpisodes = episodesWithLines.isEmpty || activeName == null
+        ? episodes
+        : episodes
+            .where(
+                (episode) => _lineName(episode.playbackOption!) == activeName)
+            .toList();
+    final season = _selectedSeason;
+    if (season == null) return sourceEpisodes;
+    return sourceEpisodes.where((episode) => episode.season == season).toList();
+  }
+
+  List<int> get _sourceSeasons {
+    final activeName = _activeSourceName;
+    final sourceEpisodes = widget.media.episodes.where((episode) {
+      final option = episode.playbackOption;
+      return option == null ||
+          activeName == null ||
+          _lineName(option) == activeName;
+    });
+    final values = sourceEpisodes.map((episode) => episode.season).toSet()
+      ..removeWhere((season) => season < 1);
+    return values.toList()..sort();
+  }
+
+  String get _displayTitle => _tmdbDetails?.title.trim().isNotEmpty == true
+      ? _tmdbDetails!.title
+      : widget.media.title;
+
+  String get _displayDescription =>
+      _tmdbDetails?.overview.trim().isNotEmpty == true
+          ? _tmdbDetails!.overview
+          : widget.media.description;
+
+  String get _displayBackdrop {
+    final tmdb = _tmdbDetails?.backdropUrl.trim() ?? '';
+    if (tmdb.isNotEmpty) return tmdb;
+    final source = widget.media.backdropUrl.trim();
+    return source.isNotEmpty ? source : widget.media.posterUrl;
+  }
+
+  double get _displayRating => (_tmdbDetails?.rating ?? 0) > 0
+      ? _tmdbDetails!.rating
+      : widget.media.rating;
+
+  int get _displayYear => _tmdbDetails?.year ?? widget.media.year;
+
+  String? get _displayRuntime {
+    final minutes = _tmdbDetails?.runtime;
+    if ((minutes ?? 0) > 0) return '$minutes 分钟';
+    if (widget.media.duration.inMinutes > 0) {
+      return '${widget.media.duration.inMinutes} 分钟';
+    }
+    return null;
+  }
+
+  List<int> get _availableSeasons {
+    final values = <int>{..._sourceSeasons};
+    for (final season
+        in _tmdbDetails?.seasons ?? const <TmdbSeasonMetadata>[]) {
+      if (season.seasonNumber > 0) values.add(season.seasonNumber);
+    }
+    final result = values.toList()..sort();
+    return result;
+  }
+
+  TmdbSeasonMetadata? get _selectedTmdbSeason {
+    final season = _selectedSeason;
+    if (season == null) return null;
+    for (final item in _tmdbDetails?.seasons ?? const <TmdbSeasonMetadata>[]) {
+      if (item.seasonNumber == season) return item;
+    }
+    return null;
+  }
+
+  TmdbEpisodeMetadata? _tmdbEpisodeFor(Episode episode) {
+    final season = _selectedTmdbSeason;
+    if (season == null) return null;
+    for (final item in season.episodes) {
+      if (item.episodeNumber == episode.number) return item;
+    }
+    return null;
   }
 
   @override
   void initState() {
     super.initState();
     final initialEpisodeId = widget.initialEpisodeId;
-    if (initialEpisodeId == null) return;
-    for (final episode in widget.media.episodes) {
-      final option = episode.playbackOption;
-      if (episode.id == initialEpisodeId || option?.id == initialEpisodeId) {
-        _selectedEpisode = episode;
-        if (option != null) _selectedSourceName = _lineName(option);
-        break;
+    if (initialEpisodeId != null) {
+      for (final episode in widget.media.episodes) {
+        final option = episode.playbackOption;
+        if (episode.id == initialEpisodeId || option?.id == initialEpisodeId) {
+          _selectedEpisode = episode;
+          _selectedSeason = episode.season > 0 ? episode.season : null;
+          if (option != null) _selectedSourceName = _lineName(option);
+          break;
+        }
       }
+    }
+    if (_selectedSeason == null && _sourceSeasons.isNotEmpty) {
+      _selectedSeason = _sourceSeasons.first;
+    }
+    if (widget.onLoadTmdbDetails != null) _loadTmdbDetails();
+  }
+
+  Future<void> _loadTmdbDetails() async {
+    final loader = widget.onLoadTmdbDetails;
+    if (loader == null) return;
+    setState(() => _tmdbLoading = true);
+    try {
+      final details = await loader(widget.media);
+      if (!mounted) return;
+      setState(() {
+        _tmdbDetails = details;
+        if (_selectedSeason == null && _availableSeasons.isNotEmpty) {
+          _selectedSeason = _availableSeasons.first;
+        }
+      });
+    } catch (error) {
+      assert(() {
+        debugPrint('[Cineo][TMDB] detail_ui phase=failed '
+            'errorType=${error.runtimeType}');
+        return true;
+      }());
+    } finally {
+      if (mounted) setState(() => _tmdbLoading = false);
     }
   }
 
@@ -117,8 +234,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     return LayoutBuilder(
       builder: (context, constraints) {
         final wide = constraints.maxWidth >= 700;
-        final image =
-            _MediaImage(url: media.backdropUrl, aspectRatio: wide ? 2.3 : 1.55);
+        final image = AspectRatio(
+          aspectRatio: wide ? 2.3 : 1.55,
+          child: MediaImage(url: _displayBackdrop),
+        );
         return Stack(
           children: [
             image,
@@ -142,7 +261,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
               right: 20,
               bottom: 20,
               child: Text(
-                media.title,
+                _displayTitle,
                 maxLines: 2,
                 overflow: TextOverflow.ellipsis,
                 style: Theme.of(context).textTheme.displaySmall?.copyWith(
@@ -159,8 +278,12 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   }
 
   Widget _buildBody(BuildContext context, MediaItem media) {
-    final metadata =
-        '${media.year}  ·  ${media.kind == MediaKind.series ? '剧集' : '电影'}  ·  ${media.rating.toStringAsFixed(1)} 分';
+    final metadata = [
+      if (_displayYear > 0) '$_displayYear',
+      media.kind == MediaKind.series ? '剧集' : '电影',
+      if (_displayRating > 0) '${_displayRating.toStringAsFixed(1)} 分',
+      if (_displayRuntime != null) _displayRuntime!,
+    ].join('  ·  ');
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
@@ -174,7 +297,12 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
               media.genres.map((genre) => Chip(label: Text(genre))).toList(),
         ),
         const SizedBox(height: 18),
-        _DescriptionSection(description: media.description),
+        if (_tmdbLoading)
+          const Padding(
+            padding: EdgeInsets.only(bottom: 12),
+            child: LinearProgressIndicator(minHeight: 2),
+          ),
+        _DescriptionSection(description: _displayDescription),
         const SizedBox(height: 28),
         _sectionTitle('播放来源'),
         const SizedBox(height: 12),
@@ -187,12 +315,27 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             onChanged: (value) => setState(() {
               _selectedSourceName = value;
               _selectedEpisode = null;
+              final seasons = _sourceSeasons;
+              _selectedSeason = seasons.isEmpty ? null : seasons.first;
             }),
           ),
         ],
         if (media.episodes.isNotEmpty) ...[
           const SizedBox(height: 28),
-          _sectionTitle('剧集'),
+          _buildEpisodesHeader(context),
+          const SizedBox(height: 12),
+          if (_availableSeasons.length > 1) ...[
+            _SeasonSelector(
+              seasons: _availableSeasons,
+              selectedSeason: _selectedSeason,
+              onChanged: (season) => setState(() {
+                _selectedSeason = season;
+                _selectedEpisode = null;
+              }),
+            ),
+            const SizedBox(height: 14),
+          ],
+          _buildEpisodePreview(context),
           const SizedBox(height: 12),
           _EpisodeList(
             episodes: _activeEpisodes,
@@ -221,6 +364,122 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             label: Text(_searchingOtherSources ? '正在搜索其他站点...' : '在其他站点查找'),
           ),
         ],
+      ],
+    );
+  }
+
+  Widget _buildEpisodesHeader(BuildContext context) {
+    final count = _activeEpisodes.length;
+    return Row(
+      children: [
+        _sectionTitle('剧集'),
+        const Spacer(),
+        if (count > 0)
+          Text('$count 集',
+              style: const TextStyle(color: CineoColors.textSecondary)),
+      ],
+    );
+  }
+
+  Widget _buildEpisodePreview(BuildContext context) {
+    final episodes = [..._activeEpisodes]
+      ..sort((a, b) => a.number.compareTo(b.number));
+    if (episodes.isEmpty) {
+      return const _InlineEmpty(message: '当前季暂无可播放剧集');
+    }
+    final preview = episodes.take(6).toList();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SizedBox(
+          height: 180,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: preview.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 10),
+            itemBuilder: (context, index) {
+              final episode = preview[index];
+              final tmdbEpisode = _tmdbEpisodeFor(episode);
+              final image = tmdbEpisode?.stillUrl.trim().isNotEmpty == true
+                  ? tmdbEpisode!.stillUrl
+                  : (_tmdbDetails?.posterUrl.trim().isNotEmpty == true
+                      ? _tmdbDetails!.posterUrl
+                      : widget.media.posterUrl);
+              return SizedBox(
+                width: 150,
+                child: InkWell(
+                  borderRadius: BorderRadius.circular(8),
+                  onTap: episode.playbackOption == null
+                      ? null
+                      : () {
+                          setState(() => _selectedEpisode = episode);
+                          widget.onPlay(episode.playbackOption!);
+                        },
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Expanded(
+                        child: Stack(
+                          fit: StackFit.expand,
+                          children: [
+                            MediaImage(
+                              url: image,
+                              borderRadius: BorderRadius.circular(8),
+                              placeholderIcon: Icons.live_tv_outlined,
+                            ),
+                            Positioned(
+                              left: 8,
+                              bottom: 8,
+                              child: DecoratedBox(
+                                decoration: BoxDecoration(
+                                  color: Colors.black.withOpacity(.75),
+                                  borderRadius: BorderRadius.circular(4),
+                                ),
+                                child: Padding(
+                                  padding: const EdgeInsets.symmetric(
+                                      horizontal: 6, vertical: 3),
+                                  child: Text('第 ${episode.number} 集',
+                                      style: const TextStyle(fontSize: 11)),
+                                ),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        tmdbEpisode?.name.trim().isNotEmpty == true
+                            ? tmdbEpisode!.name
+                            : '第 ${episode.number} 集',
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: const TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          ),
+        ),
+        Align(
+          alignment: Alignment.centerRight,
+          child: TextButton.icon(
+            onPressed: () => Navigator.of(context).push<void>(
+              MaterialPageRoute(
+                builder: (_) => EpisodeLibraryScreen(
+                  media: widget.media,
+                  episodes: _activeEpisodes,
+                  tmdbSeason: _selectedTmdbSeason,
+                  fallbackPosterUrl: widget.media.posterUrl,
+                  onPlay: widget.onPlay,
+                ),
+              ),
+            ),
+            icon: const Icon(Icons.grid_view_rounded, size: 18),
+            label: const Text('查看全部'),
+          ),
+        ),
       ],
     );
   }
@@ -326,31 +585,6 @@ String _lineName(PlaybackOption option) {
   return name.isEmpty ? '播放源' : name;
 }
 
-class _MediaImage extends StatelessWidget {
-  const _MediaImage({required this.url, required this.aspectRatio});
-
-  final String url;
-  final double aspectRatio;
-
-  @override
-  Widget build(BuildContext context) {
-    return AspectRatio(
-      aspectRatio: aspectRatio,
-      child: Image.network(
-        url,
-        fit: BoxFit.cover,
-        errorBuilder: (_, __, ___) => const ColoredBox(
-          color: CineoColors.surfaceElevated,
-          child: Center(
-            child: Icon(Icons.landscape_outlined,
-                size: 52, color: CineoColors.textSecondary),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
 class _SourceSelector extends StatelessWidget {
   const _SourceSelector({
     required this.sourceNames,
@@ -374,6 +608,38 @@ class _SourceSelector extends StatelessWidget {
           .map((name) => DropdownMenuItem(
                 value: name,
                 child: Text(name, overflow: TextOverflow.ellipsis),
+              ))
+          .toList(),
+      onChanged: (value) {
+        if (value != null) onChanged(value);
+      },
+    );
+  }
+}
+
+class _SeasonSelector extends StatelessWidget {
+  const _SeasonSelector({
+    required this.seasons,
+    required this.selectedSeason,
+    required this.onChanged,
+  });
+
+  final List<int> seasons;
+  final int? selectedSeason;
+  final ValueChanged<int> onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return DropdownButtonFormField<int>(
+      value: selectedSeason,
+      decoration: const InputDecoration(
+        labelText: '选择季数',
+        prefixIcon: Icon(Icons.layers_outlined),
+      ),
+      items: seasons
+          .map((season) => DropdownMenuItem<int>(
+                value: season,
+                child: Text('第$season季'),
               ))
           .toList(),
       onChanged: (value) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cineo_flutter/core/models/media.dart';
+import 'package:cineo_flutter/core/models/tmdb_media.dart';
 import 'package:cineo_flutter/core/theme/cineo_theme.dart';
 import 'package:cineo_flutter/features/media_details/media_details_screen.dart';
 
@@ -217,5 +218,97 @@ void main() {
       )),
       '正片',
     );
+  });
+
+  testWidgets('uses TMDB metadata and opens the selected season library',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const tmdb = TmdbMediaDetails(
+      id: 123,
+      mediaType: TmdbMediaType.tv,
+      title: 'TMDB 剧集名',
+      originalTitle: 'TMDB Show',
+      overview: '来自 TMDB 的简介',
+      year: 2025,
+      posterUrl: '',
+      backdropUrl: '',
+      rating: 8.6,
+      runtime: 45,
+      seasons: [
+        TmdbSeasonMetadata(
+          id: 1,
+          seasonNumber: 1,
+          name: '第一季',
+          overview: '',
+          posterUrl: '',
+          episodes: [
+            TmdbEpisodeMetadata(
+              id: 11,
+              seasonNumber: 1,
+              episodeNumber: 1,
+              name: '开端',
+              overview: '第一集简介',
+              stillUrl: '',
+              rating: 8.1,
+              runtime: 45,
+            ),
+            TmdbEpisodeMetadata(
+              id: 12,
+              seasonNumber: 1,
+              episodeNumber: 2,
+              name: '转折',
+              overview: '第二集简介',
+              stillUrl: '',
+              rating: 8.2,
+              runtime: 45,
+            ),
+          ],
+        ),
+      ],
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: buildSeries(),
+        favorite: false,
+        onFavoriteChanged: (_) {},
+        onPlay: (_) {},
+        onLoadTmdbDetails: (_) async => tmdb,
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('TMDB 剧集名'), findsOneWidget);
+    expect(find.text('来自 TMDB 的简介'), findsOneWidget);
+    expect(find.textContaining('8.6 分'), findsOneWidget);
+    expect(find.text('开端'), findsOneWidget);
+
+    await tester.tap(find.text('查看全部'));
+    await tester.pumpAndSettle();
+    expect(find.text('第1季 · 全部剧集'), findsOneWidget);
+    expect(find.byKey(const ValueKey('library-episode-a-1')), findsOneWidget);
+    expect(find.text('开端'), findsOneWidget);
+  });
+
+  testWidgets('falls back when TMDB loading fails', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: buildSeries(),
+        favorite: false,
+        onFavoriteChanged: (_) {},
+        onPlay: (_) {},
+        onLoadTmdbDetails: (_) async => throw StateError('offline'),
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('测试剧集'), findsOneWidget);
+    expect(find.text('测试简介'), findsOneWidget);
+    expect(find.text('查看全部'), findsOneWidget);
   });
 }
