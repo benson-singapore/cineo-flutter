@@ -3,8 +3,6 @@ import 'package:flutter/material.dart';
 import '../../core/platform/adaptive_navigation.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../app_lock/app_lock_controller.dart';
-import '../app_lock/app_lock_service.dart';
-import '../app_lock/pin_setup_screen.dart';
 import '../app_lock/pin_verification_dialog.dart';
 import 'adult_source_settings.dart';
 import 'tmdb_settings.dart';
@@ -121,10 +119,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 28),
                 ],
-                if (_matches('隐私 安全 应用锁 pin 密码 宽限期 立即锁定')) ...[
-                  const _SettingsSectionLabel(title: '隐私与安全'),
-                  _buildLockSettings(context),
-                ],
                 if (!_hasMatches) const _SettingsEmptySearchState(),
               ],
             );
@@ -135,9 +129,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   bool get _hasMatches =>
-      _matches('媒体服务 tmdb 数据增强 海报 剧集 简介') ||
-      _matches('内容访问 成人 标记 视频源 显示 隐藏') ||
-      _matches('隐私 安全 应用锁 pin 密码 宽限期 立即锁定');
+      _matches('媒体服务 tmdb 数据增强 海报 剧集 简介') || _matches('内容访问 成人 标记 视频源 显示 隐藏');
 
   bool _matches(String keywords) {
     if (_query.isEmpty) return true;
@@ -168,102 +160,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     if (verified == true) {
       await widget.adultSourceSettings.setShowAdultSources(true);
     }
-  }
-
-  Widget _buildLockSettings(BuildContext context) {
-    final controller = widget.appLockController;
-    if (controller == null) {
-      return const _SettingsPanel(
-        child: ListTile(
-          leading: _SettingsIcon(
-            icon: Icons.lock_rounded,
-            color: Color(0xFFE94865),
-          ),
-          title: Text('应用锁'),
-          subtitle: Text('应用锁设置由主应用入口提供'),
-        ),
-      );
-    }
-    return AnimatedBuilder(
-      animation: controller,
-      builder: (context, _) => _SettingsPanel(
-        child: Column(
-          children: [
-            ListTile(
-              contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
-              leading: const _SettingsIcon(
-                icon: Icons.lock_rounded,
-                color: Color(0xFFE94865),
-              ),
-              title: Text(controller.hasPin ? '修改应用锁 PIN' : '设置应用锁 PIN'),
-              subtitle: Text(
-                controller.hasPin ? 'PIN 已设置，保存在本机安全存储中' : '保护本机数据与成人内容设置',
-              ),
-              trailing: const Icon(Icons.chevron_right_rounded),
-              onTap: () => Navigator.of(context).push(
-                adaptivePageRoute(
-                  context,
-                  builder: (_) => PinSetupScreen(
-                    controller: controller,
-                    requireCurrentPin: controller.hasPin,
-                  ),
-                ),
-              ),
-            ),
-            if (controller.hasPin) ...[
-              const _SettingsPanelDivider(),
-              ListTile(
-                contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
-                leading: const _SettingsIcon(
-                  icon: Icons.timer_outlined,
-                  color: Color(0xFF40A7F5),
-                ),
-                title: const Text('后台返回后要求 PIN'),
-                subtitle: Text(controller.gracePeriod.label),
-                trailing: const Icon(Icons.chevron_right_rounded),
-                onTap: () => _chooseGracePeriod(context, controller),
-              ),
-              const _SettingsPanelDivider(),
-              ListTile(
-                contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
-                leading: const _SettingsIcon(
-                  icon: Icons.lock_clock_rounded,
-                  color: Color(0xFFFF9F43),
-                ),
-                title: const Text('立即锁定'),
-                onTap: () => controller.lock(),
-              ),
-            ],
-          ],
-        ),
-      ),
-    );
-  }
-
-  Future<void> _chooseGracePeriod(
-    BuildContext context,
-    AppLockController controller,
-  ) async {
-    final selected = await showModalBottomSheet<AppLockGracePeriod>(
-      context: context,
-      showDragHandle: true,
-      builder: (context) => SafeArea(
-        child: ListView(
-          shrinkWrap: true,
-          children: [
-            const ListTile(title: Text('选择 PIN 宽限期')),
-            for (final period in AppLockGracePeriod.values)
-              RadioListTile<AppLockGracePeriod>(
-                value: period,
-                groupValue: controller.gracePeriod,
-                title: Text(period.label),
-                onChanged: (value) => Navigator.of(context).pop(value),
-              ),
-          ],
-        ),
-      ),
-    );
-    if (selected != null) await controller.setGracePeriod(selected);
   }
 
   void _showMessage(BuildContext context, String message) {
@@ -321,7 +217,7 @@ class _SettingsEmptySearchState extends StatelessWidget {
           const Text('没有匹配的设置项'),
           const SizedBox(height: 4),
           Text(
-            '试试“应用锁”、“TMDB”或“成人标记”',
+            '试试“TMDB”或“成人标记”',
             style: Theme.of(context).textTheme.bodySmall?.copyWith(
                   color: CineoColors.textSecondary,
                 ),
@@ -366,18 +262,6 @@ class _SettingsPanel extends StatelessWidget {
         borderRadius: BorderRadius.circular(28),
       ),
       child: child,
-    );
-  }
-}
-
-class _SettingsPanelDivider extends StatelessWidget {
-  const _SettingsPanelDivider();
-
-  @override
-  Widget build(BuildContext context) {
-    return const Padding(
-      padding: EdgeInsets.only(left: 68),
-      child: Divider(height: 1, color: CineoColors.divider),
     );
   }
 }
