@@ -84,6 +84,20 @@ class _SourceListScreenState extends State<SourceListScreen> {
     }
   }
 
+  Future<void> _toggleFavorite(MediaSource source) async {
+    try {
+      await widget.repository.saveSource(
+        source.copyWith(isFavorite: !source.isFavorite),
+      );
+      await _load();
+    } catch (_) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('更新收藏来源失败，请稍后重试')),
+      );
+    }
+  }
+
   Future<void> _setDefaultSource(MediaSource source) async {
     if (!source.enabled ||
         (source.type != MediaSourceType.macCmsApi &&
@@ -310,9 +324,6 @@ class _SourceListScreenState extends State<SourceListScreen> {
       body: AnimatedBuilder(
         animation: widget.adultSourceSettings,
         builder: (context, _) {
-          final visibleSources = widget.adultSourceSettings.showAdultSources
-              ? _sources
-              : _sources.where((source) => !source.isAdult).toList();
           if (_loading) return const Center(child: CircularProgressIndicator());
           if (_error != null) {
             return Center(
@@ -323,20 +334,80 @@ class _SourceListScreenState extends State<SourceListScreen> {
               ),
             );
           }
-          if (visibleSources.isEmpty) return const _SourceEmptyState();
-          return ListView.separated(
-            padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
-            itemCount: visibleSources.length,
-            separatorBuilder: (_, __) => const SizedBox(height: 10),
-            itemBuilder: (context, index) => _SourceCard(
-              source: visibleSources[index],
-              testing: _testing.contains(visibleSources[index].id),
-              onToggle: (enabled) =>
-                  _toggleSource(visibleSources[index], enabled),
-              onTest: () => _runTest(visibleSources[index]),
-              onSetDefault: () => _setDefaultSource(visibleSources[index]),
-              onEdit: () => _openEditor(visibleSources[index]),
-              onDelete: () => _deleteSource(visibleSources[index]),
+          final adultVisible = widget.adultSourceSettings.showAdultSources;
+          final favoriteSources = _sources
+              .where((source) =>
+                  source.isFavorite && (adultVisible || !source.isAdult))
+              .toList(growable: false);
+          final regularSources = _sources
+              .where((source) => !source.isAdult)
+              .toList(growable: false);
+          final adultSources = _sources
+              .where((source) => source.isAdult)
+              .toList(growable: false);
+
+          return DefaultTabController(
+            length: 3,
+            child: Column(
+              children: [
+                Material(
+                  color: Theme.of(context).scaffoldBackgroundColor,
+                  child: TabBar(
+                    tabs: [
+                      Tab(text: '收藏源 ${favoriteSources.length}'),
+                      Tab(text: '普通源 ${regularSources.length}'),
+                      Tab(text: '成人源 ${adultSources.length}'),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: TabBarView(
+                    children: [
+                      _SourceTabList(
+                        sources: favoriteSources,
+                        testing: _testing,
+                        emptyState: const _SourceEmptyState(
+                          title: '还没有收藏来源',
+                          subtitle: '点按来源卡片上的星标，将常用站点固定在这里',
+                        ),
+                        onToggle: _toggleSource,
+                        onToggleFavorite: _toggleFavorite,
+                        onTest: _runTest,
+                        onSetDefault: _setDefaultSource,
+                        onEdit: _openEditor,
+                        onDelete: _deleteSource,
+                      ),
+                      _SourceTabList(
+                        sources: regularSources,
+                        testing: _testing,
+                        emptyState: const _SourceEmptyState(),
+                        onToggle: _toggleSource,
+                        onToggleFavorite: _toggleFavorite,
+                        onTest: _runTest,
+                        onSetDefault: _setDefaultSource,
+                        onEdit: _openEditor,
+                        onDelete: _deleteSource,
+                      ),
+                      adultVisible
+                          ? _SourceTabList(
+                              sources: adultSources,
+                              testing: _testing,
+                              emptyState: const _SourceEmptyState(
+                                title: '还没有成人来源',
+                                subtitle: '导入的成人标记来源会单独显示在这里',
+                              ),
+                              onToggle: _toggleSource,
+                              onToggleFavorite: _toggleFavorite,
+                              onTest: _runTest,
+                              onSetDefault: _setDefaultSource,
+                              onEdit: _openEditor,
+                              onDelete: _deleteSource,
+                            )
+                          : const _AdultSourcesProtectedState(),
+                    ],
+                  ),
+                ),
+              ],
             ),
           );
         },
@@ -350,6 +421,7 @@ class _SourceCard extends StatelessWidget {
     required this.source,
     required this.testing,
     required this.onToggle,
+    required this.onToggleFavorite,
     required this.onTest,
     required this.onSetDefault,
     required this.onEdit,
@@ -359,6 +431,7 @@ class _SourceCard extends StatelessWidget {
   final MediaSource source;
   final bool testing;
   final ValueChanged<bool> onToggle;
+  final VoidCallback onToggleFavorite;
   final VoidCallback onTest;
   final VoidCallback onSetDefault;
   final VoidCallback onEdit;
@@ -452,6 +525,13 @@ class _SourceCard extends StatelessWidget {
                     ),
                     label: Text(source.isDefault ? '默认站点' : '设为默认'),
                   ),
+                IconButton(
+                  tooltip: source.isFavorite ? '取消收藏来源' : '收藏来源',
+                  onPressed: onToggleFavorite,
+                  icon: Icon(
+                    source.isFavorite ? Icons.star : Icons.star_border_outlined,
+                  ),
+                ),
                 TextButton.icon(
                   onPressed: testing ? null : onTest,
                   icon: testing
@@ -476,6 +556,53 @@ class _SourceCard extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _SourceTabList extends StatelessWidget {
+  const _SourceTabList({
+    required this.sources,
+    required this.testing,
+    required this.emptyState,
+    required this.onToggle,
+    required this.onToggleFavorite,
+    required this.onTest,
+    required this.onSetDefault,
+    required this.onEdit,
+    required this.onDelete,
+  });
+
+  final List<MediaSource> sources;
+  final Set<String> testing;
+  final Widget emptyState;
+  final Future<void> Function(MediaSource source, bool enabled) onToggle;
+  final Future<void> Function(MediaSource source) onToggleFavorite;
+  final Future<void> Function(MediaSource source) onTest;
+  final Future<void> Function(MediaSource source) onSetDefault;
+  final Future<void> Function([MediaSource? source]) onEdit;
+  final Future<void> Function(MediaSource source) onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    if (sources.isEmpty) return emptyState;
+    return ListView.separated(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 96),
+      itemCount: sources.length,
+      separatorBuilder: (_, __) => const SizedBox(height: 10),
+      itemBuilder: (context, index) {
+        final source = sources[index];
+        return _SourceCard(
+          source: source,
+          testing: testing.contains(source.id),
+          onToggle: (enabled) => onToggle(source, enabled),
+          onToggleFavorite: () => onToggleFavorite(source),
+          onTest: () => onTest(source),
+          onSetDefault: () => onSetDefault(source),
+          onEdit: () => onEdit(source),
+          onDelete: () => onDelete(source),
+        );
+      },
     );
   }
 }
@@ -561,8 +688,41 @@ class _SourceImportRequest {
   final bool allowInsecureHttp;
 }
 
+class _AdultSourcesProtectedState extends StatelessWidget {
+  const _AdultSourcesProtectedState();
+
+  @override
+  Widget build(BuildContext context) {
+    return Center(
+      child: Padding(
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.lock_outline, size: 52, color: Colors.grey.shade600),
+            const SizedBox(height: 12),
+            Text('成人来源已隐藏', style: TextStyle(color: Colors.grey.shade400)),
+            const SizedBox(height: 6),
+            Text(
+              '请在设置中启用成人标记，并完成 PIN 验证后查看',
+              textAlign: TextAlign.center,
+              style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
 class _SourceEmptyState extends StatelessWidget {
-  const _SourceEmptyState();
+  const _SourceEmptyState({
+    this.title = '还没有视频源',
+    this.subtitle = '添加你有权访问的 HLS、MP4 或 JSON API 地址',
+  });
+
+  final String title;
+  final String subtitle;
 
   @override
   Widget build(BuildContext context) {
@@ -572,10 +732,10 @@ class _SourceEmptyState extends StatelessWidget {
         children: [
           Icon(Icons.dns_outlined, size: 52, color: Colors.grey.shade600),
           const SizedBox(height: 12),
-          Text('还没有视频源', style: TextStyle(color: Colors.grey.shade500)),
+          Text(title, style: TextStyle(color: Colors.grey.shade500)),
           const SizedBox(height: 6),
           Text(
-            '添加你有权访问的 HLS、MP4 或 JSON API 地址',
+            subtitle,
             style: TextStyle(color: Colors.grey.shade600, fontSize: 12),
           ),
         ],

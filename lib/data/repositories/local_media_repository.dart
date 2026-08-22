@@ -29,7 +29,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     return openDatabase(
       resolvedPath,
-      version: 3,
+      version: 4,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -61,7 +61,8 @@ class LocalMediaRepository implements MediaRepository {
             is_adult INTEGER NOT NULL DEFAULT 0,
             cache_ttl_seconds INTEGER,
             is_default INTEGER NOT NULL DEFAULT 0,
-            last_latency_ms INTEGER
+            last_latency_ms INTEGER,
+            is_favorite INTEGER NOT NULL DEFAULT 0
           )
         ''');
         await database.execute('''
@@ -90,6 +91,11 @@ class LocalMediaRepository implements MediaRepository {
           );
           await database.execute(
             'ALTER TABLE sources ADD COLUMN last_latency_ms INTEGER',
+          );
+        }
+        if (oldVersion < 4) {
+          await database.execute(
+            'ALTER TABLE sources ADD COLUMN is_favorite INTEGER NOT NULL DEFAULT 0',
           );
         }
       },
@@ -431,6 +437,7 @@ class LocalMediaRepository implements MediaRepository {
       'cache_ttl_seconds': source.cacheTtlSeconds,
       'is_default': source.isDefault ? 1 : 0,
       'last_latency_ms': source.lastLatencyMs,
+      'is_favorite': source.isFavorite ? 1 : 0,
     };
   }
 
@@ -456,6 +463,7 @@ class LocalMediaRepository implements MediaRepository {
       cacheTtlSeconds: row['cache_ttl_seconds'] as int?,
       isDefault: (row['is_default'] as int? ?? 0) == 1,
       lastLatencyMs: row['last_latency_ms'] as int?,
+      isFavorite: (row['is_favorite'] as int? ?? 0) == 1,
     );
   }
 }

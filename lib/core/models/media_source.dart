@@ -15,6 +15,7 @@ class MediaSource {
     this.cacheTtlSeconds,
     this.isDefault = false,
     this.lastLatencyMs,
+    this.isFavorite = false,
   });
 
   final String id;
@@ -30,6 +31,7 @@ class MediaSource {
   final int? cacheTtlSeconds;
   final bool isDefault;
   final int? lastLatencyMs;
+  final bool isFavorite;
 
   MediaSource copyWith({
     String? name,
@@ -43,6 +45,7 @@ class MediaSource {
     int? cacheTtlSeconds,
     bool? isDefault,
     int? lastLatencyMs,
+    bool? isFavorite,
     bool clearLastError = false,
   }) {
     return MediaSource(
@@ -59,6 +62,7 @@ class MediaSource {
       cacheTtlSeconds: cacheTtlSeconds ?? this.cacheTtlSeconds,
       isDefault: isDefault ?? this.isDefault,
       lastLatencyMs: lastLatencyMs ?? this.lastLatencyMs,
+      isFavorite: isFavorite ?? this.isFavorite,
     );
   }
 }

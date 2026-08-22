@@ -61,6 +61,7 @@ class _SourceEditorScreenState extends State<SourceEditorScreen> {
       cacheTtlSeconds: existing?.cacheTtlSeconds,
       isDefault: existing?.isDefault ?? false,
       lastLatencyMs: existing?.lastLatencyMs,
+      isFavorite: existing?.isFavorite ?? false,
     );
     try {
       await widget.onSave(source);
