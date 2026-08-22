@@ -28,10 +28,19 @@ class LocalMediaRepository implements MediaRepository {
   final MacCmsClient _macCmsClient;
   late final Future<Database> _database = _openDatabase();
 
+  static const _builtInRuyiSource = MediaSource(
+    id: 'built-in-ruyi',
+    name: '如意视频源',
+    type: MediaSourceType.macCmsApi,
+    baseUrl: 'https://cj.rycjapi.com/api.php/provide/vod',
+    enabled: true,
+    isDefault: true,
+  );
+
   Future<Database> _openDatabase() async {
     final resolvedPath = databasePath ??
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
-    return openDatabase(
+    final database = await openDatabase(
       resolvedPath,
       version: 6,
       onCreate: (database, version) async {
@@ -124,6 +133,16 @@ class LocalMediaRepository implements MediaRepository {
         if (oldVersion < 6) await _createMediaSnapshotsTable(database);
       },
     );
+    await _ensureBuiltInSource(database);
+    return database;
+  }
+
+  /// A fresh installation starts with one usable source. Existing source
+  /// configurations are user-owned, so this never replaces or removes them.
+  Future<void> _ensureBuiltInSource(Database database) async {
+    final rows = await database.query('sources', columns: ['id'], limit: 1);
+    if (rows.isNotEmpty) return;
+    await database.insert('sources', _sourceToRow(_builtInRuyiSource));
   }
 
   Future<Database> get _db => _database;
