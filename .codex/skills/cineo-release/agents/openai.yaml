@@ -1,0 +1,4 @@
+interface:
+  display_name: "Cineo Release"
+  short_description: "Choose a version and publish builds to GitHub Releases"
+  default_prompt: "Use $cineo-release to prepare release notes, publish the selected version, and verify GitHub Release assets."
