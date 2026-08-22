@@ -1,15 +1,17 @@
 SHELL := /bin/bash
 
-# 只需要修改这一行，然后执行：make publish
-VERSION := 1.0.0+3
+# 公开版本号；内部构建号单独维护。
+VERSION := 1.0.3
+BUILD_NUMBER := 4
 BRANCH ?= main
 
 .PHONY: help publish version bump-patch bump-minor bump-major signing-setup android ios build release sync-build clean
 
 help:
 	@printf '%s\n' \
-		'make publish                    同步最新代码、打 tag 并触发 GitHub Actions' \
-		'Makefile 顶部 VERSION := 1.0.0+1  修改版本后仍然只需执行 make publish' \
+		'make publish                    发布新版本、打 tag 并触发 GitHub Actions' \
+		'make publish REBUILD=1          沿用当前版本迁移 tag 并重新打包' \
+		'Makefile 顶部 VERSION/BUILD_NUMBER 维护公开版本和内部构建号' \
 		'make bump-patch                  自动递增 patch 版本' \
 		'make bump-minor                  自动递增 minor 版本' \
 		'make bump-major                  自动递增 major 版本' \
@@ -19,11 +21,11 @@ help:
 		'make build                       本地构建 APK 和未签名 IPA'
 
 publish:
-	@VERSION="$(VERSION)" BRANCH="$(BRANCH)" ./scripts/publish.sh
+	@VERSION="$(VERSION)" BUILD_NUMBER="$(BUILD_NUMBER)" REBUILD="$(REBUILD)" BRANCH="$(BRANCH)" ./scripts/publish.sh
 
 version:
-	@test -n "$(VERSION)" || (echo '用法: make version VERSION=1.2.0 或 VERSION=1.2.0+12'; exit 2)
-	@./scripts/update_version.sh --version "$(VERSION)"
+	@test -n "$(VERSION)" || (echo '用法: make version VERSION=1.2.0 BUILD_NUMBER=4'; exit 2)
+	@./scripts/update_version.sh --version "$(VERSION)" --build-number "$(BUILD_NUMBER)"
 
 bump-patch:
 	@./scripts/update_version.sh --bump patch
