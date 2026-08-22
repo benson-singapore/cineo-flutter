@@ -3,9 +3,8 @@ SHELL := /bin/bash
 # 只需要修改这一行，然后执行：make publish
 VERSION := 1.0.0+1
 BRANCH ?= main
-WORKFLOW ?= cineo-build.yml
 
-.PHONY: help publish version bump-patch bump-minor bump-major signing-setup android ios build dispatch release sync-build clean
+.PHONY: help publish version bump-patch bump-minor bump-major signing-setup android ios build release sync-build clean
 
 help:
 	@printf '%s\n' \
@@ -17,11 +16,10 @@ help:
 		'make signing-setup               生成并复用本地 Android 自签名 keystore' \
 		'make android                     本地构建已签名 Android APK' \
 		'make ios                         本地构建未签名 iOS IPA' \
-		'make build                       本地构建 APK 和未签名 IPA' \
-		'make dispatch GH_TOKEN=...       手动触发 GitHub Actions'
+		'make build                       本地构建 APK 和未签名 IPA'
 
 publish:
-	@VERSION="$(VERSION)" BRANCH="$(BRANCH)" WORKFLOW="$(WORKFLOW)" ./scripts/publish.sh
+	@VERSION="$(VERSION)" BRANCH="$(BRANCH)" ./scripts/publish.sh
 
 version:
 	@test -n "$(VERSION)" || (echo '用法: make version VERSION=1.2.0 或 VERSION=1.2.0+12'; exit 2)
@@ -53,9 +51,6 @@ ios:
 	@echo "Created unsigned iOS IPA: build/ios/unsigned-ipa/Cineo.ipa"
 
 build: android ios
-
-dispatch:
-	@VERSION="$$(perl -ne 'if (/^version: ([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)$$/) { print "$$1\n" }' pubspec.yaml)" BUILD_NUMBER="$$(perl -ne 'if (/^version: ([0-9]+\.[0-9]+\.[0-9]+)\+([0-9]+)$$/) { print "$$2\n" }' pubspec.yaml)" WORKFLOW="$(WORKFLOW)" REF="$(BRANCH)" ./scripts/dispatch_workflow.sh
 
 release:
 	@$(MAKE) publish

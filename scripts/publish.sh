@@ -6,17 +6,10 @@ cd "${ROOT_DIR}"
 
 VERSION="${VERSION:-}"
 BRANCH="${BRANCH:-main}"
-WORKFLOW="${WORKFLOW:-cineo-build.yml}"
 
 if [[ ! "${VERSION}" =~ ^[0-9]+\.[0-9]+\.[0-9]+\+[1-9][0-9]*$ ]]; then
   echo "error: Makefile VERSION must use X.Y.Z+BUILD, for example 1.2.0+12" >&2
   exit 2
-fi
-
-if [[ -z "${GH_TOKEN:-}" ]]; then
-  echo "error: GH_TOKEN is required" >&2
-  echo "Run: export GH_TOKEN='your GitHub token'" >&2
-  exit 1
 fi
 
 if [[ "$(git branch --show-current)" != "${BRANCH}" ]]; then
@@ -92,9 +85,4 @@ TAG="v${VERSION}"
 git tag -fa "${TAG}" -m "Cineo ${VERSION}" HEAD
 git push origin "refs/tags/${TAG}" --force
 
-VERSION_NAME="${VERSION%%+*}"
-BUILD_NUMBER="${VERSION##*+}"
-VERSION="${VERSION_NAME}" BUILD_NUMBER="${BUILD_NUMBER}" WORKFLOW="${WORKFLOW}" REF="${TAG}" \
-  ./scripts/dispatch_workflow.sh
-
-echo "Published ${TAG}. GitHub Actions is building Android APK and unsigned iOS IPA."
+echo "Published ${TAG}. GitHub Actions will build Android APK and unsigned iOS IPA from this tag."

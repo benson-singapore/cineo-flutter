@@ -1,19 +1,15 @@
 name: Cineo Build
 
 on:
-  workflow_dispatch:
-    inputs:
-      version:
-        description: 'App version, for example 1.2.0'
-        required: true
-        type: string
-      build_number:
-        description: 'Android versionCode / iOS CFBundleVersion'
-        required: true
-        type: string
+  push:
+    tags:
+      - 'v*'
 
 permissions:
   contents: read
+
+env:
+  RELEASE_VERSION: ${{ github.ref_name }}
 
 jobs:
   android:
@@ -64,12 +60,16 @@ jobs:
           fi
 
       - name: Build APK
-        run: flutter build apk --release --build-name "${{ inputs.version }}" --build-number "${{ inputs.build_number }}"
+        run: |
+          VERSION="${RELEASE_VERSION#v}"
+          BUILD_NUMBER="${VERSION##*+}"
+          VERSION_NAME="${VERSION%%+*}"
+          flutter build apk --release --build-name "${VERSION_NAME}" --build-number "${BUILD_NUMBER}"
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: cineo-android-${{ inputs.version }}-${{ inputs.build_number }}
+          name: cineo-android-${{ github.ref_name }}
           path: build/app/outputs/flutter-apk/app-release.apk
           if-no-files-found: error
 
@@ -87,7 +87,11 @@ jobs:
           cache: true
 
       - name: Build unsigned iOS app
-        run: flutter build ios --release --no-codesign --build-name "${{ inputs.version }}" --build-number "${{ inputs.build_number }}"
+        run: |
+          VERSION="${RELEASE_VERSION#v}"
+          BUILD_NUMBER="${VERSION##*+}"
+          VERSION_NAME="${VERSION%%+*}"
+          flutter build ios --release --no-codesign --build-name "${VERSION_NAME}" --build-number "${BUILD_NUMBER}"
 
       - name: Package unsigned IPA
         run: |
@@ -100,6 +104,6 @@ jobs:
       - name: Upload unsigned IPA
         uses: actions/upload-artifact@v4
         with:
-          name: cineo-ios-unsigned-${{ inputs.version }}-${{ inputs.build_number }}
+          name: cineo-ios-unsigned-${{ github.ref_name }}
           path: build/ios/unsigned-ipa/Cineo-unsigned.ipa
           if-no-files-found: error
