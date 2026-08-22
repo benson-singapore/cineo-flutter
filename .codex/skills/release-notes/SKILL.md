@@ -18,7 +18,15 @@ Use this skill when the user asks to create, refresh, or summarize a version upd
    Pass a tag explicitly when needed:
 
    ```bash
-   .codex/skills/release-notes/scripts/git-release-context.sh --tag v1.2.0+3
+   .codex/skills/release-notes/scripts/git-release-context.sh --tag v1.2.0
+   ```
+
+   For a release that has not been tagged yet, use the latest existing tag as
+   the source and the current `HEAD` as the planned release:
+
+   ```bash
+   .codex/skills/release-notes/scripts/git-release-context.sh \
+     --target-tag v1.2.0 --from-tag v1.0.0+3
    ```
 
 2. Use the helper output as the source of truth. Identify the selected tag, release date, previous tag, commit range, commit subjects, and changed-file statistics before writing prose.
@@ -30,7 +38,7 @@ Use this skill when the user asks to create, refresh, or summarize a version upd
 ## File conventions
 
 - Store release notes only under `docs/update/`.
-- Use the exact Git tag in the filename, for example `docs/update/v1.2.0+3.md`.
+- Use the exact Git tag in the filename, for example `docs/update/v1.2.0.md`.
 - Do not modify tags, commits, or remote branches as part of generating notes.
 - Before finishing, verify the target file exists, run `git diff --check`, and report the tag and commit range used.
 
