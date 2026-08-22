@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/platform/adaptive_navigation.dart';
 import '../../core/models/media.dart';
 import '../../core/models/tmdb_media.dart';
 import '../../core/theme/cineo_theme.dart';
@@ -112,9 +113,8 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     return source.isNotEmpty ? source : _media.posterUrl;
   }
 
-  double get _displayRating => (_tmdbDetails?.rating ?? 0) > 0
-      ? _tmdbDetails!.rating
-      : _media.rating;
+  double get _displayRating =>
+      (_tmdbDetails?.rating ?? 0) > 0 ? _tmdbDetails!.rating : _media.rating;
 
   int get _displayYear => _tmdbDetails?.year ?? _media.year;
 
@@ -564,7 +564,8 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
 
   void _openEpisodeLibrary() {
     Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => EpisodeLibraryScreen(
           media: _media,
           episodes: _activeEpisodes,

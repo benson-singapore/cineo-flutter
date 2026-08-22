@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/platform/adaptive_navigation.dart';
 import '../../core/models/media.dart';
 import '../../core/models/paged_media.dart';
 import '../../core/theme/cineo_theme.dart';
@@ -729,7 +730,8 @@ class _SearchScreenState extends State<SearchScreen>
   void _openSubcategory(UnifiedSubcategory category) {
     final state = _subcategoryBrowse[_subcategoryKey(category)];
     Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => CategoryBrowseScreen(
           title: category.name,
           initialItems: state?.items ?? const [],

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../../core/platform/adaptive_navigation.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../app_lock/app_lock_controller.dart';
 import '../app_lock/app_lock_service.dart';
@@ -93,7 +94,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
                       trailing: const Icon(Icons.chevron_right_rounded,
                           color: CineoColors.textSecondary),
                       onTap: () => Navigator.of(context).push(
-                        MaterialPageRoute(
+                        adaptivePageRoute(
+                          context,
                           builder: (_) => TMDBSettingsScreen(
                             settings: widget.tmdbSettings,
                             cacheController: widget.tmdbCacheController,
@@ -202,7 +204,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
               ),
               trailing: const Icon(Icons.chevron_right_rounded),
               onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
+                adaptivePageRoute(
+                  context,
                   builder: (_) => PinSetupScreen(
                     controller: controller,
                     requireCurrentPin: controller.hasPin,

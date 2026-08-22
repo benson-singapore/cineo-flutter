@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/media_source.dart';
+import '../../core/platform/adaptive_navigation.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../data/repositories/media_repository.dart';
 import '../settings/adult_source_settings.dart';
@@ -63,7 +64,8 @@ class _SourceListScreenState extends State<SourceListScreen> {
 
   Future<void> _openEditor([MediaSource? source]) async {
     await Navigator.of(context).push<bool>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => SourceEditorScreen(
           initialSource: source,
           onSave: widget.repository.saveSource,

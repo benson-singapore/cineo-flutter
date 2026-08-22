@@ -6,6 +6,7 @@ import 'package:flutter/material.dart';
 import 'core/models/media.dart';
 import 'core/models/home_category_rail.dart';
 import 'core/models/tmdb_media.dart';
+import 'core/platform/adaptive_navigation.dart';
 import 'core/platform/picture_in_picture.dart';
 import 'core/theme/cineo_theme.dart';
 import 'data/cache/tmdb_disk_cache.dart';
@@ -269,7 +270,8 @@ class _CineoShellState extends State<CineoShell> {
         );
     if (!mounted) return;
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => MediaDetailsScreen(
           media: resolvedMedia,
           initialEpisodeId: recentEpisodeId.isEmpty ? null : recentEpisodeId,
@@ -410,7 +412,8 @@ class _CineoShellState extends State<CineoShell> {
         .toList(growable: false);
     if (!mounted) return;
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => PlayerScreen(
           media: media,
           option: option,
@@ -454,7 +457,8 @@ class _CineoShellState extends State<CineoShell> {
     List<String> categoryIds,
   ) {
     return Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => CategoryBrowseScreen(
           title: title,
           initialItems: initialItems,
@@ -470,7 +474,8 @@ class _CineoShellState extends State<CineoShell> {
 
   Future<void> _openSearch() {
     return Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => SearchScreen(
           items: _items,
           history: _searchHistory,
@@ -495,7 +500,8 @@ class _CineoShellState extends State<CineoShell> {
 
   Future<void> _openLibrary(LibraryContentMode mode) async {
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => LibraryScreen(
           repository: widget.repository,
           mode: mode,
@@ -508,7 +514,8 @@ class _CineoShellState extends State<CineoShell> {
 
   Future<void> _openSources() async {
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => SourceListScreen(
           repository: widget.repository,
           adultSourceSettings: widget.adultSourceSettings,
@@ -520,7 +527,8 @@ class _CineoShellState extends State<CineoShell> {
 
   Future<void> _openPinSetup() async {
     await Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => PinSetupScreen(controller: widget.appLockController),
       ),
     );
@@ -528,7 +536,8 @@ class _CineoShellState extends State<CineoShell> {
 
   Future<void> _openSettings() {
     return Navigator.of(context).push<void>(
-      MaterialPageRoute(
+      adaptivePageRoute(
+        context,
         builder: (_) => SettingsScreen(
           adultSourceSettings: widget.adultSourceSettings,
           appLockController: widget.appLockController,
@@ -631,29 +640,37 @@ class _GlassBottomNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final isIos = Theme.of(context).platform == TargetPlatform.iOS;
     const borderRadius = BorderRadius.all(Radius.circular(30));
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(20, 8, 20, 10),
+      minimum: isIos
+          ? const EdgeInsets.fromLTRB(16, 8, 16, 6)
+          : const EdgeInsets.fromLTRB(20, 8, 20, 10),
       child: ClipRRect(
         borderRadius: borderRadius,
         child: BackdropFilter(
-          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          filter: ImageFilter.blur(
+            sigmaX: isIos ? 26 : 18,
+            sigmaY: isIos ? 26 : 18,
+          ),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: CineoColors.glass.withOpacity(.9),
+              color: CineoColors.glass.withOpacity(isIos ? .78 : .9),
               borderRadius: borderRadius,
-              border: Border.all(color: Colors.white.withOpacity(.12)),
+              border: Border.all(
+                color: Colors.white.withOpacity(isIos ? .18 : .12),
+              ),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(.38),
-                  blurRadius: 26,
-                  offset: const Offset(0, 10),
+                  color: Colors.black.withOpacity(isIos ? .3 : .38),
+                  blurRadius: isIos ? 30 : 26,
+                  offset: Offset(0, isIos ? 12 : 10),
                 ),
               ],
             ),
             child: SizedBox(
-              height: 68,
+              height: isIos ? 64 : 68,
               child: Row(
                 children: List.generate(_destinations.length, (index) {
                   final destination = _destinations[index];

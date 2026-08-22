@@ -1,3 +1,4 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart';
 
 abstract class CineoColors {
@@ -36,6 +37,31 @@ ThemeData buildCineoTheme() {
     dividerColor: CineoColors.divider,
     splashFactory: InkSparkle.splashFactory,
     visualDensity: VisualDensity.standard,
+    pageTransitionsTheme: const PageTransitionsTheme(
+      builders: {
+        TargetPlatform.iOS: CupertinoPageTransitionsBuilder(),
+        TargetPlatform.macOS: CupertinoPageTransitionsBuilder(),
+      },
+    ),
+    cupertinoOverrideTheme: const CupertinoThemeData(
+      brightness: Brightness.dark,
+      primaryColor: CineoColors.primary,
+      scaffoldBackgroundColor: CineoColors.background,
+      barBackgroundColor: CineoColors.glass,
+      textTheme: CupertinoTextThemeData(
+        textStyle: TextStyle(color: CineoColors.textPrimary),
+        navTitleTextStyle: TextStyle(
+          color: CineoColors.textPrimary,
+          fontSize: 17,
+          fontWeight: FontWeight.w600,
+        ),
+        navLargeTitleTextStyle: TextStyle(
+          color: CineoColors.textPrimary,
+          fontSize: 34,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    ),
     appBarTheme: const AppBarTheme(
       backgroundColor: CineoColors.background,
       foregroundColor: CineoColors.textPrimary,
