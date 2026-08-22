@@ -50,6 +50,8 @@ Widget _subject({
 void main() {
   testWidgets('hero prioritizes and resumes the latest continued media',
       (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final recommended = _media('recommended-1', '推荐视频');
     final resumed = _media('resume-1', '上次观看的视频');
     MediaItem? selected;
@@ -71,6 +73,27 @@ void main() {
     await tester.ensureVisible(find.byKey(const ValueKey('home-hero-action')));
     await tester.tap(find.byKey(const ValueKey('home-hero-action')));
     expect(selected, same(resumed));
+  });
+
+  testWidgets('hero cover fills the available top width without side gaps',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final featured = _media('featured', '顶部封面');
+
+    await tester.pumpWidget(
+      _subject(
+        items: [featured],
+        onSeeAll: (_, __, ___) {},
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final hero = tester.getSize(
+      find.byKey(const ValueKey('home-hero-media-featured')),
+    );
+    expect(hero.width, 800);
+    expect(hero.height, closeTo(800 * 4 / 3, .1));
   });
 
   testWidgets('short drama rail sends its real category id', (tester) async {
@@ -106,6 +129,8 @@ void main() {
 
   testWidgets('recommendation rail sends selected source category ids',
       (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
     final items = [
       _media('1', '推荐一', categoryId: 'tid-a'),
       _media('2', '推荐二', categoryId: 'tid-b'),

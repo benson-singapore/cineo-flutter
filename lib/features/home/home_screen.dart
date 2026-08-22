@@ -305,104 +305,93 @@ class _HeroBanner extends StatelessWidget {
   Widget build(BuildContext context) {
     final imageUrl =
         media.posterUrl.trim().isNotEmpty ? media.posterUrl : media.backdropUrl;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(20, 14, 20, 8),
-      child: Center(
-        child: ConstrainedBox(
-          constraints: const BoxConstraints(maxWidth: 390),
-          child: AspectRatio(
-            key: ValueKey('home-hero-media-${media.id}'),
-            aspectRatio: 3 / 4,
-            child: ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  MediaImage(
-                    url: imageUrl,
-                    alignment: Alignment.center,
-                    placeholderIcon: Icons.movie_outlined,
-                  ),
-                  DecoratedBox(
-                    decoration: BoxDecoration(
-                      gradient: LinearGradient(
-                        begin: Alignment.topCenter,
-                        end: Alignment.bottomCenter,
-                        colors: [
-                          CineoColors.background.withOpacity(.04),
-                          CineoColors.background.withOpacity(.28),
-                          CineoColors.background.withOpacity(.96),
-                        ],
-                        stops: const [.05, .48, 1],
-                      ),
-                    ),
-                  ),
-                  Align(
-                    alignment: Alignment.bottomLeft,
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(18, 20, 18, 20),
-                      child: ConstrainedBox(
-                        constraints: const BoxConstraints(maxWidth: 560),
-                        child: Column(
-                          mainAxisSize: MainAxisSize.min,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            _FeaturedLabel(
-                              label: resumeAvailable ? '继续观看' : '本周精选',
-                            ),
-                            const SizedBox(height: 10),
-                            Text(
-                              media.title,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .headlineMedium
-                                  ?.copyWith(
-                                    fontWeight: FontWeight.w900,
-                                    height: 1.05,
-                                    color: Colors.white,
-                                  ),
-                            ),
-                            const SizedBox(height: 8),
-                            _MetaLine(media: media),
-                            const SizedBox(height: 10),
-                            Text(
-                              media.description,
-                              maxLines: 2,
-                              overflow: TextOverflow.ellipsis,
-                              style: Theme.of(context)
-                                  .textTheme
-                                  .bodyMedium
-                                  ?.copyWith(
-                                    color: Colors.white.withOpacity(.78),
-                                    height: 1.35,
-                                  ),
-                            ),
-                            const SizedBox(height: 14),
-                            FilledButton.icon(
-                              key: const ValueKey('home-hero-action'),
-                              onPressed: () => onTap(media),
-                              icon: const Icon(Icons.play_arrow_rounded),
-                              label: Text(resumeAvailable ? '继续观看' : '立即播放'),
-                              style: FilledButton.styleFrom(
-                                padding: const EdgeInsets.symmetric(
-                                  horizontal: 18,
-                                  vertical: 10,
-                                ),
-                                backgroundColor: CineoColors.primary,
-                                foregroundColor: Colors.white,
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ),
-                  ),
-                ],
+    return SizedBox(
+      width: double.infinity,
+      child: AspectRatio(
+        key: ValueKey('home-hero-media-${media.id}'),
+        aspectRatio: 3 / 4,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            MediaImage(
+              url: imageUrl,
+              alignment: Alignment.center,
+              placeholderIcon: Icons.movie_outlined,
+            ),
+            DecoratedBox(
+              decoration: BoxDecoration(
+                gradient: LinearGradient(
+                  begin: Alignment.topCenter,
+                  end: Alignment.bottomCenter,
+                  colors: [
+                    CineoColors.background.withOpacity(.04),
+                    CineoColors.background.withOpacity(.28),
+                    CineoColors.background.withOpacity(.96),
+                  ],
+                  stops: const [.05, .48, 1],
+                ),
               ),
             ),
-          ),
+            Align(
+              alignment: Alignment.bottomLeft,
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(20, 20, 20, 24),
+                child: ConstrainedBox(
+                  constraints: const BoxConstraints(maxWidth: 560),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      _FeaturedLabel(
+                        label: resumeAvailable ? '继续观看' : '本周精选',
+                      ),
+                      const SizedBox(height: 10),
+                      Text(
+                        media.title,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context)
+                            .textTheme
+                            .headlineMedium
+                            ?.copyWith(
+                              fontWeight: FontWeight.w900,
+                              height: 1.05,
+                              color: Colors.white,
+                            ),
+                      ),
+                      const SizedBox(height: 8),
+                      _MetaLine(media: media),
+                      const SizedBox(height: 10),
+                      Text(
+                        media.description,
+                        maxLines: 2,
+                        overflow: TextOverflow.ellipsis,
+                        style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                              color: Colors.white.withOpacity(.78),
+                              height: 1.35,
+                            ),
+                      ),
+                      const SizedBox(height: 14),
+                      FilledButton.icon(
+                        key: const ValueKey('home-hero-action'),
+                        onPressed: () => onTap(media),
+                        icon: const Icon(Icons.play_arrow_rounded),
+                        label: Text(resumeAvailable ? '继续观看' : '立即播放'),
+                        style: FilledButton.styleFrom(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 18,
+                            vertical: 10,
+                          ),
+                          backgroundColor: CineoColors.primary,
+                          foregroundColor: Colors.white,
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+          ],
         ),
       ),
     );
