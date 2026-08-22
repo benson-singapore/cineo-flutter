@@ -631,29 +631,29 @@ class _GlassBottomNavigation extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    const borderRadius = BorderRadius.all(Radius.circular(24));
+    const borderRadius = BorderRadius.all(Radius.circular(30));
     return SafeArea(
       top: false,
-      minimum: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      minimum: const EdgeInsets.fromLTRB(20, 8, 20, 10),
       child: ClipRRect(
         borderRadius: borderRadius,
         child: BackdropFilter(
           filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
           child: DecoratedBox(
             decoration: BoxDecoration(
-              color: CineoColors.background.withOpacity(.72),
+              color: CineoColors.glass.withOpacity(.9),
               borderRadius: borderRadius,
               border: Border.all(color: Colors.white.withOpacity(.12)),
               boxShadow: [
                 BoxShadow(
-                  color: Colors.black.withOpacity(.24),
-                  blurRadius: 20,
-                  offset: const Offset(0, 8),
+                  color: Colors.black.withOpacity(.38),
+                  blurRadius: 26,
+                  offset: const Offset(0, 10),
                 ),
               ],
             ),
             child: SizedBox(
-              height: 64,
+              height: 68,
               child: Row(
                 children: List.generate(_destinations.length, (index) {
                   final destination = _destinations[index];
@@ -697,7 +697,7 @@ class _GlassNavigationItem extends StatelessWidget {
         color: Colors.transparent,
         child: InkWell(
           onTap: onTap,
-          borderRadius: const BorderRadius.all(Radius.circular(18)),
+          borderRadius: const BorderRadius.all(Radius.circular(24)),
           child: Padding(
             padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
             child: AnimatedContainer(
@@ -707,7 +707,7 @@ class _GlassNavigationItem extends StatelessWidget {
                 color: selected
                     ? CineoColors.primary.withOpacity(.16)
                     : Colors.transparent,
-                borderRadius: const BorderRadius.all(Radius.circular(16)),
+                borderRadius: const BorderRadius.all(Radius.circular(22)),
               ),
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,

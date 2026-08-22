@@ -37,17 +37,18 @@ class SettingsScreen extends StatelessWidget {
             );
           }
           return ListView(
-            padding: const EdgeInsets.fromLTRB(16, 8, 16, 32),
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 48),
             children: [
               const _SettingsSectionLabel(
-                icon: Icons.visibility_outlined,
                 title: '内容显示',
               ),
               _SettingsPanel(
-                child: SwitchListTile(
+                child: SwitchListTile.adaptive(
                   contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-                  secondary: const Icon(Icons.explicit_outlined,
-                      color: CineoColors.primaryLight),
+                  secondary: const _SettingsIcon(
+                    icon: Icons.explicit_rounded,
+                    color: Color(0xFFE94865),
+                  ),
                   title: const Text('显示成人标记的视频源'),
                   subtitle: const Text('关闭时仍会保存配置，但不会在来源管理中展示'),
                   value: adultSourceSettings.showAdultSources,
@@ -56,19 +57,20 @@ class SettingsScreen extends StatelessWidget {
               ),
               const SizedBox(height: 28),
               const _SettingsSectionLabel(
-                icon: Icons.shield_outlined,
                 title: '隐私与安全',
               ),
               _buildLockSettings(context),
               const SizedBox(height: 28),
               const _SettingsSectionLabel(
-                icon: Icons.auto_awesome_outlined,
                 title: '数据增强',
               ),
               _SettingsPanel(
                 child: ListTile(
                   contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-                  leading: const Icon(Icons.auto_awesome_outlined),
+                  leading: const _SettingsIcon(
+                    icon: Icons.auto_awesome_rounded,
+                    color: Color(0xFF5B82F5),
+                  ),
                   title: const Text('TMDB 数据增强'),
                   subtitle: const Text('管理海报、剧集资料和每集简介的数据服务'),
                   trailing: const Icon(Icons.chevron_right_rounded,
@@ -121,7 +123,10 @@ class SettingsScreen extends StatelessWidget {
     if (controller == null) {
       return const _SettingsPanel(
         child: ListTile(
-          leading: Icon(Icons.lock_outline, color: CineoColors.primaryLight),
+          leading: _SettingsIcon(
+            icon: Icons.lock_rounded,
+            color: Color(0xFFE94865),
+          ),
           title: Text('应用锁'),
           subtitle: Text('应用锁设置由主应用入口提供'),
         ),
@@ -134,8 +139,10 @@ class SettingsScreen extends StatelessWidget {
           children: [
             ListTile(
               contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-              leading: const Icon(Icons.lock_outline,
-                  color: CineoColors.primaryLight),
+              leading: const _SettingsIcon(
+                icon: Icons.lock_rounded,
+                color: Color(0xFFE94865),
+              ),
               title: Text(controller.hasPin ? '修改应用锁 PIN' : '设置应用锁 PIN'),
               subtitle: Text(
                 controller.hasPin ? 'PIN 已设置，保存在本机安全存储中' : '保护本机数据与成人内容设置',
@@ -151,19 +158,25 @@ class SettingsScreen extends StatelessWidget {
               ),
             ),
             if (controller.hasPin) ...[
-              const Divider(height: 1),
+              const _SettingsPanelDivider(),
               ListTile(
                 contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-                leading: const Icon(Icons.timer_outlined),
+                leading: const _SettingsIcon(
+                  icon: Icons.timer_outlined,
+                  color: Color(0xFF40A7F5),
+                ),
                 title: const Text('后台返回后要求 PIN'),
                 subtitle: Text(controller.gracePeriod.label),
                 trailing: const Icon(Icons.chevron_right_rounded),
                 onTap: () => _chooseGracePeriod(context, controller),
               ),
-              const Divider(height: 1),
+              const _SettingsPanelDivider(),
               ListTile(
                 contentPadding: const EdgeInsets.fromLTRB(16, 8, 12, 8),
-                leading: const Icon(Icons.lock_clock_outlined),
+                leading: const _SettingsIcon(
+                  icon: Icons.lock_clock_rounded,
+                  color: Color(0xFFFF9F43),
+                ),
                 title: const Text('立即锁定'),
                 onTap: () => controller.lock(),
               ),
@@ -207,27 +220,20 @@ class SettingsScreen extends StatelessWidget {
 }
 
 class _SettingsSectionLabel extends StatelessWidget {
-  const _SettingsSectionLabel({required this.icon, required this.title});
+  const _SettingsSectionLabel({required this.title});
 
-  final IconData icon;
   final String title;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 10),
-      child: Row(
-        children: [
-          Icon(icon, size: 18, color: CineoColors.primary),
-          const SizedBox(width: 8),
-          Text(
-            title,
-            style: Theme.of(context).textTheme.labelLarge?.copyWith(
-                  color: CineoColors.primaryLight,
-                  fontWeight: FontWeight.w700,
-                ),
-          ),
-        ],
+      padding: const EdgeInsets.only(left: 8, bottom: 9),
+      child: Text(
+        title,
+        style: Theme.of(context).textTheme.labelLarge?.copyWith(
+              color: CineoColors.textSecondary,
+              fontWeight: FontWeight.w700,
+            ),
       ),
     );
   }
@@ -244,10 +250,41 @@ class _SettingsPanel extends StatelessWidget {
       clipBehavior: Clip.antiAlias,
       decoration: BoxDecoration(
         color: CineoColors.surface,
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: CineoColors.divider),
+        borderRadius: BorderRadius.circular(28),
       ),
       child: child,
+    );
+  }
+}
+
+class _SettingsPanelDivider extends StatelessWidget {
+  const _SettingsPanelDivider();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.only(left: 68),
+      child: Divider(height: 1, color: CineoColors.divider),
+    );
+  }
+}
+
+class _SettingsIcon extends StatelessWidget {
+  const _SettingsIcon({required this.icon, required this.color});
+
+  final IconData icon;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: 42,
+      height: 42,
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Icon(icon, size: 24, color: Colors.white),
     );
   }
 }

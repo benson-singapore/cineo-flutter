@@ -1,17 +1,17 @@
 import 'package:flutter/material.dart';
 
 abstract class CineoColors {
-  static const background = Color(0xFF080909);
-  static const surface = Color(0xFF141414);
-  static const surfaceElevated = Color(0xFF20201F);
-  static const surfaceOverlay = Color(0xFF292827);
+  static const background = Color(0xFF000000);
+  static const surface = Color(0xFF1C1C1E);
+  static const surfaceElevated = Color(0xFF27272A);
+  static const surfaceOverlay = Color(0xFF323236);
   static const primary = Color(0xFFFFA13A);
   static const primaryLight = Color(0xFFFFC467);
   static const primaryContainer = Color(0xFF4B2E13);
   static const textPrimary = Color(0xFFF8F7F4);
   static const textSecondary = Color(0xFFACA9A4);
-  static const divider = Color(0xFF343230);
-  static const glass = Color(0xE01A1918);
+  static const divider = Color(0xFF38383A);
+  static const glass = Color(0xD91C1C1E);
 }
 
 ThemeData buildCineoTheme() {
@@ -53,7 +53,7 @@ ThemeData buildCineoTheme() {
       elevation: 0,
       margin: EdgeInsets.zero,
       shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.all(Radius.circular(8)),
+        borderRadius: BorderRadius.all(Radius.circular(20)),
       ),
     ),
     inputDecorationTheme: const InputDecorationTheme(
