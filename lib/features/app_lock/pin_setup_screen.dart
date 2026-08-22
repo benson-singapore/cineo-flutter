@@ -115,7 +115,9 @@ class _PinSetupScreenState extends State<PinSetupScreen> {
       await widget.controller.setupPin(_pin);
       if (mounted) {
         widget.onComplete?.call();
-        Navigator.of(context).pop();
+        // This screen is normally pushed from Settings. maybePop also keeps
+        // it safe when a caller embeds it without adding a navigator route.
+        await Navigator.of(context).maybePop();
       }
     } on ArgumentError catch (error) {
       if (mounted) {
