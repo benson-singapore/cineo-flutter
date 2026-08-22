@@ -113,6 +113,13 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     return source.isNotEmpty ? source : _media.posterUrl;
   }
 
+  String get _displayPoster {
+    final tmdb = _tmdbDetails?.posterUrl.trim() ?? '';
+    if (tmdb.isNotEmpty) return tmdb;
+    final source = _media.posterUrl.trim();
+    return source.isNotEmpty ? source : _displayBackdrop;
+  }
+
   double get _displayRating =>
       (_tmdbDetails?.rating ?? 0) > 0 ? _tmdbDetails!.rating : _media.rating;
 
@@ -255,35 +262,6 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       backgroundColor: CineoColors.background,
       body: CustomScrollView(
         slivers: [
-          SliverAppBar(
-            pinned: true,
-            backgroundColor: CineoColors.background,
-            surfaceTintColor: Colors.transparent,
-            title: const Text(
-              '详情',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800),
-            ),
-            actions: [
-              if (widget.onSearchTmdbMatches != null &&
-                  widget.onSelectTmdbMatch != null)
-                IconButton(
-                  tooltip: '手动匹配',
-                  onPressed: _tmdbLoading ? null : _openManualTmdbMatch,
-                  icon: const Icon(Icons.manage_search_rounded),
-                ),
-              IconButton(
-                tooltip: _favorite ? '取消收藏' : '收藏',
-                onPressed: () {
-                  setState(() => _favorite = !_favorite);
-                  widget.onFavoriteChanged(_media, _favorite);
-                },
-                icon: Icon(_favorite
-                    ? Icons.favorite_rounded
-                    : Icons.favorite_border_rounded),
-              ),
-              const SizedBox(width: 8),
-            ],
-          ),
           SliverToBoxAdapter(child: _buildHero(context, media)),
           SliverPadding(
             padding: const EdgeInsets.fromLTRB(20, 24, 20, 40),
@@ -297,42 +275,28 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   Widget _buildHero(BuildContext context, MediaItem media) {
     return LayoutBuilder(
       builder: (context, constraints) {
-        final wide = constraints.maxWidth >= 700;
-        final image = AspectRatio(
-          aspectRatio: wide ? 2.3 : 1.55,
-          child: MediaImage(url: _displayBackdrop),
-        );
         return Stack(
           children: [
-            image,
-            Positioned.fill(
-              child: DecoratedBox(
-                decoration: BoxDecoration(
-                  gradient: LinearGradient(
-                    begin: Alignment.topCenter,
-                    end: Alignment.bottomCenter,
-                    colors: [
-                      Colors.transparent,
-                      CineoColors.background.withOpacity(.15),
-                      CineoColors.background,
-                    ],
-                  ),
-                ),
+            AspectRatio(
+              key: const ValueKey('detail-poster'),
+              aspectRatio: 2 / 3,
+              child: MediaImage(
+                url: _displayPoster,
+                fit: BoxFit.cover,
+                alignment: Alignment.center,
               ),
             ),
             Positioned(
-              left: 20,
-              right: 20,
-              bottom: 20,
-              child: Text(
-                _displayTitle,
-                maxLines: 2,
-                overflow: TextOverflow.ellipsis,
-                style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                      fontWeight: FontWeight.w900,
-                      color: Colors.white,
-                      height: 1.05,
-                    ),
+              top: 12,
+              right: 12,
+              child: SafeArea(
+                bottom: false,
+                child: IconButton(
+                  tooltip: '返回',
+                  color: Colors.white,
+                  onPressed: () => Navigator.of(context).maybePop(),
+                  icon: const Icon(Icons.arrow_back_ios_new_rounded),
+                ),
               ),
             ),
           ],
@@ -345,6 +309,14 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+        Text(
+          _displayTitle,
+          style: Theme.of(context).textTheme.headlineMedium?.copyWith(
+                fontWeight: FontWeight.w900,
+                height: 1.12,
+              ),
+        ),
+        const SizedBox(height: 16),
         Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
@@ -400,7 +372,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
               backgroundColor: CineoColors.surfaceOverlay,
             ),
           ),
-        _DescriptionSection(description: _displayDescription),
+        _DescriptionSection(
+          description: _displayDescription,
+          trailing: _buildDescriptionActions(),
+        ),
         const SizedBox(height: 28),
         _sectionTitle('播放来源'),
         const SizedBox(height: 12),
@@ -656,6 +631,31 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       ],
     );
   }
+
+  Widget _buildDescriptionActions() {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        if (widget.onSearchTmdbMatches != null &&
+            widget.onSelectTmdbMatch != null)
+          IconButton(
+            tooltip: '手动匹配',
+            onPressed: _tmdbLoading ? null : _openManualTmdbMatch,
+            icon: const Icon(Icons.manage_search_rounded),
+          ),
+        IconButton(
+          tooltip: _favorite ? '取消收藏' : '收藏',
+          onPressed: () {
+            setState(() => _favorite = !_favorite);
+            widget.onFavoriteChanged(_media, _favorite);
+          },
+          icon: Icon(_favorite
+              ? Icons.favorite_rounded
+              : Icons.favorite_border_rounded),
+        ),
+      ],
+    );
+  }
 }
 
 class _InfoBadge extends StatelessWidget {
@@ -692,9 +692,10 @@ class _InfoBadge extends StatelessWidget {
 }
 
 class _DescriptionSection extends StatefulWidget {
-  const _DescriptionSection({required this.description});
+  const _DescriptionSection({required this.description, this.trailing});
 
   final String description;
+  final Widget? trailing;
 
   @override
   State<_DescriptionSection> createState() => _DescriptionSectionState();
@@ -718,8 +719,14 @@ class _DescriptionSectionState extends State<_DescriptionSection> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text('简介',
-            style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+        Row(
+          children: [
+            const Text('简介',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w800)),
+            const Spacer(),
+            if (widget.trailing != null) widget.trailing!,
+          ],
+        ),
         const SizedBox(height: 10),
         if (description.isEmpty)
           const Text('暂无简介',

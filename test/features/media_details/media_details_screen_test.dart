@@ -111,6 +111,7 @@ void main() {
     expect(find.textContaining('不应显示'), findsNothing);
     expect(find.text('展开简介'), findsOneWidget);
 
+    await _scrollDetailPage(tester);
     await tester.tap(find.text('展开简介'));
     await tester.pumpAndSettle();
     expect(find.text('收起简介'), findsOneWidget);
@@ -118,6 +119,19 @@ void main() {
     await tester.tap(find.text('收起简介'));
     await tester.pumpAndSettle();
     expect(find.text('展开简介'), findsOneWidget);
+  });
+
+  testWidgets('uses a poster hero without a fixed detail app bar',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(390, 844));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(buildScreen());
+    await tester.pumpAndSettle();
+
+    expect(find.byType(SliverAppBar), findsNothing);
+    expect(find.byTooltip('返回'), findsOneWidget);
+    final poster = tester.getSize(find.byKey(const ValueKey('detail-poster')));
+    expect(poster.width / poster.height, closeTo(2 / 3, .01));
   });
 
   testWidgets('uses a five-line summary and 16:9 episode previews',
@@ -164,7 +178,7 @@ void main() {
       const ValueKey('source-线路 B'),
       skipOffstage: false,
     );
-    await tester.ensureVisible(sourceB);
+    await _scrollDetailPage(tester);
     await tester.tap(sourceB);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('preview-episode-a-1')), findsNothing);
@@ -228,8 +242,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    await tester.ensureVisible(find.byKey(const ValueKey('switch-media-site')));
-    await tester.tap(find.byKey(const ValueKey('switch-media-site')));
+    final switchSite = find.byKey(const ValueKey('switch-media-site'));
+    await _scrollDetailPage(tester);
+    await tester.tap(switchSite);
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
@@ -376,6 +391,7 @@ void main() {
     expect(find.byKey(const ValueKey('cast-section')), findsOneWidget);
     expect(find.text('演员甲'), findsOneWidget);
 
+    await _scrollDetailPage(tester);
     await tester.tap(find.text('查看全部'));
     await tester.pumpAndSettle();
     expect(find.text('第1季 · 全部剧集'), findsOneWidget);
@@ -450,8 +466,10 @@ void main() {
     ));
     await tester.pumpAndSettle();
 
-    expect(find.byTooltip('手动匹配'), findsOneWidget);
-    await tester.tap(find.byTooltip('手动匹配'));
+    final manualMatch = find.byTooltip('手动匹配');
+    await _scrollDetailPage(tester);
+    expect(manualMatch, findsOneWidget);
+    await tester.tap(manualMatch);
     await tester.pumpAndSettle();
     expect(find.text('手动匹配'), findsOneWidget);
     expect(find.text('搜索匹配项'), findsOneWidget);
@@ -469,4 +487,12 @@ void main() {
     expect(find.text('正确简介'), findsOneWidget);
     expect(find.text('正确剧集名'), findsOneWidget);
   });
+}
+
+Future<void> _scrollDetailPage(WidgetTester tester) async {
+  await tester.drag(
+    find.byType(CustomScrollView),
+    const Offset(0, -900),
+  );
+  await tester.pumpAndSettle();
 }
