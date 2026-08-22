@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/theme/cineo_theme.dart';
 import '../app_lock/app_lock_controller.dart';
+import '../update/app_update_service.dart';
 
 class ProfileScreen extends StatelessWidget {
   const ProfileScreen({
@@ -12,6 +13,8 @@ class ProfileScreen extends StatelessWidget {
     this.onOpenAppLock,
     this.onLockNow,
     this.appLockController,
+    this.updateService,
+    this.onOpenUpdates,
     super.key,
   });
 
@@ -22,79 +25,107 @@ class ProfileScreen extends StatelessWidget {
   final VoidCallback? onOpenAppLock;
   final VoidCallback? onLockNow;
   final AppLockController? appLockController;
+  final AppUpdateService? updateService;
+  final VoidCallback? onOpenUpdates;
 
   @override
   Widget build(BuildContext context) {
-    final lockEnabled = appLockController?.hasPin ?? false;
     return Scaffold(
-      body: SafeArea(
-        bottom: false,
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(20, 18, 20, 128),
-          children: [
-            Text(
-              '我的',
-              style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                    fontWeight: FontWeight.w800,
-                    letterSpacing: 0,
+      body: AnimatedBuilder(
+        animation: appLockController ?? Listenable.merge(const []),
+        builder: (context, _) {
+          final lockEnabled = appLockController?.enabled ?? false;
+          return SafeArea(
+            bottom: false,
+            child: ListView(
+              padding: const EdgeInsets.fromLTRB(20, 18, 20, 128),
+              children: [
+                Text(
+                  '我的',
+                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
+                        fontWeight: FontWeight.w800,
+                        letterSpacing: 0,
+                      ),
+                ),
+                const SizedBox(height: 20),
+                _ProfileHeader(lockEnabled: lockEnabled),
+                const SizedBox(height: 28),
+                _Section(
+                  title: '本地内容',
+                  children: [
+                    _ProfileTile(
+                        icon: Icons.bookmark_outline,
+                        color: const Color(0xFFFF9F43),
+                        title: '我的收藏',
+                        onTap: onOpenFavorites),
+                    _ProfileTile(
+                        icon: Icons.history,
+                        color: const Color(0xFF5B82F5),
+                        title: '播放历史',
+                        onTap: onOpenHistory),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                _Section(
+                  title: '应用设置',
+                  children: [
+                    _ProfileTile(
+                        icon: Icons.link,
+                        color: const Color(0xFF35B885),
+                        title: '视频源管理',
+                        onTap: onOpenSources),
+                    _ProfileTile(
+                        icon: Icons.lock_outline,
+                        color: const Color(0xFFE94865),
+                        title: '应用锁',
+                        subtitle: lockEnabled ? '已启用' : '未启用',
+                        onTap: onOpenAppLock),
+                    _ProfileTile(
+                        icon: Icons.settings_outlined,
+                        color: const Color(0xFF8087F4),
+                        title: '通用设置',
+                        onTap: onOpenSettings),
+                    if (updateService != null)
+                      AnimatedBuilder(
+                        animation: updateService!,
+                        builder: (context, _) => _ProfileTile(
+                          icon: Icons.system_update_outlined,
+                          color: const Color(0xFF3AA8FF),
+                          title: updateService!.hasUpdate ? '发现新版本' : '版本更新',
+                          subtitle: updateService!.hasUpdate
+                              ? '最新版本 v${updateService!.latestVersion!.replaceFirst(RegExp(r'^[vV]'), '')}'
+                              : '当前已是最新版本',
+                          showBadge: updateService!.hasUpdate,
+                          onTap: onOpenUpdates,
+                        ),
+                      ),
+                  ],
+                ),
+                const SizedBox(height: 24),
+                AnimatedBuilder(
+                  animation: updateService ?? Listenable.merge(const []),
+                  builder: (context, _) => Column(
+                    children: [
+                      Text(
+                        '当前版本 v${updateService?.currentVersion ?? '1.0.3'}',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: CineoColors.textSecondary,
+                            ),
+                      ),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Cineo · 本地优先媒体中心',
+                        style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                              color: CineoColors.textSecondary,
+                            ),
+                      ),
+                    ],
                   ),
-            ),
-            const SizedBox(height: 20),
-            _ProfileHeader(lockEnabled: lockEnabled),
-            const SizedBox(height: 28),
-            _Section(
-              title: '本地内容',
-              children: [
-                _ProfileTile(
-                    icon: Icons.bookmark_outline,
-                    color: const Color(0xFFFF9F43),
-                    title: '我的收藏',
-                    onTap: onOpenFavorites),
-                _ProfileTile(
-                    icon: Icons.history,
-                    color: const Color(0xFF5B82F5),
-                    title: '播放历史',
-                    onTap: onOpenHistory),
+                ),
               ],
             ),
-            const SizedBox(height: 24),
-            _Section(
-              title: '应用设置',
-              children: [
-                _ProfileTile(
-                    icon: Icons.link,
-                    color: const Color(0xFF35B885),
-                    title: '视频源管理',
-                    onTap: onOpenSources),
-                _ProfileTile(
-                    icon: Icons.lock_outline,
-                    color: const Color(0xFFE94865),
-                    title: lockEnabled ? '修改应用锁' : '设置应用锁',
-                    onTap: onOpenAppLock),
-                if (lockEnabled)
-                  _ProfileTile(
-                      icon: Icons.lock_clock,
-                      color: const Color(0xFFE94865),
-                      title: '立即锁定',
-                      onTap: onLockNow),
-                _ProfileTile(
-                    icon: Icons.settings_outlined,
-                    color: const Color(0xFF8087F4),
-                    title: '通用设置',
-                    onTap: onOpenSettings),
-              ],
-            ),
-            const SizedBox(height: 24),
-            Center(
-              child: Text(
-                'Cineo · 本地优先媒体中心',
-                style: Theme.of(context).textTheme.bodySmall?.copyWith(
-                      color: CineoColors.textSecondary,
-                    ),
-              ),
-            ),
-          ],
-        ),
+          );
+        },
       ),
     );
   }
@@ -201,12 +232,16 @@ class _ProfileTile extends StatelessWidget {
     required this.color,
     required this.title,
     this.onTap,
+    this.subtitle,
+    this.showBadge = false,
   });
 
   final IconData icon;
   final Color color;
   final String title;
   final VoidCallback? onTap;
+  final String? subtitle;
+  final bool showBadge;
 
   @override
   Widget build(BuildContext context) {
@@ -224,8 +259,32 @@ class _ProfileTile extends StatelessWidget {
         ),
       ),
       title: Text(title, style: const TextStyle(fontWeight: FontWeight.w600)),
-      trailing: const Icon(Icons.chevron_right,
-          size: 20, color: CineoColors.textSecondary),
+      subtitle: subtitle == null
+          ? null
+          : Text(
+              subtitle!,
+              style: const TextStyle(
+                color: CineoColors.textSecondary,
+                fontSize: 12,
+              ),
+            ),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          if (showBadge)
+            Container(
+              width: 8,
+              height: 8,
+              margin: const EdgeInsets.only(right: 12),
+              decoration: const BoxDecoration(
+                color: Color(0xFFFF4D67),
+                shape: BoxShape.circle,
+              ),
+            ),
+          const Icon(Icons.chevron_right,
+              size: 20, color: CineoColors.textSecondary),
+        ],
+      ),
       onTap: onTap,
     );
   }

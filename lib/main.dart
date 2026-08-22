@@ -27,6 +27,8 @@ import 'features/settings/settings_screen.dart';
 import 'features/settings/tmdb_settings.dart';
 import 'features/settings/tmdb_disk_cache_controller.dart';
 import 'features/sources/source_list_screen.dart';
+import 'features/update/app_update_service.dart';
+import 'features/update/app_update_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -45,6 +47,7 @@ class _CineoAppState extends State<CineoApp> {
   final _adultSourceSettings = AdultSourceSettings();
   final _tmdbSettings = TMDBSettings();
   final _tmdbCache = TmdbDiskCache();
+  final _updateService = AppUpdateService();
   late final _tmdbCacheController = TmdbDiskCacheController(cache: _tmdbCache);
   late final _tmdbMetadata = TmdbMetadataRepository(
     cache: _tmdbCache,
@@ -59,11 +62,13 @@ class _CineoAppState extends State<CineoApp> {
     unawaited(_adultSourceSettings.initialize());
     unawaited(_tmdbSettings.initialize());
     unawaited(_tmdbCacheController.initialize());
+    unawaited(_updateService.initialize());
   }
 
   @override
   void dispose() {
     _appLockController.dispose();
+    _updateService.dispose();
     unawaited(_repository.close());
     super.dispose();
   }
@@ -83,6 +88,7 @@ class _CineoAppState extends State<CineoApp> {
           tmdbSettings: _tmdbSettings,
           tmdbMetadata: _tmdbMetadata,
           tmdbCacheController: _tmdbCacheController,
+          updateService: _updateService,
         ),
       ),
     );
@@ -98,6 +104,7 @@ class CineoShell extends StatefulWidget {
     required this.tmdbSettings,
     required this.tmdbMetadata,
     required this.tmdbCacheController,
+    required this.updateService,
   });
 
   final LocalMediaRepository repository;
@@ -106,6 +113,7 @@ class CineoShell extends StatefulWidget {
   final TMDBSettings tmdbSettings;
   final TmdbMetadataRepository tmdbMetadata;
   final TmdbDiskCacheController tmdbCacheController;
+  final AppUpdateService updateService;
 
   @override
   State<CineoShell> createState() => _CineoShellState();
@@ -525,11 +533,13 @@ class _CineoShellState extends State<CineoShell> {
     await _refresh();
   }
 
-  Future<void> _openPinSetup() async {
+  Future<void> _openAppLockSettings() async {
     await Navigator.of(context).push<void>(
       adaptivePageRoute(
         context,
-        builder: (_) => PinSetupScreen(controller: widget.appLockController),
+        builder: (_) => AppLockSettingsScreen(
+          controller: widget.appLockController,
+        ),
       ),
     );
   }
@@ -544,6 +554,15 @@ class _CineoShellState extends State<CineoShell> {
           tmdbSettings: widget.tmdbSettings,
           tmdbCacheController: widget.tmdbCacheController,
         ),
+      ),
+    );
+  }
+
+  Future<void> _openUpdates() async {
+    await Navigator.of(context).push<void>(
+      adaptivePageRoute(
+        context,
+        builder: (_) => AppUpdateScreen(updateService: widget.updateService),
       ),
     );
   }
@@ -594,18 +613,24 @@ class _CineoShellState extends State<CineoShell> {
         onOpenHistory: () =>
             unawaited(_openLibrary(LibraryContentMode.history)),
         onOpenSources: () => unawaited(_openSources()),
-        onOpenAppLock: () => unawaited(_openPinSetup()),
+        onOpenAppLock: () => unawaited(_openAppLockSettings()),
         onLockNow: () => unawaited(widget.appLockController.lock()),
         onOpenSettings: () => unawaited(_openSettings()),
+        updateService: widget.updateService,
+        onOpenUpdates: () => unawaited(_openUpdates()),
       ),
     ];
     return Scaffold(
       extendBody: true,
       body: IndexedStack(index: _selectedIndex, children: pages),
-      bottomNavigationBar: _GlassBottomNavigation(
-        selectedIndex: _selectedIndex,
-        onDestinationSelected: (index) =>
-            setState(() => _selectedIndex = index),
+      bottomNavigationBar: AnimatedBuilder(
+        animation: widget.updateService,
+        builder: (context, _) => _GlassBottomNavigation(
+          selectedIndex: _selectedIndex,
+          showUpdateBadge: widget.updateService.hasUpdate,
+          onDestinationSelected: (index) =>
+              setState(() => _selectedIndex = index),
+        ),
       ),
     );
   }
@@ -615,10 +640,12 @@ class _GlassBottomNavigation extends StatelessWidget {
   const _GlassBottomNavigation({
     required this.selectedIndex,
     required this.onDestinationSelected,
+    required this.showUpdateBadge,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
+  final bool showUpdateBadge;
 
   static const _destinations = [
     _GlassNavigationDestination(
@@ -678,6 +705,7 @@ class _GlassBottomNavigation extends StatelessWidget {
                     child: _GlassNavigationItem(
                       destination: destination,
                       selected: selectedIndex == index,
+                      showBadge: index == 2 && showUpdateBadge,
                       onTap: () => onDestinationSelected(index),
                     ),
                   );
@@ -696,11 +724,13 @@ class _GlassNavigationItem extends StatelessWidget {
     required this.destination,
     required this.selected,
     required this.onTap,
+    required this.showBadge,
   });
 
   final _GlassNavigationDestination destination;
   final bool selected;
   final VoidCallback onTap;
+  final bool showBadge;
 
   @override
   Widget build(BuildContext context) {
@@ -729,10 +759,28 @@ class _GlassNavigationItem extends StatelessWidget {
               child: Column(
                 mainAxisAlignment: MainAxisAlignment.center,
                 children: [
-                  Icon(
-                    selected ? destination.selectedIcon : destination.icon,
-                    color: foreground,
-                    size: 24,
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+                      Icon(
+                        selected ? destination.selectedIcon : destination.icon,
+                        color: foreground,
+                        size: 24,
+                      ),
+                      if (showBadge)
+                        Positioned(
+                          top: -2,
+                          right: -5,
+                          child: Container(
+                            width: 8,
+                            height: 8,
+                            decoration: const BoxDecoration(
+                              color: Color(0xFFFF4D67),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                   const SizedBox(height: 3),
                   Text(

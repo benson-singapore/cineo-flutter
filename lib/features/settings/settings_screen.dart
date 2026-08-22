@@ -42,7 +42,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      appBar: AppBar(
+        title: const Text('通用设置'),
+        leading: const BackButton(),
+      ),
       body: SafeArea(
+        top: false,
         bottom: false,
         child: AnimatedBuilder(
           animation: widget.adultSourceSettings,
@@ -56,20 +61,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
               padding: const EdgeInsets.fromLTRB(20, 18, 20, 128),
               children: [
                 Text(
-                  '设置',
-                  style: Theme.of(context).textTheme.displaySmall?.copyWith(
-                        fontWeight: FontWeight.w800,
-                        letterSpacing: 0,
-                      ),
-                ),
-                const SizedBox(height: 6),
-                Text(
                   '管理内容、隐私与本地媒体体验',
                   style: Theme.of(context).textTheme.bodyMedium?.copyWith(
                         color: CineoColors.textSecondary,
                       ),
                 ),
-                const SizedBox(height: 20),
+                const SizedBox(height: 16),
                 _SettingsSearchField(
                   controller: _searchController,
                   query: _query,
