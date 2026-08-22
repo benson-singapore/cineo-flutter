@@ -101,10 +101,16 @@ class _SearchScreenState extends State<SearchScreen>
 
   void _updateScrollToTopVisibility() {
     if (!_scrollController.hasClients) return;
-    final shouldShow = _scrollController.offset > 360;
+    final shouldShow = _scrollController.offset > 160;
     if (shouldShow != _showScrollToTop && mounted) {
       setState(() => _showScrollToTop = shouldShow);
     }
+  }
+
+  void _refreshScrollToTopVisibilityAfterLayout() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _updateScrollToTopVisibility();
+    });
   }
 
   Future<void> _scrollToTop() async {
@@ -321,6 +327,7 @@ class _SearchScreenState extends State<SearchScreen>
         _isLoadingMore = false;
         _paginationError = null;
       });
+      _refreshScrollToTopVisibilityAfterLayout();
     } catch (_) {
       if (!mounted || activeRevision != _revision) return;
       setState(() {
@@ -399,6 +406,7 @@ class _SearchScreenState extends State<SearchScreen>
         _isLoadingMore = false;
         _paginationError = null;
       });
+      _refreshScrollToTopVisibilityAfterLayout();
     } catch (_) {
       if (!mounted || activeRevision != _revision) return;
       setState(() {
@@ -486,68 +494,87 @@ class _SearchScreenState extends State<SearchScreen>
       ),
       body: SafeArea(
         top: false,
-        child: RefreshIndicator(
-          onRefresh: _refreshCurrent,
-          child: CustomScrollView(
-            key: PageStorageKey(
-              widget.libraryMode
-                  ? 'cineo-library-scroll'
-                  : 'cineo-search-scroll',
-            ),
-            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-            controller: _scrollController,
-            physics: const AlwaysScrollableScrollPhysics(
-              parent: BouncingScrollPhysics(),
-            ),
-            slivers: [
-              if (!widget.libraryMode)
-                SliverPadding(
-                  padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-                  sliver: SliverToBoxAdapter(
-                    child: _SearchField(
-                      controller: _queryController,
-                      focusNode: _focusNode,
-                      onSubmitted: _submit,
-                      onChanged: (value) {
-                        final leftSubmittedSearch =
-                            _query.isNotEmpty && value != _query;
-                        setState(() {
-                          if (leftSubmittedSearch) {
-                            _query = '';
-                            _errorMessage = null;
-                            _remoteResults = const [];
-                          }
-                        });
-                        if (leftSubmittedSearch) _loadBrowse();
-                      },
-                      onClear: _clearQuery,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            RefreshIndicator(
+              onRefresh: _refreshCurrent,
+              child: CustomScrollView(
+                key: PageStorageKey(
+                  widget.libraryMode
+                      ? 'cineo-library-scroll'
+                      : 'cineo-search-scroll',
+                ),
+                keyboardDismissBehavior:
+                    ScrollViewKeyboardDismissBehavior.onDrag,
+                controller: _scrollController,
+                physics: const AlwaysScrollableScrollPhysics(
+                  parent: BouncingScrollPhysics(),
+                ),
+                slivers: [
+                  if (!widget.libraryMode)
+                    SliverPadding(
+                      padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                      sliver: SliverToBoxAdapter(
+                        child: _SearchField(
+                          controller: _queryController,
+                          focusNode: _focusNode,
+                          onSubmitted: _submit,
+                          onChanged: (value) {
+                            final leftSubmittedSearch =
+                                _query.isNotEmpty && value != _query;
+                            setState(() {
+                              if (leftSubmittedSearch) {
+                                _query = '';
+                                _errorMessage = null;
+                                _remoteResults = const [];
+                              }
+                            });
+                            if (leftSubmittedSearch) _loadBrowse();
+                          },
+                          onClear: _clearQuery,
+                        ),
+                      ),
+                    ),
+                  SliverToBoxAdapter(
+                    child: _CategorySelector(
+                      categories: _visibleCategories,
+                      selectedType: _selectedType,
+                      onSelected: _selectType,
                     ),
                   ),
-                ),
-              SliverToBoxAdapter(
-                child: _CategorySelector(
-                  categories: _visibleCategories,
-                  selectedType: _selectedType,
-                  onSelected: _selectType,
+                  if (_errorMessage != null)
+                    SliverToBoxAdapter(
+                      child: _ErrorState(
+                        message: _errorMessage!,
+                        onRetry:
+                            showingSearch ? () => _submit(query) : _loadBrowse,
+                      ),
+                    )
+                  else if (showingSearch)
+                    ..._buildResults(query)
+                  else
+                    ..._buildBrowse(),
+                  const SliverToBoxAdapter(child: SizedBox(height: 92)),
+                ],
+              ),
+            ),
+            if (widget.libraryMode && _showScrollToTop)
+              Positioned(
+                right: 16,
+                // The shell's glass navigation is painted above this page.
+                // Keep the action clear of that bar on Android and iOS.
+                bottom: 128,
+                child: FloatingActionButton.small(
+                  onPressed: _scrollToTop,
+                  tooltip: '回到顶部',
+                  child: const Icon(Icons.keyboard_arrow_up_rounded),
                 ),
               ),
-              if (_errorMessage != null)
-                SliverToBoxAdapter(
-                  child: _ErrorState(
-                    message: _errorMessage!,
-                    onRetry: showingSearch ? () => _submit(query) : _loadBrowse,
-                  ),
-                )
-              else if (showingSearch)
-                ..._buildResults(query)
-              else
-                ..._buildBrowse(),
-              const SliverToBoxAdapter(child: SizedBox(height: 92)),
-            ],
-          ),
+          ],
         ),
       ),
-      floatingActionButton: _showScrollToTop
+      floatingActionButton: !widget.libraryMode && _showScrollToTop
           ? FloatingActionButton.small(
               onPressed: _scrollToTop,
               tooltip: '回到顶部',
