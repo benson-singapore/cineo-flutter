@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 
 import 'package:flutter/material.dart';
 
@@ -590,34 +591,161 @@ class _CineoShellState extends State<CineoShell> {
       ),
     ];
     return Scaffold(
+      extendBody: true,
       body: IndexedStack(index: _selectedIndex, children: pages),
-      bottomNavigationBar: SafeArea(
-        top: false,
-        child: NavigationBar(
-          selectedIndex: _selectedIndex,
-          onDestinationSelected: (index) =>
-              setState(() => _selectedIndex = index),
-          destinations: const [
-            NavigationDestination(
-              icon: Icon(Icons.home_outlined),
-              selectedIcon: Icon(Icons.home_rounded),
-              label: '首页',
+      bottomNavigationBar: _GlassBottomNavigation(
+        selectedIndex: _selectedIndex,
+        onDestinationSelected: (index) =>
+            setState(() => _selectedIndex = index),
+      ),
+    );
+  }
+}
+
+class _GlassBottomNavigation extends StatelessWidget {
+  const _GlassBottomNavigation({
+    required this.selectedIndex,
+    required this.onDestinationSelected,
+  });
+
+  final int selectedIndex;
+  final ValueChanged<int> onDestinationSelected;
+
+  static const _destinations = [
+    _GlassNavigationDestination(
+      label: '首页',
+      icon: Icons.home_outlined,
+      selectedIcon: Icons.home_rounded,
+    ),
+    _GlassNavigationDestination(
+      label: '片库',
+      icon: Icons.video_library_outlined,
+      selectedIcon: Icons.video_library_rounded,
+    ),
+    _GlassNavigationDestination(
+      label: '我的',
+      icon: Icons.person_outline_rounded,
+      selectedIcon: Icons.person_rounded,
+    ),
+  ];
+
+  @override
+  Widget build(BuildContext context) {
+    const borderRadius = BorderRadius.all(Radius.circular(24));
+    return SafeArea(
+      top: false,
+      minimum: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+      child: ClipRRect(
+        borderRadius: borderRadius,
+        child: BackdropFilter(
+          filter: ImageFilter.blur(sigmaX: 18, sigmaY: 18),
+          child: DecoratedBox(
+            decoration: BoxDecoration(
+              color: CineoColors.background.withOpacity(.72),
+              borderRadius: borderRadius,
+              border: Border.all(color: Colors.white.withOpacity(.12)),
+              boxShadow: [
+                BoxShadow(
+                  color: Colors.black.withOpacity(.24),
+                  blurRadius: 20,
+                  offset: const Offset(0, 8),
+                ),
+              ],
             ),
-            NavigationDestination(
-              icon: Icon(Icons.video_library_outlined),
-              selectedIcon: Icon(Icons.video_library_rounded),
-              label: '片库',
+            child: SizedBox(
+              height: 64,
+              child: Row(
+                children: List.generate(_destinations.length, (index) {
+                  final destination = _destinations[index];
+                  return Expanded(
+                    child: _GlassNavigationItem(
+                      destination: destination,
+                      selected: selectedIndex == index,
+                      onTap: () => onDestinationSelected(index),
+                    ),
+                  );
+                }),
+              ),
             ),
-            NavigationDestination(
-              icon: Icon(Icons.person_outline_rounded),
-              selectedIcon: Icon(Icons.person_rounded),
-              label: '我的',
-            ),
-          ],
+          ),
         ),
       ),
     );
   }
+}
+
+class _GlassNavigationItem extends StatelessWidget {
+  const _GlassNavigationItem({
+    required this.destination,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final _GlassNavigationDestination destination;
+  final bool selected;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final foreground =
+        selected ? CineoColors.primaryLight : CineoColors.textSecondary;
+    return Semantics(
+      button: true,
+      selected: selected,
+      label: destination.label,
+      child: Material(
+        color: Colors.transparent,
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: const BorderRadius.all(Radius.circular(18)),
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 6),
+            child: AnimatedContainer(
+              duration: const Duration(milliseconds: 180),
+              curve: Curves.easeOutCubic,
+              decoration: BoxDecoration(
+                color: selected
+                    ? CineoColors.primary.withOpacity(.16)
+                    : Colors.transparent,
+                borderRadius: const BorderRadius.all(Radius.circular(16)),
+              ),
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                children: [
+                  Icon(
+                    selected ? destination.selectedIcon : destination.icon,
+                    color: foreground,
+                    size: 24,
+                  ),
+                  const SizedBox(height: 3),
+                  Text(
+                    destination.label,
+                    style: TextStyle(
+                      color: foreground,
+                      fontSize: 11,
+                      fontWeight: selected ? FontWeight.w800 : FontWeight.w600,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _GlassNavigationDestination {
+  const _GlassNavigationDestination({
+    required this.label,
+    required this.icon,
+    required this.selectedIcon,
+  });
+
+  final String label;
+  final IconData icon;
+  final IconData selectedIcon;
 }
 
 void _debugLog(String message) {

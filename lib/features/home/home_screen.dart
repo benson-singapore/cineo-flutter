@@ -99,7 +99,7 @@ class HomeScreen extends StatelessWidget {
                     onOpenMedia: onOpenMedia,
                   ),
                 ..._fixedCategoryRails(),
-                const SliverToBoxAdapter(child: SizedBox(height: 40)),
+                const SliverToBoxAdapter(child: SizedBox(height: 132)),
               ],
             ],
           ),
@@ -125,7 +125,7 @@ class HomeScreen extends StatelessWidget {
 
   SliverAppBar _buildTopBar(BuildContext context) {
     return SliverAppBar(
-      pinned: true,
+      pinned: false,
       toolbarHeight: 64,
       backgroundColor: CineoColors.background,
       surfaceTintColor: Colors.transparent,
