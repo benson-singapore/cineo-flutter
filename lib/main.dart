@@ -168,7 +168,9 @@ class _CineoShellState extends State<CineoShell> {
       final railsFuture = widget.repository.browseDefaultHomeCategoryRails(
         categories,
       );
-      final progressFuture = widget.repository.watchHistory();
+      final progressFuture = widget.repository.watchHistory(
+        includeAdult: _includeAdultHistory,
+      );
       final historyFuture = widget.repository.searchHistory();
       final favoritesFuture = widget.repository.favorites();
       final results = await Future.wait([
@@ -245,6 +247,10 @@ class _CineoShellState extends State<CineoShell> {
     return '默认视频源无法加载，请检查连通性和配置';
   }
 
+  bool get _includeAdultHistory =>
+      widget.adultSourceSettings.showAdultSources &&
+      !widget.adultSourceSettings.hideAdultHistory;
+
   Future<void> _recordSearch(String query) async {
     await widget.repository.addSearchHistory(query);
     await _refresh();
@@ -266,7 +272,9 @@ class _CineoShellState extends State<CineoShell> {
     }
     final resolvedMedia = await _resolveMediaDetails(selectedMedia);
     final favorite = await widget.repository.isFavorite(resolvedMedia.id);
-    final history = await widget.repository.watchHistory();
+    final history = await widget.repository.watchHistory(
+      includeAdult: _includeAdultHistory,
+    );
     final recentEpisodeId = history
         .where((entry) => entry.mediaId == resolvedMedia.id)
         .map((entry) => entry.episodeId)
@@ -323,7 +331,9 @@ class _CineoShellState extends State<CineoShell> {
 
   Future<void> _resumeMedia(MediaItem media) async {
     final resolvedMedia = await _resolveMediaDetails(media);
-    final history = await widget.repository.watchHistory();
+    final history = await widget.repository.watchHistory(
+      includeAdult: _includeAdultHistory,
+    );
     PlaybackOption? selectedOption;
     for (final entry in history) {
       if (entry.mediaId != resolvedMedia.id || entry.episodeId == null) {
@@ -408,7 +418,9 @@ class _CineoShellState extends State<CineoShell> {
   }
 
   Future<void> _openPlayer(MediaItem media, PlaybackOption option) async {
-    final history = await widget.repository.watchHistory();
+    final history = await widget.repository.watchHistory(
+      includeAdult: _includeAdultHistory,
+    );
     final episodePositions = <String, Duration>{
       for (final entry in history)
         if (entry.mediaId == media.id && entry.episodeId != null)
@@ -513,6 +525,7 @@ class _CineoShellState extends State<CineoShell> {
         builder: (_) => LibraryScreen(
           repository: widget.repository,
           mode: mode,
+          includeAdultHistory: _includeAdultHistory,
           onMediaTap: (media) => unawaited(_openMedia(media)),
         ),
       ),

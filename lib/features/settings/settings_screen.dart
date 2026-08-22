@@ -101,20 +101,39 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 28),
                 ],
-                if (_matches('内容访问 成人 标记 视频源 显示 隐藏')) ...[
+                if (_matches('内容访问 成人 标记 视频源 显示 隐藏 播放历史')) ...[
                   const _SettingsSectionLabel(title: '内容访问'),
                   _SettingsPanel(
-                    child: SwitchListTile.adaptive(
-                      contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
-                      secondary: const _SettingsIcon(
-                        icon: Icons.explicit_rounded,
-                        color: Color(0xFFE94865),
-                      ),
-                      title: const Text('显示成人标记的视频源'),
-                      subtitle: const Text('关闭时仍会保存配置，但不会在来源管理中展示'),
-                      value: widget.adultSourceSettings.showAdultSources,
-                      onChanged: (value) =>
-                          _onAdultSourcesChanged(context, value),
+                    child: Column(
+                      children: [
+                        SwitchListTile.adaptive(
+                          contentPadding:
+                              const EdgeInsets.fromLTRB(16, 9, 12, 9),
+                          secondary: const _SettingsIcon(
+                            icon: Icons.explicit_rounded,
+                            color: Color(0xFFE94865),
+                          ),
+                          title: const Text('显示成人标记的视频源'),
+                          subtitle: const Text('关闭时仍会保存配置，但不会在来源管理中展示'),
+                          value: widget.adultSourceSettings.showAdultSources,
+                          onChanged: (value) =>
+                              _onAdultSourcesChanged(context, value),
+                        ),
+                        if (widget.adultSourceSettings.showAdultSources)
+                          SwitchListTile.adaptive(
+                            contentPadding:
+                                const EdgeInsets.fromLTRB(16, 0, 12, 9),
+                            secondary: const _SettingsIcon(
+                              icon: Icons.history_toggle_off_rounded,
+                              color: Color(0xFFB38CFF),
+                            ),
+                            title: const Text('隐藏成人源播放历史'),
+                            subtitle: const Text('开启时不会在首页和播放历史中展示成人源记录'),
+                            value: widget.adultSourceSettings.hideAdultHistory,
+                            onChanged:
+                                widget.adultSourceSettings.setHideAdultHistory,
+                          ),
+                      ],
                     ),
                   ),
                   const SizedBox(height: 28),
@@ -129,7 +148,8 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   bool get _hasMatches =>
-      _matches('媒体服务 tmdb 数据增强 海报 剧集 简介') || _matches('内容访问 成人 标记 视频源 显示 隐藏');
+      _matches('媒体服务 tmdb 数据增强 海报 剧集 简介') ||
+      _matches('内容访问 成人 标记 视频源 显示 隐藏 播放历史');
 
   bool _matches(String keywords) {
     if (_query.isEmpty) return true;

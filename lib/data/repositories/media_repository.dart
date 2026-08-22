@@ -8,7 +8,7 @@ abstract class MediaRepository {
   Future<List<MediaItem>> favorites();
   Future<bool> isFavorite(String mediaId);
   Future<void> setFavorite(MediaItem media, bool isFavorite);
-  Future<List<WatchProgress>> watchHistory();
+  Future<List<WatchProgress>> watchHistory({bool includeAdult = true});
   Future<void> saveProgress(WatchProgress progress, {MediaItem? media});
   Future<MediaItem?> loadDetails(MediaItem item);
   Future<void> removeHistory(String mediaId);

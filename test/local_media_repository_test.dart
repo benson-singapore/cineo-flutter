@@ -122,4 +122,41 @@ void main() {
     expect(history.single.episodeNumber, 3);
     expect(history.single.episodeCount, 12);
   });
+
+  test('can hide playback history from adult sources', () async {
+    await repository.saveSource(const MediaSource(
+      id: 'adult-source',
+      name: '成人测试源',
+      type: MediaSourceType.macCmsApi,
+      baseUrl: 'https://adult.example.test/api.php/provide/vod',
+      isAdult: true,
+    ));
+    const adultMedia = MediaItem(
+      id: 'adult-source:7',
+      sourceId: 'adult-source',
+      sourceName: '成人测试源',
+      remoteId: '7',
+      title: '成人测试内容',
+      description: '',
+      year: 2026,
+      kind: MediaKind.movie,
+      posterUrl: 'https://example.test/adult-poster.jpg',
+      backdropUrl: 'https://example.test/adult-backdrop.jpg',
+      genres: [],
+      rating: 0,
+      duration: Duration(minutes: 90),
+    );
+    await repository.saveProgress(
+      WatchProgress(
+        mediaId: adultMedia.id,
+        position: const Duration(minutes: 2),
+        duration: adultMedia.duration,
+        updatedAt: DateTime(2026, 8, 22),
+      ),
+      media: adultMedia,
+    );
+
+    expect(await repository.watchHistory(includeAdult: false), isEmpty);
+    expect(await repository.watchHistory(includeAdult: true), hasLength(1));
+  });
 }

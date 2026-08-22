@@ -272,11 +272,20 @@ class LocalMediaRepository implements MediaRepository {
   }
 
   @override
-  Future<List<WatchProgress>> watchHistory() async {
-    final rows = await (await _db).query(
-      'progress',
-      orderBy: 'updated_at DESC',
-    );
+  Future<List<WatchProgress>> watchHistory({bool includeAdult = true}) async {
+    final database = await _db;
+    final rows = includeAdult
+        ? await database.query('progress', orderBy: 'updated_at DESC')
+        : await database.rawQuery('''
+            SELECT progress.*
+            FROM progress
+            LEFT JOIN media_snapshots
+              ON media_snapshots.media_id = progress.media_id
+            LEFT JOIN sources
+              ON sources.id = media_snapshots.source_id
+            WHERE COALESCE(sources.is_adult, 0) = 0
+            ORDER BY progress.updated_at DESC
+          ''');
     return rows.map(_progressFromRow).toList();
   }
 

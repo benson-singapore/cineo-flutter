@@ -12,11 +12,13 @@ class LibraryScreen extends StatefulWidget {
     super.key,
     required this.repository,
     required this.mode,
+    this.includeAdultHistory = true,
     this.onMediaTap,
   });
 
   final MediaRepository repository;
   final LibraryContentMode mode;
+  final bool includeAdultHistory;
   final ValueChanged<MediaItem>? onMediaTap;
 
   @override
@@ -52,7 +54,9 @@ class _LibraryScreenState extends State<LibraryScreen> {
         return;
       }
 
-      final savedProgress = await widget.repository.watchHistory();
+      final savedProgress = await widget.repository.watchHistory(
+        includeAdult: widget.includeAdultHistory,
+      );
       // Each episode keeps its own resume position locally. The history view
       // presents only the most recently watched episode for each title.
       final progressByMediaId = <String, WatchProgress>{};
@@ -91,6 +95,35 @@ class _LibraryScreenState extends State<LibraryScreen> {
         _loading = false;
       });
     }
+  }
+
+  Future<void> _removeHistory(String mediaId) async {
+    await widget.repository.removeHistory(mediaId);
+    await _load();
+  }
+
+  Future<void> _clearHistory() async {
+    if (_history.isEmpty) return;
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (context) => AlertDialog(
+        title: const Text('清空播放历史？'),
+        content: const Text('将删除所有本地播放进度，此操作无法撤销。'),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(context, false),
+            child: const Text('取消'),
+          ),
+          FilledButton(
+            onPressed: () => Navigator.pop(context, true),
+            child: const Text('清空'),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.repository.clearHistory();
+    await _load();
   }
 
   Future<_HistoryEntry> _resolveHistoryEntry(_HistoryEntry entry) async {
@@ -170,6 +203,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
           widget.mode == LibraryContentMode.favorites ? '我的收藏' : '播放历史',
         ),
         actions: [
+          if (widget.mode == LibraryContentMode.history && _history.isNotEmpty)
+            IconButton(
+              tooltip: '清空播放历史',
+              onPressed: _clearHistory,
+              icon: const Icon(Icons.delete_sweep_outlined),
+            ),
           IconButton(
             tooltip: '刷新',
             onPressed: _load,
@@ -188,7 +227,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       emptyIcon: Icons.bookmark_border,
                       onTap: widget.onMediaTap,
                     )
-                  : _HistoryList(entries: _history, onTap: widget.onMediaTap),
+                  : _HistoryList(
+                      entries: _history,
+                      onTap: widget.onMediaTap,
+                      onDelete: _removeHistory,
+                    ),
     );
   }
 }
@@ -229,10 +272,12 @@ class _MediaGrid extends StatelessWidget {
 }
 
 class _HistoryList extends StatelessWidget {
-  const _HistoryList({required this.entries, this.onTap});
+  const _HistoryList(
+      {required this.entries, this.onTap, required this.onDelete});
 
   final List<_HistoryEntry> entries;
   final ValueChanged<MediaItem>? onTap;
+  final ValueChanged<String> onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -248,6 +293,7 @@ class _HistoryList extends StatelessWidget {
         return _HistoryTile(
           entry: entry,
           onTap: onTap == null ? null : () => onTap!(entry.media),
+          onDelete: () => onDelete(entry.media.id),
         );
       },
     );
@@ -296,10 +342,11 @@ class _MediaTile extends StatelessWidget {
 }
 
 class _HistoryTile extends StatelessWidget {
-  const _HistoryTile({required this.entry, this.onTap});
+  const _HistoryTile({required this.entry, this.onTap, required this.onDelete});
 
   final _HistoryEntry entry;
   final VoidCallback? onTap;
+  final VoidCallback onDelete;
 
   @override
   Widget build(BuildContext context) {
@@ -357,10 +404,10 @@ class _HistoryTile extends StatelessWidget {
                   ],
                 ),
               ),
-              const SizedBox(width: 8),
-              const Icon(
-                Icons.chevron_right_rounded,
-                color: CineoColors.textSecondary,
+              IconButton(
+                tooltip: '删除此记录',
+                onPressed: onDelete,
+                icon: const Icon(Icons.delete_outline_rounded),
               ),
             ],
           ),
