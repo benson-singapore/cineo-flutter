@@ -6,7 +6,7 @@ on:
       - 'v*'
 
 permissions:
-  contents: read
+  contents: write
 
 env:
   RELEASE_VERSION: ${{ github.ref_name }}
@@ -113,3 +113,58 @@ jobs:
           name: cineo-ios-unsigned-${{ github.ref_name }}
           path: build/ios/unsigned-ipa/Cineo-unsigned.ipa
           if-no-files-found: error
+
+  release:
+    name: Publish GitHub Release
+    needs: [android, ios]
+    if: needs.android.result == 'success' && needs.ios.result == 'success'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Checkout release notes
+        uses: actions/checkout@v5
+
+      - name: Download Android APK
+        uses: actions/download-artifact@v5
+        with:
+          name: cineo-android-${{ github.ref_name }}
+          path: release-assets/android
+
+      - name: Download unsigned iOS IPA
+        uses: actions/download-artifact@v5
+        with:
+          name: cineo-ios-unsigned-${{ github.ref_name }}
+          path: release-assets/ios
+
+      - name: Prepare release assets
+        run: |
+          set -euo pipefail
+          mkdir -p release-assets/publish
+          cp release-assets/android/app-release.apk \
+            "release-assets/publish/Cineo-${GITHUB_REF_NAME}-android.apk"
+          cp release-assets/ios/Cineo-unsigned.ipa \
+            "release-assets/publish/Cineo-${GITHUB_REF_NAME}-ios-unsigned.ipa"
+          ls -lh release-assets/publish
+
+      - name: Create or update GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tag="${GITHUB_REF_NAME}"
+          notes_file="docs/update/${tag}.md"
+
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            gh release upload "${tag}" release-assets/publish/* --clobber
+          elif [ -f "${notes_file}" ]; then
+            gh release create "${tag}" \
+              --title "Cineo ${tag}" \
+              --notes-file "${notes_file}" \
+              release-assets/publish/*
+          else
+            gh release create "${tag}" \
+              --title "Cineo ${tag}" \
+              --generate-notes \
+              release-assets/publish/*
+          fi
