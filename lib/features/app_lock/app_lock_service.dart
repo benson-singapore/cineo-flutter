@@ -62,6 +62,7 @@ class AppLockService {
   static const _failedAttemptsKey = 'cineo.app_lock.failed_attempts';
   static const _lockoutUntilKey = 'cineo.app_lock.lockout_until_ms';
   static const _gracePeriodMinutesKey = 'cineo.app_lock.grace_period_minutes';
+  static const _enabledKey = 'cineo.app_lock.enabled';
   static const _sessionVerifiedAtKey = 'cineo.app_lock.session_verified_at_ms';
   static const defaultGracePeriod = AppLockGracePeriod.thirtyMinutes;
   static const _iterations = 120000;
@@ -88,8 +89,26 @@ class AppLockService {
         verifier.isNotEmpty;
   }
 
+  Future<bool> get isEnabled async {
+    final preferences = await _preferences;
+    return preferences.getBool(_enabledKey) ?? false;
+  }
+
+  Future<void> setEnabled(bool enabled) async {
+    if (enabled && !await hasPin) {
+      throw StateError('请先设置应用锁 PIN');
+    }
+    final preferences = await _preferences;
+    await preferences.setBool(_enabledKey, enabled);
+    if (!enabled) {
+      _isLocked = false;
+      return;
+    }
+    await restoreSession();
+  }
+
   Future<void> lock() async {
-    if (await hasPin) {
+    if (await hasPin && await isEnabled) {
       await _clearVerifiedSession();
       _isLocked = true;
     }
@@ -124,14 +143,16 @@ class AppLockService {
   Future<void> setGracePeriod(AppLockGracePeriod period) async {
     final preferences = await _preferences;
     await preferences.setInt(_gracePeriodMinutesKey, period.minutes);
-    if (period == AppLockGracePeriod.immediate && await hasPin) {
+    if (period == AppLockGracePeriod.immediate &&
+        await hasPin &&
+        await isEnabled) {
       await _clearVerifiedSession();
       _isLocked = true;
     }
   }
 
   Future<void> restoreSession() async {
-    if (!await hasPin) {
+    if (!await hasPin || !await isEnabled) {
       _isLocked = false;
       return;
     }
@@ -139,7 +160,7 @@ class AppLockService {
   }
 
   Future<void> handleBackground() async {
-    if (!await hasPin) return;
+    if (!await hasPin || !await isEnabled) return;
     if (await getGracePeriod() == AppLockGracePeriod.immediate) {
       await _clearVerifiedSession();
       _isLocked = true;
@@ -197,6 +218,8 @@ class AppLockService {
     await _secureStorage.delete(key: _verifierKey);
     await _clearLockout();
     await _clearVerifiedSession();
+    final preferences = await _preferences;
+    await preferences.setBool(_enabledKey, false);
     _isLocked = false;
   }
 

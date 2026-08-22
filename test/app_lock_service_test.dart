@@ -29,6 +29,7 @@ void main() {
 
     expect(await service.getGracePeriod(), AppLockGracePeriod.thirtyMinutes);
     await service.setupPin('123456');
+    await service.setEnabled(true);
     expect(service.isLocked, isFalse);
 
     final restored = createService();
@@ -45,6 +46,7 @@ void main() {
       () async {
     final service = createService();
     await service.setupPin('123456');
+    await service.setEnabled(true);
     await service.handleBackground();
 
     final resumed = createService();
@@ -59,6 +61,7 @@ void main() {
   test('treats the exact grace-period boundary as expired', () async {
     final service = createService();
     await service.setupPin('123456');
+    await service.setEnabled(true);
 
     now = now.add(const Duration(minutes: 30));
     await service.restoreSession();
@@ -90,6 +93,7 @@ void main() {
       () async {
     final service = createService();
     await service.setupPin('123456');
+    await service.setEnabled(true);
 
     final preferences = await SharedPreferences.getInstance();
     expect(
@@ -108,6 +112,7 @@ void main() {
   test('explicit lock clears the persisted verified session', () async {
     final service = createService();
     await service.setupPin('123456');
+    await service.setEnabled(true);
     await service.lock();
 
     expect(service.isLocked, isTrue);
@@ -119,6 +124,7 @@ void main() {
   test('immediate period clears an authenticated session and locks', () async {
     final service = createService();
     await service.setupPin('123456');
+    await service.setEnabled(true);
     await service.setGracePeriod(AppLockGracePeriod.immediate);
 
     expect(service.isLocked, isTrue);
@@ -158,5 +164,20 @@ void main() {
     expect(result.failedAttempts, 1);
     final locked = await service.verifyPin('123456');
     expect(locked.status, PinVerificationStatus.temporarilyLocked);
+  });
+
+  test('keeps a configured PIN disabled until the user enables the app lock',
+      () async {
+    final service = createService();
+
+    await service.setupPin('123456');
+    expect(await service.isEnabled, isFalse);
+
+    final restored = createService();
+    await restored.restoreSession();
+    expect(restored.isLocked, isFalse);
+
+    await restored.setEnabled(true);
+    expect(await restored.isEnabled, isTrue);
   });
 }

@@ -38,7 +38,9 @@ class _AppLockGateState extends State<AppLockGate> {
             return const Scaffold(
                 body: Center(child: CircularProgressIndicator()));
           }
-          if (widget.controller.hasPin && widget.controller.isLocked) {
+          if (widget.controller.enabled &&
+              widget.controller.hasPin &&
+              widget.controller.isLocked) {
             return widget.lockedBuilder?.call(context) ??
                 AppLockScreen(controller: widget.controller);
           }
