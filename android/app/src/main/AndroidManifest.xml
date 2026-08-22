@@ -1,4 +1,5 @@
 <manifest xmlns:android="http://schemas.android.com/apk/res/android">
+    <uses-permission android:name="android.permission.INTERNET" />
     <application
         android:label="cineo_flutter"
         android:name="io.flutter.app.FlutterMultiDexApplication"

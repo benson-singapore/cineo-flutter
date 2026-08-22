@@ -23,11 +23,18 @@ class SourceProbeResult {
 /// Minimal MacCMS-compatible JSON client for sources explicitly configured by
 /// the user. It does not discover endpoints or make background requests.
 class MacCmsClient {
-  MacCmsClient({MacCmsFetcher? fetcher, this.timeout = const Duration(seconds: 10)})
-      : _fetcher = fetcher ?? _defaultFetch;
+  MacCmsClient({
+    MacCmsFetcher? fetcher,
+    this.timeout = const Duration(seconds: 10),
+    this.maxAttempts = 2,
+    this.retryDelay = const Duration(milliseconds: 250),
+  })  : assert(maxAttempts > 0),
+        _fetcher = fetcher ?? _defaultFetch;
 
   final MacCmsFetcher _fetcher;
   final Duration timeout;
+  final int maxAttempts;
+  final Duration retryDelay;
 
   Future<List<MediaItem>> list(
     MediaSource source, {
@@ -36,8 +43,12 @@ class MacCmsClient {
     int page = 1,
   }) async {
     final parameters = <String, String>{'ac': 'list', 'pg': '$page'};
-    if (query != null && query.trim().isNotEmpty) parameters['wd'] = query.trim();
-    if (category != null && category.trim().isNotEmpty) parameters['t'] = category.trim();
+    if (query != null && query.trim().isNotEmpty) {
+      parameters['wd'] = query.trim();
+    }
+    if (category != null && category.trim().isNotEmpty) {
+      parameters['t'] = category.trim();
+    }
     final payload = await _get(source, parameters);
     return _itemsFromPayload(payload, source);
   }
@@ -53,21 +64,26 @@ class MacCmsClient {
     if (payload is! Map) {
       throw const FormatException('站点分类响应格式不正确');
     }
-    final rawCategories = payload['class'] ?? payload['types'] ??
+    final rawCategories = payload['class'] ??
+        payload['types'] ??
         (payload['data'] is Map ? (payload['data'] as Map)['class'] : null);
     if (rawCategories is! List) return const [];
-    return rawCategories.whereType<Map>().map((raw) {
-      final item = Map<String, Object?>.from(raw);
-      final id = _string(item['type_id'] ?? item['id']);
-      final name = _string(item['type_name'] ?? item['name']);
-      final parentId = _string(item['type_pid'] ?? item['parent_id']);
-      if (id.isEmpty || name.isEmpty) return null;
-      return RemoteCategory(
-        id: id,
-        name: name,
-        parentId: parentId.isEmpty || parentId == '0' ? null : parentId,
-      );
-    }).whereType<RemoteCategory>().toList(growable: false);
+    return rawCategories
+        .whereType<Map>()
+        .map((raw) {
+          final item = Map<String, Object?>.from(raw);
+          final id = _string(item['type_id'] ?? item['id']);
+          final name = _string(item['type_name'] ?? item['name']);
+          final parentId = _string(item['type_pid'] ?? item['parent_id']);
+          if (id.isEmpty || name.isEmpty) return null;
+          return RemoteCategory(
+            id: id,
+            name: name,
+            parentId: parentId.isEmpty || parentId == '0' ? null : parentId,
+          );
+        })
+        .whereType<RemoteCategory>()
+        .toList(growable: false);
   }
 
   Future<SourceProbeResult> probe(MediaSource source) async {
@@ -75,7 +91,8 @@ class MacCmsClient {
     try {
       await _get(source, const {'ac': 'list', 'pg': '1'});
       stopwatch.stop();
-      return SourceProbeResult(isReachable: true, latencyMs: stopwatch.elapsedMilliseconds);
+      return SourceProbeResult(
+          isReachable: true, latencyMs: stopwatch.elapsedMilliseconds);
     } catch (error) {
       stopwatch.stop();
       return SourceProbeResult(
@@ -86,20 +103,53 @@ class MacCmsClient {
     }
   }
 
-  Future<Object?> _get(MediaSource source, Map<String, String> parameters) async {
+  Future<Object?> _get(
+      MediaSource source, Map<String, String> parameters) async {
     final endpoint = Uri.tryParse(source.baseUrl.trim());
     if (endpoint == null || !{'http', 'https'}.contains(endpoint.scheme)) {
       throw const FormatException('视频源地址不是有效的 HTTP(S) API');
     }
     final uri = endpoint.replace(
-      queryParameters: <String, String>{...endpoint.queryParameters, ...parameters},
+      queryParameters: <String, String>{
+        ...endpoint.queryParameters,
+        ...parameters
+      },
     );
-    final raw = await _fetcher(uri).timeout(timeout);
+    final raw = await _fetchWithRetry(uri);
     try {
       return jsonDecode(raw);
     } on FormatException {
       throw const FormatException('站点返回的不是有效 JSON');
     }
+  }
+
+  Future<String> _fetchWithRetry(Uri uri) async {
+    for (var attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await _fetcher(uri).timeout(timeout);
+      } catch (error, stackTrace) {
+        if (!_isTransientNetworkError(error) || attempt == maxAttempts) {
+          Error.throwWithStackTrace(error, stackTrace);
+        }
+        await Future<void>.delayed(retryDelay);
+      }
+    }
+    throw StateError('无法请求视频源');
+  }
+
+  bool _isTransientNetworkError(Object error) {
+    if (error is SocketException || error is TimeoutException) {
+      return true;
+    }
+    if (error is! HttpException) {
+      return false;
+    }
+
+    // HTTP status errors are deterministic for this request. A closed stream
+    // is represented as HttpException too, but is commonly resolved by one
+    // fresh connection to a user-configured source.
+    return !RegExp(r'\bHTTP\s+\d{3}\b', caseSensitive: false)
+        .hasMatch(error.message);
   }
 
   List<MediaItem> _itemsFromPayload(
@@ -110,10 +160,14 @@ class MacCmsClient {
     if (payload is! Map) throw const FormatException('站点响应格式不正确');
     final rawList = _findList(payload);
     if (rawList == null) return const [];
-    return rawList.whereType<Map>().map((raw) {
-      final item = Map<String, Object?>.from(raw);
-      return _itemFromMap(item, source, includePlayback: includePlayback);
-    }).whereType<MediaItem>().toList(growable: false);
+    return rawList
+        .whereType<Map>()
+        .map((raw) {
+          final item = Map<String, Object?>.from(raw);
+          return _itemFromMap(item, source, includePlayback: includePlayback);
+        })
+        .whereType<MediaItem>()
+        .toList(growable: false);
   }
 
   List<Object?>? _findList(Map payload) {
@@ -138,7 +192,8 @@ class MacCmsClient {
     final typeName = _string(item['type_name']).isEmpty
         ? _string(item['vod_class'])
         : _string(item['type_name']);
-    final playback = includePlayback ? _playback(item, source) : const _PlaybackData();
+    final playback =
+        includePlayback ? _playback(item, source) : const _PlaybackData();
     return MediaItem(
       id: '${source.id}:$remoteId',
       sourceId: source.id,
@@ -149,7 +204,12 @@ class MacCmsClient {
       kind: _kindFor(typeName),
       posterUrl: _resolveUrl(source.baseUrl, _string(item['vod_pic'])),
       backdropUrl: _resolveUrl(source.baseUrl, _string(item['vod_pic'])),
-      genres: typeName.isEmpty ? const [] : typeName.split(RegExp(r'[,/， ]+')).where((value) => value.isNotEmpty).toList(),
+      genres: typeName.isEmpty
+          ? const []
+          : typeName
+              .split(RegExp(r'[,/， ]+'))
+              .where((value) => value.isNotEmpty)
+              .toList(),
       rating: _double(item['vod_score']),
       duration: const Duration(minutes: 45),
       category: typeName,
@@ -165,16 +225,21 @@ class MacCmsClient {
     final options = <PlaybackOption>[];
     final episodes = <Episode>[];
     for (var groupIndex = 0; groupIndex < groups.length; groupIndex++) {
-      final sourceName = groupIndex < names.length && names[groupIndex].trim().isNotEmpty
-          ? names[groupIndex].trim()
-          : '播放源 ${groupIndex + 1}';
+      final sourceName =
+          groupIndex < names.length && names[groupIndex].trim().isNotEmpty
+              ? names[groupIndex].trim()
+              : '播放源 ${groupIndex + 1}';
       final entries = groups[groupIndex].split('#');
-      for (var episodeIndex = 0; episodeIndex < entries.length; episodeIndex++) {
+      for (var episodeIndex = 0;
+          episodeIndex < entries.length;
+          episodeIndex++) {
         final entry = entries[episodeIndex].trim();
         if (entry.isEmpty) continue;
         final separator = entry.indexOf(r'$');
-        final label = (separator < 0 ? entry : entry.substring(0, separator)).trim();
-        final address = (separator < 0 ? entry : entry.substring(separator + 1)).trim();
+        final label =
+            (separator < 0 ? entry : entry.substring(0, separator)).trim();
+        final address =
+            (separator < 0 ? entry : entry.substring(separator + 1)).trim();
         if (address.isEmpty) continue;
         final option = PlaybackOption(
           id: '${source.id}:${_string(item['vod_id'])}:$groupIndex:$episodeIndex',
@@ -219,13 +284,15 @@ class MacCmsClient {
       RegExp(r'剧|番|动漫|动画|综艺', caseSensitive: false).hasMatch(category)
           ? MediaKind.series
           : MediaKind.movie;
-  static String _stripHtml(String value) => value.replaceAll(RegExp(r'<[^>]*>'), '').trim();
+  static String _stripHtml(String value) =>
+      value.replaceAll(RegExp(r'<[^>]*>'), '').trim();
   static String _resolveUrl(String baseUrl, String value) {
     if (value.isEmpty) return '';
     final uri = Uri.tryParse(value);
     if (uri != null && uri.hasScheme) return value;
     return Uri.parse(baseUrl).resolve(value).toString();
   }
+
   static String _messageFor(Object error) => error is TimeoutException
       ? '请求超时'
       : error.toString().replaceFirst('Exception: ', '');

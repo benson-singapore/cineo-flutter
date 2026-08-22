@@ -94,6 +94,7 @@ class _CineoShellState extends State<CineoShell> {
   bool _loading = true;
   String? _errorMessage;
   int _selectedIndex = 0;
+  int _refreshRevision = 0;
 
   @override
   void initState() {
@@ -102,6 +103,7 @@ class _CineoShellState extends State<CineoShell> {
   }
 
   Future<void> _refresh() async {
+    final revision = ++_refreshRevision;
     if (mounted) {
       setState(() {
         _loading = true;
@@ -109,22 +111,23 @@ class _CineoShellState extends State<CineoShell> {
       });
     }
     try {
+      final itemsFuture = widget.repository.browseDefaultSourceCategories(
+        _selectedCategory.sourceCategoryIds,
+      );
+      final progressFuture = widget.repository.watchHistory();
+      final historyFuture = widget.repository.searchHistory();
       final results = await Future.wait([
-        widget.repository.browseDefaultSourceCategories(
-          _selectedCategory.sourceCategoryIds,
-        ),
-        widget.repository.watchHistory(),
-        widget.repository.searchHistory(),
-        widget.repository.defaultSourceCategories(),
+        itemsFuture,
+        progressFuture,
+        historyFuture,
       ]);
       final items = results[0] as List<MediaItem>;
       final progress = results[1] as List<WatchProgress>;
       final history = results[2] as List<String>;
-      final categories = results[3] as List<UnifiedCategory>;
       final byId = <String, MediaItem>{
         for (final item in items) item.id: item,
       };
-      if (!mounted) return;
+      if (!mounted || revision != _refreshRevision) return;
       setState(() {
         _items = items;
         _continueWatching = [
@@ -136,19 +139,48 @@ class _CineoShellState extends State<CineoShell> {
           for (final entry in progress) entry.mediaId: entry.fraction,
         };
         _searchHistory = history;
-        _categories = categories;
-        if (!categories.any((category) => category.type == _selectedCategory.type)) {
-          _selectedCategory = categories.first;
-        }
         _loading = false;
       });
-    } catch (_) {
-      if (!mounted) return;
+      unawaited(_refreshCategories(revision));
+    } catch (error) {
+      if (!mounted || revision != _refreshRevision) return;
       setState(() {
         _loading = false;
-        _errorMessage = '本地数据暂时无法加载';
+        _errorMessage = _homeLoadError(error);
       });
     }
+  }
+
+  Future<void> _refreshCategories(int revision) async {
+    try {
+      final categories = await widget.repository.defaultSourceCategories();
+      if (!mounted || revision != _refreshRevision) return;
+      setState(() {
+        _categories = categories;
+        if (categories.isNotEmpty &&
+            !categories.any(
+              (category) => category.type == _selectedCategory.type,
+            )) {
+          _selectedCategory = categories.first;
+        }
+      });
+    } catch (_) {
+      // Category metadata is optional; the content list remains usable.
+    }
+  }
+
+  String _homeLoadError(Object error) {
+    final detail = error.toString().replaceFirst('Exception: ', '').trim();
+    if (detail.contains('请求超时')) {
+      return '默认视频源请求超时，请在视频源中执行连通性测试后重试';
+    }
+    if (detail.contains('HTTP')) {
+      return '默认视频源返回了访问错误，请检查 API 地址和站点状态';
+    }
+    if (detail.contains('JSON') || detail.contains('响应格式')) {
+      return '默认视频源未返回兼容的 JSON 数据，请检查站点接口类型';
+    }
+    return '默认视频源无法加载，请检查连通性和配置';
   }
 
   Future<void> _selectCategory(UnifiedCategory category) async {
@@ -181,7 +213,8 @@ class _CineoShellState extends State<CineoShell> {
           media: resolvedMedia,
           favorite: favorite,
           onFavoriteChanged: (isFavorite) {
-            unawaited(widget.repository.setFavorite(resolvedMedia.id, isFavorite));
+            unawaited(
+                widget.repository.setFavorite(resolvedMedia.id, isFavorite));
             unawaited(_refresh());
           },
           onPlay: (option) => unawaited(_openPlayer(resolvedMedia, option)),
@@ -288,8 +321,8 @@ class _CineoShellState extends State<CineoShell> {
         onSearch: (query) => unawaited(_recordSearch(query)),
         onOpenMedia: (media) => unawaited(_openMedia(media)),
         categories: _categories,
-        onRemoteSearch: (query, categoryIds) =>
-            widget.repository.searchDefaultSource(query, categoryIds: categoryIds),
+        onRemoteSearch: (query, categoryIds) => widget.repository
+            .searchDefaultSource(query, categoryIds: categoryIds),
       ),
       ProfileScreen(
         appLockController: widget.appLockController,

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 
@@ -46,18 +47,19 @@ void main() {
   });
 
   test('parses grouped MacCMS playback options and episodes', () async {
-    final client = MacCmsClient(fetcher: (_) async => jsonEncode({
-          'list': [
-            {
-              'vod_id': '42',
-              'vod_name': '示例剧集',
-              'vod_pic': 'https://cdn.example.test/poster.jpg',
-              'vod_play_from': r'线路 A$$$线路 B',
-              'vod_play_url':
-                  r'第1集$https://cdn.example.test/1.m3u8#第2集$https://cdn.example.test/2.mp4$$$正片$https://cdn.example.test/movie.m3u8',
-            },
-          ],
-        }));
+    final client = MacCmsClient(
+        fetcher: (_) async => jsonEncode({
+              'list': [
+                {
+                  'vod_id': '42',
+                  'vod_name': '示例剧集',
+                  'vod_pic': 'https://cdn.example.test/poster.jpg',
+                  'vod_play_from': r'线路 A$$$线路 B',
+                  'vod_play_url':
+                      r'第1集$https://cdn.example.test/1.m3u8#第2集$https://cdn.example.test/2.mp4$$$正片$https://cdn.example.test/movie.m3u8',
+                },
+              ],
+            }));
 
     final item = await client.detail(source, '42');
 
@@ -76,5 +78,46 @@ void main() {
 
     expect(result.isReachable, isFalse);
     expect(result.error, contains('offline'));
+  });
+
+  test('retries one transient source connection failure', () async {
+    var attempts = 0;
+    final client = MacCmsClient(
+      retryDelay: Duration.zero,
+      fetcher: (_) async {
+        attempts++;
+        if (attempts == 1) {
+          throw const HttpException('Connection closed while receiving data');
+        }
+        return jsonEncode({
+          'list': [
+            {
+              'vod_id': '99',
+              'vod_name': '重试成功的影片',
+              'type_name': '电影',
+            },
+          ],
+        });
+      },
+    );
+
+    final items = await client.list(source);
+
+    expect(attempts, 2);
+    expect(items.single.title, '重试成功的影片');
+  });
+
+  test('does not retry deterministic HTTP status errors', () async {
+    var attempts = 0;
+    final client = MacCmsClient(
+      retryDelay: Duration.zero,
+      fetcher: (_) async {
+        attempts++;
+        throw const HttpException('站点返回 HTTP 404');
+      },
+    );
+
+    await expectLater(client.list(source), throwsA(isA<HttpException>()));
+    expect(attempts, 1);
   });
 }

@@ -53,7 +53,9 @@ class MediaRail extends StatelessWidget {
             ),
             const SizedBox(height: 14),
             SizedBox(
-              height: showDescription ? 294 : 258,
+              // The poster's fractional aspect ratio can round up by a pixel
+              // on Android. Leave room for its text rows to avoid Flex overflow.
+              height: showDescription ? 306 : 268,
               child: ListView.separated(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 scrollDirection: Axis.horizontal,
