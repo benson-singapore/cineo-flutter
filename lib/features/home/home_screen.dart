@@ -7,6 +7,11 @@ import '../../shared/widgets/content_state_view.dart';
 import '../../shared/widgets/media_image.dart';
 import '../../shared/widgets/media_rail.dart';
 
+typedef HomeRailSeeAllCallback = void Function(
+  String title,
+  List<MediaItem> items,
+);
+
 class HomeScreen extends StatelessWidget {
   const HomeScreen({
     super.key,
@@ -20,6 +25,7 @@ class HomeScreen extends StatelessWidget {
     this.categories = const [],
     this.selectedCategory = UnifiedMediaType.all,
     this.onCategorySelected,
+    this.onSeeAll,
   });
 
   final List<MediaItem> items;
@@ -32,6 +38,7 @@ class HomeScreen extends StatelessWidget {
   final List<UnifiedCategory> categories;
   final UnifiedMediaType selectedCategory;
   final ValueChanged<UnifiedCategory>? onCategorySelected;
+  final HomeRailSeeAllCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context) {
@@ -73,6 +80,9 @@ class HomeScreen extends StatelessWidget {
                 items: items,
                 onOpenMedia: onOpenMedia,
                 showDescription: true,
+                onSeeAll: onSeeAll == null
+                    ? null
+                    : () => onSeeAll!.call('为你推荐', items),
               ),
               ..._categoryRails(),
               const SliverToBoxAdapter(child: SizedBox(height: 40)),
@@ -129,6 +139,9 @@ class HomeScreen extends StatelessWidget {
             title: genre,
             items: categoryItems,
             onOpenMedia: onOpenMedia,
+            onSeeAll: onSeeAll == null
+                ? null
+                : () => onSeeAll!.call(genre, categoryItems),
           ),
         );
         if (rails.length == 3) return rails;

@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../core/models/media.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../data/remote/media_category_adapter.dart';
+import 'category_browse_screen.dart';
 
 class SearchScreen extends StatefulWidget {
   const SearchScreen({
@@ -12,16 +13,21 @@ class SearchScreen extends StatefulWidget {
     required this.onSearch,
     required this.onOpenMedia,
     this.onRemoteSearch,
+    this.onBrowseCategory,
     this.categories = const [],
+    this.initialCategory,
   });
 
   final List<MediaItem> items;
   final List<String> history;
   final ValueChanged<String> onSearch;
   final ValueChanged<MediaItem> onOpenMedia;
-  final Future<List<MediaItem>> Function(String query, List<String> categoryIds)?
-      onRemoteSearch;
+  final Future<List<MediaItem>> Function(
+      String query, List<String> categoryIds)? onRemoteSearch;
+  final Future<List<MediaItem>> Function(List<String> categoryIds)?
+      onBrowseCategory;
   final List<UnifiedCategory> categories;
+  final UnifiedCategory? initialCategory;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -34,14 +40,37 @@ class _SearchScreenState extends State<SearchScreen> {
   String _query = '';
   String? _errorMessage;
   List<MediaItem>? _remoteResults;
+  List<MediaItem>? _browseResults;
   bool _isSearching = false;
-  UnifiedMediaType _selectedType = UnifiedMediaType.all;
+  bool _isBrowsing = false;
+  int _browseRevision = 0;
+  late UnifiedMediaType _selectedType;
+
+  @override
+  void initState() {
+    super.initState();
+    _selectedType = widget.initialCategory?.type ?? UnifiedMediaType.all;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) _loadBrowse();
+    });
+  }
 
   @override
   void dispose() {
     _queryController.dispose();
     _focusNode.dispose();
     super.dispose();
+  }
+
+  List<UnifiedCategory> get _visibleCategories {
+    if (widget.categories.isNotEmpty) return widget.categories;
+    return const [
+      UnifiedCategory(type: UnifiedMediaType.all, sourceCategoryIds: []),
+      UnifiedCategory(type: UnifiedMediaType.movie, sourceCategoryIds: []),
+      UnifiedCategory(type: UnifiedMediaType.series, sourceCategoryIds: []),
+      UnifiedCategory(type: UnifiedMediaType.variety, sourceCategoryIds: []),
+      UnifiedCategory(type: UnifiedMediaType.animation, sourceCategoryIds: []),
+    ];
   }
 
   List<String> get _history {
@@ -58,33 +87,70 @@ class _SearchScreenState extends State<SearchScreen> {
     final query = _query.trim().toLowerCase();
     if (query.isEmpty) return const [];
     return widget.items.where((media) {
-      if (_selectedType == UnifiedMediaType.movie && media.kind != MediaKind.movie) return false;
-      if ((_selectedType == UnifiedMediaType.series ||
-              _selectedType == UnifiedMediaType.variety ||
-              _selectedType == UnifiedMediaType.animation) &&
-          media.kind != MediaKind.series) {
-        return false;
-      }
-      final searchable = [
-        media.title,
-        media.description,
-        ...media.genres,
-      ].join(' ').toLowerCase();
+      if (!_matchesType(media, _selectedType)) return false;
+      final searchable = [media.title, media.description, ...media.genres]
+          .join(' ')
+          .toLowerCase();
       return searchable.contains(query);
     }).toList(growable: false);
+  }
+
+  List<MediaItem> _localBrowse(UnifiedMediaType type) {
+    if (type == UnifiedMediaType.all) return widget.items;
+    return widget.items.where((item) => _matchesType(item, type)).toList();
+  }
+
+  bool _matchesType(MediaItem media, UnifiedMediaType type) {
+    if (type == UnifiedMediaType.all) return true;
+    if (type == UnifiedMediaType.movie) return media.kind == MediaKind.movie;
+    if (media.kind != MediaKind.series) return false;
+    final text = [media.title, ...media.genres].join(' ').toLowerCase();
+    if (type == UnifiedMediaType.variety) {
+      return RegExp(r'综艺|真人秀|variety|show').hasMatch(text);
+    }
+    if (type == UnifiedMediaType.animation) {
+      return RegExp(r'动漫|动画|番剧|cartoon|anime').hasMatch(text);
+    }
+    return !RegExp(r'综艺|真人秀|variety|show|动漫|动画|番剧|cartoon|anime')
+        .hasMatch(text);
+  }
+
+  Future<void> _loadBrowse() async {
+    final revision = ++_browseRevision;
+    if (mounted) {
+      setState(() {
+        _isBrowsing = true;
+        _errorMessage = null;
+        _browseResults = null;
+      });
+    }
+    try {
+      final category = _categoryFor(_selectedType);
+      final results = widget.onBrowseCategory == null
+          ? _localBrowse(_selectedType)
+          : await widget.onBrowseCategory!(category.sourceCategoryIds);
+      if (!mounted || revision != _browseRevision || _query.trim().isNotEmpty) {
+        return;
+      }
+      setState(() {
+        _browseResults = results;
+        _isBrowsing = false;
+      });
+    } catch (_) {
+      if (!mounted || revision != _browseRevision) return;
+      setState(() {
+        _isBrowsing = false;
+        _errorMessage = '资源库加载失败，请检查默认视频源后重试';
+      });
+    }
   }
 
   Future<void> _submit([String? value]) async {
     final query = (value ?? _queryController.text).trim();
     if (query.isEmpty) {
-      setState(() {
-        _query = '';
-        _errorMessage = null;
-        _remoteResults = null;
-      });
+      _clearQuery();
       return;
     }
-
     setState(() {
       _query = query;
       _errorMessage = null;
@@ -100,16 +166,16 @@ class _SearchScreenState extends State<SearchScreen> {
 
     try {
       widget.onSearch(query);
-      if (widget.onRemoteSearch != null) {
-        setState(() => _isSearching = true);
-        final category = _categoryFor(_selectedType);
-        final results = await widget.onRemoteSearch!(query, category.sourceCategoryIds);
-        if (!mounted || _query != query) return;
-        setState(() {
-          _remoteResults = results;
-          _isSearching = false;
-        });
-      }
+      final search = widget.onRemoteSearch;
+      if (search == null) return;
+      setState(() => _isSearching = true);
+      final category = _categoryFor(_selectedType);
+      final results = await search(query, category.sourceCategoryIds);
+      if (!mounted || _query != query) return;
+      setState(() {
+        _remoteResults = results;
+        _isSearching = false;
+      });
     } catch (_) {
       if (!mounted) return;
       setState(() {
@@ -120,7 +186,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   UnifiedCategory _categoryFor(UnifiedMediaType type) {
-    return widget.categories.firstWhere(
+    return _visibleCategories.firstWhere(
       (category) => category.type == type,
       orElse: () => const UnifiedCategory(
         type: UnifiedMediaType.all,
@@ -133,9 +199,12 @@ class _SearchScreenState extends State<SearchScreen> {
     setState(() {
       _selectedType = type;
       _remoteResults = null;
+      _errorMessage = null;
     });
     if (_query.trim().isNotEmpty) {
       _submit(_query);
+    } else {
+      _loadBrowse();
     }
   }
 
@@ -146,6 +215,7 @@ class _SearchScreenState extends State<SearchScreen> {
       _errorMessage = null;
       _remoteResults = null;
     });
+    _loadBrowse();
     _focusNode.requestFocus();
   }
 
@@ -167,68 +237,160 @@ class _SearchScreenState extends State<SearchScreen> {
             SliverPadding(
               padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
               sliver: SliverToBoxAdapter(
-                  child: _SearchField(
-                controller: _queryController,
-                focusNode: _focusNode,
-                onSubmitted: _submit,
-                onChanged: (value) {
-                  if (_errorMessage != null) {
-                    setState(() => _errorMessage = null);
-                  }
-                  setState(() => _query = value);
-                },
-                onClear: _clearQuery,
-              )),
-            ),
-            if (widget.categories.length > 1)
-              SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 48,
-                  child: ListView.separated(
-                    padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
-                    scrollDirection: Axis.horizontal,
-                    itemCount: widget.categories.length,
-                    separatorBuilder: (_, __) => const SizedBox(width: 8),
-                    itemBuilder: (_, index) {
-                      final category = widget.categories[index];
-                      return ChoiceChip(
-                        label: Text(category.type.label),
-                        selected: category.type == _selectedType,
-                        onSelected: (_) => _selectType(category.type),
-                      );
-                    },
-                  ),
+                child: _SearchField(
+                  controller: _queryController,
+                  focusNode: _focusNode,
+                  onSubmitted: _submit,
+                  onChanged: (value) {
+                    final leftSubmittedSearch =
+                        _query.isNotEmpty && value != _query;
+                    setState(() {
+                      if (leftSubmittedSearch) {
+                        _query = '';
+                        _errorMessage = null;
+                        _remoteResults = null;
+                      }
+                    });
+                    if (leftSubmittedSearch) _loadBrowse();
+                  },
+                  onClear: _clearQuery,
                 ),
               ),
+            ),
+            SliverToBoxAdapter(
+              child: _CategorySelector(
+                categories: _visibleCategories,
+                selectedType: _selectedType,
+                onSelected: _selectType,
+              ),
+            ),
             if (_errorMessage != null)
               SliverToBoxAdapter(
-                  child: _ErrorState(
-                message: _errorMessage!,
-                onRetry: () => _submit(query),
-              ))
+                child: _ErrorState(
+                  message: _errorMessage!,
+                  onRetry: showingSearch ? () => _submit(query) : _loadBrowse,
+                ),
+              )
             else if (showingSearch)
               ..._buildResults(query)
             else
-              ..._buildHistory(),
+              ..._buildBrowse(),
           ],
         ),
       ),
     );
   }
 
+  List<Widget> _buildBrowse() {
+    final history = _history;
+    final browse = _browseResults;
+    return [
+      if (history.isNotEmpty) ...[
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+          sliver: SliverToBoxAdapter(
+            child: Row(
+              children: [
+                Text('最近搜索', style: Theme.of(context).textTheme.titleSmall),
+                const Spacer(),
+                TextButton(
+                  onPressed: () => setState(() => _localHistory.clear()),
+                  child: const Text('清除'),
+                ),
+              ],
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: SizedBox(
+            height: 38,
+            child: ListView.separated(
+              padding: const EdgeInsets.symmetric(horizontal: 20),
+              scrollDirection: Axis.horizontal,
+              itemCount: history.length,
+              separatorBuilder: (_, __) => const SizedBox(width: 8),
+              itemBuilder: (_, index) => ActionChip(
+                label: Text(history[index]),
+                avatar: const Icon(Icons.history_rounded, size: 16),
+                onPressed: () => _submit(history[index]),
+              ),
+            ),
+          ),
+        ),
+      ],
+      SliverPadding(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 10),
+        sliver: SliverToBoxAdapter(
+          child: Row(
+            children: [
+              Text(
+                '${_selectedType.label}资源库',
+                style: Theme.of(context).textTheme.titleMedium?.copyWith(
+                      fontWeight: FontWeight.w700,
+                    ),
+              ),
+              if (browse != null) ...[
+                const SizedBox(width: 8),
+                Text('${browse.length}',
+                    style: const TextStyle(color: CineoColors.textSecondary)),
+              ],
+            ],
+          ),
+        ),
+      ),
+      if (_isBrowsing && browse == null)
+        const SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 64),
+            child: Center(child: CircularProgressIndicator()),
+          ),
+        )
+      else if (browse == null || browse.isEmpty)
+        const SliverFillRemaining(
+          hasScrollBody: false,
+          child: _EmptyState(
+            icon: Icons.video_library_outlined,
+            title: '这个分类还没有内容',
+            message: '换一个分类，或检查默认视频源是否可用',
+          ),
+        )
+      else
+        SliverPadding(
+          padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
+          sliver: SliverGrid(
+            delegate: SliverChildBuilderDelegate(
+              (context, index) => BrowseMediaCard(
+                media: browse[index],
+                onTap: () => widget.onOpenMedia(browse[index]),
+              ),
+              childCount: browse.length,
+            ),
+            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 176,
+              mainAxisSpacing: 18,
+              crossAxisSpacing: 12,
+              childAspectRatio: .62,
+            ),
+          ),
+        ),
+    ];
+  }
+
   List<Widget> _buildResults(String query) {
     if (_isSearching) {
       return const [
-        SliverFillRemaining(
-          hasScrollBody: false,
-          child: Center(child: CircularProgressIndicator()),
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: EdgeInsets.symmetric(vertical: 64),
+            child: Center(child: CircularProgressIndicator()),
+          ),
         ),
       ];
     }
     final results = _remoteResults ?? _localResults;
     if (results.isEmpty) {
-      return [
-        const SliverFillRemaining(
+      return const [
+        SliverFillRemaining(
           hasScrollBody: false,
           child: _EmptyState(
             icon: Icons.search_off_rounded,
@@ -238,7 +400,6 @@ class _SearchScreenState extends State<SearchScreen> {
         ),
       ];
     }
-
     return [
       SliverPadding(
         padding: const EdgeInsets.fromLTRB(20, 6, 20, 12),
@@ -264,53 +425,38 @@ class _SearchScreenState extends State<SearchScreen> {
       ),
     ];
   }
+}
 
-  List<Widget> _buildHistory() {
-    final history = _history;
-    if (history.isEmpty) {
-      return [
-        const SliverFillRemaining(
-          hasScrollBody: false,
-          child: _EmptyState(
-            icon: Icons.movie_filter_outlined,
-            title: '开始探索',
-            message: '搜索电影、剧集或类型，发现下一部想看的内容',
-          ),
-        ),
-      ];
-    }
+class _CategorySelector extends StatelessWidget {
+  const _CategorySelector({
+    required this.categories,
+    required this.selectedType,
+    required this.onSelected,
+  });
 
-    return [
-      SliverPadding(
-        padding: const EdgeInsets.fromLTRB(20, 14, 20, 10),
-        sliver: SliverToBoxAdapter(
-          child: Row(
-            children: [
-              Text('最近搜索', style: Theme.of(context).textTheme.titleMedium),
-              const Spacer(),
-              TextButton(
-                onPressed: () => setState(() => _localHistory.clear()),
-                child: const Text('清除本次'),
-              ),
-            ],
-          ),
-        ),
+  final List<UnifiedCategory> categories;
+  final UnifiedMediaType selectedType;
+  final ValueChanged<UnifiedMediaType> onSelected;
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 48,
+      child: ListView.separated(
+        padding: const EdgeInsets.fromLTRB(20, 0, 20, 4),
+        scrollDirection: Axis.horizontal,
+        itemCount: categories.length,
+        separatorBuilder: (_, __) => const SizedBox(width: 8),
+        itemBuilder: (_, index) {
+          final category = categories[index];
+          return ChoiceChip(
+            label: Text(category.type.label),
+            selected: category.type == selectedType,
+            onSelected: (_) => onSelected(category.type),
+          );
+        },
       ),
-      SliverPadding(
-        padding: const EdgeInsets.fromLTRB(20, 0, 20, 32),
-        sliver: SliverList.builder(
-          itemCount: history.length,
-          itemBuilder: (_, index) => ListTile(
-            contentPadding: EdgeInsets.zero,
-            leading: const Icon(Icons.history_rounded,
-                color: CineoColors.textSecondary),
-            title: Text(history[index]),
-            trailing: const Icon(Icons.north_west_rounded, size: 18),
-            onTap: () => _submit(history[index]),
-          ),
-        ),
-      ),
-    ];
+    );
   }
 }
 
@@ -440,8 +586,11 @@ class _Poster extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState(
-      {required this.icon, required this.title, required this.message});
+  const _EmptyState({
+    required this.icon,
+    required this.title,
+    required this.message,
+  });
 
   final IconData icon;
   final String title;

@@ -12,6 +12,7 @@ class MediaRail extends StatelessWidget {
     required this.onOpenMedia,
     this.progressByMediaId = const {},
     this.showDescription = false,
+    this.onSeeAll,
   });
 
   final String title;
@@ -19,6 +20,7 @@ class MediaRail extends StatelessWidget {
   final ValueChanged<MediaItem> onOpenMedia;
   final Map<String, double> progressByMediaId;
   final bool showDescription;
+  final VoidCallback? onSeeAll;
 
   @override
   Widget build(BuildContext context) {
@@ -43,10 +45,16 @@ class MediaRail extends StatelessWidget {
                           ),
                     ),
                   ),
-                  const Icon(
-                    Icons.chevron_right_rounded,
-                    color: CineoColors.textSecondary,
-                    size: 22,
+                  SizedBox(
+                    width: 48,
+                    height: 48,
+                    child: IconButton(
+                      onPressed: onSeeAll,
+                      tooltip: '查看全部$title',
+                      icon: const Icon(Icons.chevron_right_rounded),
+                      color: CineoColors.textSecondary,
+                      disabledColor: CineoColors.textSecondary.withOpacity(.32),
+                    ),
                   ),
                 ],
               ),
