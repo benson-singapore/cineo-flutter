@@ -380,6 +380,31 @@ class _CineoShellState extends State<CineoShell> {
     );
   }
 
+  Future<void> _openSearch() {
+    return Navigator.of(context).push<void>(
+      MaterialPageRoute(
+        builder: (_) => SearchScreen(
+          items: _items,
+          history: _searchHistory,
+          onSearch: (query) => unawaited(_recordSearch(query)),
+          onOpenMedia: (media) => unawaited(_openMedia(media)),
+          categories: _categories,
+          onRemoteSearch: (query, categoryIds, page) =>
+              widget.repository.searchDefaultSourcePage(
+            query,
+            categoryIds: categoryIds,
+            page: page,
+          ),
+          onBrowseCategory: (categoryIds, page) =>
+              widget.repository.browseDefaultSourcePage(
+            categoryIds: categoryIds,
+            page: page,
+          ),
+        ),
+      ),
+    );
+  }
+
   Future<void> _openLibrary() async {
     await Navigator.of(context).push<void>(
       MaterialPageRoute(
@@ -459,6 +484,8 @@ class _CineoShellState extends State<CineoShell> {
           categoryIds: categoryIds,
           page: page,
         ),
+        libraryMode: true,
+        onOpenSearch: () => unawaited(_openSearch()),
       ),
       ProfileScreen(
         appLockController: widget.appLockController,
@@ -482,9 +509,9 @@ class _CineoShellState extends State<CineoShell> {
             label: '首页',
           ),
           NavigationDestination(
-            icon: Icon(Icons.search_outlined),
-            selectedIcon: Icon(Icons.search),
-            label: '搜索',
+            icon: Icon(Icons.video_library_outlined),
+            selectedIcon: Icon(Icons.video_library),
+            label: '片库',
           ),
           NavigationDestination(
             icon: Icon(Icons.person_outline),

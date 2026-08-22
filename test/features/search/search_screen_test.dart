@@ -35,12 +35,15 @@ void main() {
     required List<MediaItem> items,
     required Future<PagedMedia> Function(List<String>, int) onBrowse,
     Future<PagedMedia> Function(String, List<String>, int)? onSearch,
+    List<String> history = const [],
+    bool libraryMode = false,
+    VoidCallback? onOpenSearch,
   }) {
     return MaterialApp(
       theme: buildCineoTheme(),
       home: SearchScreen(
         items: items,
-        history: const [],
+        history: history,
         categories: const [
           UnifiedCategory(
             type: UnifiedMediaType.all,
@@ -53,6 +56,8 @@ void main() {
         onOpenMedia: (_) {},
         onBrowseCategory: onBrowse,
         onRemoteSearch: onSearch,
+        libraryMode: libraryMode,
+        onOpenSearch: onOpenSearch,
       ),
     );
   }
@@ -251,5 +256,74 @@ void main() {
     expect(pages, [1, 2]);
     expect(find.text('第二页'), findsOneWidget);
     expect(find.text('重复'), findsOneWidget);
+  });
+
+  testWidgets('library mode hides keyword search and history', (tester) async {
+    await tester.pumpWidget(
+      buildSubject(
+        items: const [],
+        history: const ['最近看过'],
+        libraryMode: true,
+        onBrowse: (_, page) async => PagedMedia(
+          items: const [],
+          page: page,
+          pageCount: 1,
+          total: 0,
+          limit: 20,
+          hasMore: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('片库'), findsOneWidget);
+    expect(find.text('搜索电影、剧集、类型'), findsNothing);
+    expect(find.text('最近搜索'), findsNothing);
+    expect(find.byType(TextField), findsNothing);
+  });
+
+  testWidgets('library mode opens the dedicated search action', (tester) async {
+    var opened = false;
+    await tester.pumpWidget(
+      buildSubject(
+        items: const [],
+        libraryMode: true,
+        onOpenSearch: () => opened = true,
+        onBrowse: (_, page) async => PagedMedia(
+          items: const [],
+          page: page,
+          pageCount: 1,
+          total: 0,
+          limit: 20,
+          hasMore: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('搜索'));
+
+    expect(opened, isTrue);
+  });
+
+  testWidgets('normal mode keeps the keyword search field', (tester) async {
+    await tester.pumpWidget(
+      buildSubject(
+        items: const [],
+        onBrowse: (_, page) async => PagedMedia(
+          items: const [],
+          page: page,
+          pageCount: 1,
+          total: 0,
+          limit: 20,
+          hasMore: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('搜索'), findsOneWidget);
+    expect(find.byType(TextField), findsOneWidget);
+    expect(find.text('搜索电影、剧集、类型'), findsOneWidget);
   });
 }

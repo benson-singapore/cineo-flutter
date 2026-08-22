@@ -17,6 +17,8 @@ class SearchScreen extends StatefulWidget {
     this.onBrowseCategory,
     this.categories = const [],
     this.initialCategory,
+    this.libraryMode = false,
+    this.onOpenSearch,
   });
 
   final List<MediaItem> items;
@@ -29,6 +31,8 @@ class SearchScreen extends StatefulWidget {
       onBrowseCategory;
   final List<UnifiedCategory> categories;
   final UnifiedCategory? initialCategory;
+  final bool libraryMode;
+  final VoidCallback? onOpenSearch;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -355,7 +359,16 @@ class _SearchScreenState extends State<SearchScreen> {
       backgroundColor: CineoColors.background,
       appBar: AppBar(
         titleSpacing: 20,
-        title: const Text('搜索'),
+        title: Text(widget.libraryMode ? '片库' : '搜索'),
+        actions: widget.libraryMode
+            ? [
+                IconButton(
+                  onPressed: widget.onOpenSearch,
+                  tooltip: '搜索',
+                  icon: const Icon(Icons.search_rounded),
+                ),
+              ]
+            : null,
       ),
       body: SafeArea(
         top: false,
@@ -363,29 +376,30 @@ class _SearchScreenState extends State<SearchScreen> {
           keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           controller: _scrollController,
           slivers: [
-            SliverPadding(
-              padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
-              sliver: SliverToBoxAdapter(
-                child: _SearchField(
-                  controller: _queryController,
-                  focusNode: _focusNode,
-                  onSubmitted: _submit,
-                  onChanged: (value) {
-                    final leftSubmittedSearch =
-                        _query.isNotEmpty && value != _query;
-                    setState(() {
-                      if (leftSubmittedSearch) {
-                        _query = '';
-                        _errorMessage = null;
-                        _remoteResults = const [];
-                      }
-                    });
-                    if (leftSubmittedSearch) _loadBrowse();
-                  },
-                  onClear: _clearQuery,
+            if (!widget.libraryMode)
+              SliverPadding(
+                padding: const EdgeInsets.fromLTRB(20, 8, 20, 12),
+                sliver: SliverToBoxAdapter(
+                  child: _SearchField(
+                    controller: _queryController,
+                    focusNode: _focusNode,
+                    onSubmitted: _submit,
+                    onChanged: (value) {
+                      final leftSubmittedSearch =
+                          _query.isNotEmpty && value != _query;
+                      setState(() {
+                        if (leftSubmittedSearch) {
+                          _query = '';
+                          _errorMessage = null;
+                          _remoteResults = const [];
+                        }
+                      });
+                      if (leftSubmittedSearch) _loadBrowse();
+                    },
+                    onClear: _clearQuery,
+                  ),
                 ),
               ),
-            ),
             SliverToBoxAdapter(
               child: _CategorySelector(
                 categories: _visibleCategories,
@@ -411,7 +425,7 @@ class _SearchScreenState extends State<SearchScreen> {
   }
 
   List<Widget> _buildBrowse() {
-    final history = _history;
+    final history = widget.libraryMode ? const <String>[] : _history;
     final browse = _browseResults;
     return [
       if (history.isNotEmpty) ...[
