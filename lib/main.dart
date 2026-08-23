@@ -673,13 +673,15 @@ class _CineoShellState extends State<CineoShell> {
     return Scaffold(
       extendBody: true,
       body: IndexedStack(index: _selectedIndex, children: pages),
+      floatingActionButton: _selectedIndex == 1 && _showLibraryScrollToTop
+          ? _ScrollToTopButton(onPressed: _scrollLibraryToTop)
+          : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: AnimatedBuilder(
         animation: widget.updateService,
         builder: (context, _) => _GlassBottomNavigation(
           selectedIndex: _selectedIndex,
           showUpdateBadge: widget.updateService.hasUpdate,
-          showScrollToTop: _selectedIndex == 1 && _showLibraryScrollToTop,
-          onScrollToTop: _scrollLibraryToTop,
           onDestinationSelected: (index) =>
               setState(() => _selectedIndex = index),
         ),
@@ -705,15 +707,11 @@ class _GlassBottomNavigation extends StatelessWidget {
     required this.selectedIndex,
     required this.onDestinationSelected,
     required this.showUpdateBadge,
-    required this.showScrollToTop,
-    required this.onScrollToTop,
   });
 
   final int selectedIndex;
   final ValueChanged<int> onDestinationSelected;
   final bool showUpdateBadge;
-  final bool showScrollToTop;
-  final VoidCallback onScrollToTop;
 
   static const _destinations = [
     _GlassNavigationDestination(
@@ -738,75 +736,50 @@ class _GlassBottomNavigation extends StatelessWidget {
     final isIos = Theme.of(context).platform == TargetPlatform.iOS;
     const borderRadius = BorderRadius.all(Radius.circular(30));
     final barHeight = isIos ? 64.0 : 68.0;
-    const scrollToTopSize = 40.0;
-    const scrollToTopGap = 16.0;
-    final navigationHeight = showScrollToTop
-        ? barHeight + scrollToTopGap + scrollToTopSize
-        : barHeight;
     return SafeArea(
       top: false,
       minimum: isIos
           ? const EdgeInsets.fromLTRB(16, 8, 16, 6)
           : const EdgeInsets.fromLTRB(20, 8, 20, 10),
       child: SizedBox(
-        height: navigationHeight,
-        child: Stack(
-          children: [
-            Align(
-              alignment: Alignment.bottomCenter,
-              child: SizedBox(
-                height: barHeight,
-                child: ClipRRect(
-                  borderRadius: borderRadius,
-                  child: BackdropFilter(
-                    filter: ImageFilter.blur(
-                      sigmaX: isIos ? 26 : 18,
-                      sigmaY: isIos ? 26 : 18,
-                    ),
-                    child: DecoratedBox(
-                      decoration: BoxDecoration(
-                        color: CineoColors.glass.withOpacity(isIos ? .78 : .9),
-                        borderRadius: borderRadius,
-                        border: Border.all(
-                          color: Colors.white.withOpacity(isIos ? .18 : .12),
-                        ),
-                        boxShadow: [
-                          BoxShadow(
-                            color: Colors.black.withOpacity(isIos ? .3 : .38),
-                            blurRadius: isIos ? 30 : 26,
-                            offset: Offset(0, isIos ? 12 : 10),
-                          ),
-                        ],
-                      ),
-                      child: Row(
-                        children: List.generate(_destinations.length, (index) {
-                          final destination = _destinations[index];
-                          return Expanded(
-                            child: _GlassNavigationItem(
-                              destination: destination,
-                              selected: selectedIndex == index,
-                              showBadge: index == 2 && showUpdateBadge,
-                              onTap: () => onDestinationSelected(index),
-                            ),
-                          );
-                        }),
-                      ),
-                    ),
-                  ),
+        height: barHeight,
+        child: ClipRRect(
+          borderRadius: borderRadius,
+          child: BackdropFilter(
+            filter: ImageFilter.blur(
+              sigmaX: isIos ? 26 : 18,
+              sigmaY: isIos ? 26 : 18,
+            ),
+            child: DecoratedBox(
+              decoration: BoxDecoration(
+                color: CineoColors.glass.withOpacity(isIos ? .78 : .9),
+                borderRadius: borderRadius,
+                border: Border.all(
+                  color: Colors.white.withOpacity(isIos ? .18 : .12),
                 ),
+                boxShadow: [
+                  BoxShadow(
+                    color: Colors.black.withOpacity(isIos ? .3 : .38),
+                    blurRadius: isIos ? 30 : 26,
+                    offset: Offset(0, isIos ? 12 : 10),
+                  ),
+                ],
+              ),
+              child: Row(
+                children: List.generate(_destinations.length, (index) {
+                  final destination = _destinations[index];
+                  return Expanded(
+                    child: _GlassNavigationItem(
+                      destination: destination,
+                      selected: selectedIndex == index,
+                      showBadge: index == 2 && showUpdateBadge,
+                      onTap: () => onDestinationSelected(index),
+                    ),
+                  );
+                }),
               ),
             ),
-            if (showScrollToTop)
-              Positioned(
-                right: 0,
-                bottom: barHeight + scrollToTopGap,
-                child: SizedBox(
-                  width: scrollToTopSize,
-                  height: scrollToTopSize,
-                  child: _ScrollToTopButton(onPressed: onScrollToTop),
-                ),
-              ),
-          ],
+          ),
         ),
       ),
     );
