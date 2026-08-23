@@ -32,9 +32,7 @@ class _AppUpdateScreenState extends State<AppUpdateScreen> {
   }
 
   Future<void> _downloadLatest() async {
-    final uri = widget.updateService.latestDownloadUri ??
-        widget.updateService.latestReleaseUri ??
-        AppUpdateService.releasesUri;
+    final uri = AppUpdateService.releasesUri;
     setState(() => _openingDownload = true);
     try {
       final launched = await widget.launchUrlCallback(

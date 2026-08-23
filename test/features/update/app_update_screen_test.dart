@@ -1,12 +1,49 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:url_launcher/url_launcher.dart';
 
 import 'package:cineo_flutter/core/theme/cineo_theme.dart';
 import 'package:cineo_flutter/features/update/app_update_screen.dart';
 import 'package:cineo_flutter/features/update/app_update_service.dart';
 
 void main() {
+  testWidgets('opens the GitHub releases page instead of an APK download',
+      (tester) async {
+    final service = AppUpdateService()
+      ..currentVersion = '1.0.4'
+      ..latestVersion = 'v1.0.4'
+      ..latestDownloadUri = Uri.parse(
+        'https://github.com/benson-singapore/cineo-flutter/releases/download/v1.0.4/Cineo.apk',
+      );
+    Uri? openedUri;
+
+    Future<bool> fakeLaunchUrl(
+      Uri uri, {
+      LaunchMode mode = LaunchMode.platformDefault,
+    }) async {
+      openedUri = uri;
+      return true;
+    }
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildCineoTheme(),
+        home: AppUpdateScreen(
+          updateService: service,
+          launchUrlCallback: fakeLaunchUrl,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('打开版本下载页'));
+    await tester.pumpAndSettle();
+
+    expect(openedUri, AppUpdateService.releasesUri);
+    service.dispose();
+  });
+
   testWidgets('collapses long Markdown release notes without overflow',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(428, 900));

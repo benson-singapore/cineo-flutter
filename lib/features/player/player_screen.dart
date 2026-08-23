@@ -5,7 +5,6 @@ import 'package:flutter/foundation.dart'
     show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/models/media.dart';
@@ -541,21 +540,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
     return int.tryParse(match?.group(1) ?? '');
   }
 
-  Future<void> _openInExternalBrowser() async {
-    final option = _activeOption;
-    final rawUrl = option == null
-        ? null
-        : playbackUrlForOption(
-            option,
-            widget.m3u8FilterSettings?.activeConfig,
-          );
-    final uri = rawUrl == null ? null : Uri.tryParse(rawUrl);
-    if (uri == null || (uri.scheme != 'http' && uri.scheme != 'https')) {
-      _showMessage('当前播放地址不可用');
-      return;
-    }
-    final launched = await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!launched && mounted) _showMessage('无法使用系统浏览器打开此播放地址');
+  Future<void> _openSystemPlayer() async {
+    final request = _pictureInPictureRequest();
+    if (request == null) return;
+
+    final opened = await _pictureInPicture.openSystemPlayer(request);
+    if (!opened && mounted) _showMessage('无法打开系统播放器');
   }
 
   Future<void> _openPictureInPicture() async {
@@ -702,7 +692,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     isSwitchingSource: _searchingOtherSources,
                     onOpenSource: _openSourcePanel,
                     isLandscape: _orientation == _PlayerOrientation.landscape,
-                    onOpenInBrowser: _openInExternalBrowser,
+                    onOpenSystemPlayer: _openSystemPlayer,
                     onToggleOrientation: _toggleOrientation,
                     onPictureInPicture: _openPictureInPicture,
                     onControlsInteraction: _showControls,
@@ -1095,7 +1085,7 @@ class _PlayerControls extends StatelessWidget {
     required this.isSwitchingSource,
     required this.onOpenSource,
     required this.isLandscape,
-    required this.onOpenInBrowser,
+    required this.onOpenSystemPlayer,
     required this.onToggleOrientation,
     required this.onPictureInPicture,
     required this.onControlsInteraction,
@@ -1120,7 +1110,7 @@ class _PlayerControls extends StatelessWidget {
   final bool isSwitchingSource;
   final VoidCallback onOpenSource;
   final bool isLandscape;
-  final VoidCallback onOpenInBrowser;
+  final VoidCallback onOpenSystemPlayer;
   final VoidCallback onToggleOrientation;
   final VoidCallback? onPictureInPicture;
   final VoidCallback onControlsInteraction;
@@ -1166,8 +1156,8 @@ class _PlayerControls extends StatelessWidget {
                         ),
                       ),
                       IconButton(
-                        tooltip: '在系统浏览器打开',
-                        onPressed: onOpenInBrowser,
+                        tooltip: '使用系统播放器打开',
+                        onPressed: onOpenSystemPlayer,
                         icon: const Icon(Icons.open_in_browser_rounded),
                       ),
                       if (canSwitchSource)

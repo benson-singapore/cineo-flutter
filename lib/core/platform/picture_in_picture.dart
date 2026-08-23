@@ -71,6 +71,20 @@ class PictureInPictureService {
     }
   }
 
+  Future<bool> openSystemPlayer(PictureInPictureRequest request) async {
+    try {
+      return await _channel.invokeMethod<bool>(
+            'openSystemPlayer',
+            request.toMap(),
+          ) ??
+          false;
+    } on PlatformException {
+      return false;
+    } on MissingPluginException {
+      return false;
+    }
+  }
+
   Future<void> update(PictureInPictureRequest request) async {
     try {
       await _channel.invokeMethod<void>('update', request.toMap());

@@ -42,6 +42,9 @@ class MainActivity: FlutterActivity() {
                     }
                     result.success(enterCineoPictureInPicture(call.arguments as? Map<*, *>))
                 }
+                "openSystemPlayer" -> result.success(
+                    openSystemPlayer(call.arguments as? Map<*, *>),
+                )
                 "update" -> updatePictureInPictureParams(call.arguments as? Map<*, *>).also {
                     result.success(null)
                 }
@@ -68,6 +71,21 @@ class MainActivity: FlutterActivity() {
     private fun isPictureInPictureAvailable(): Boolean {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)
+    }
+
+    private fun openSystemPlayer(arguments: Map<*, *>?): Boolean {
+        val url = arguments?.get("url") as? String ?: return false
+        val intent = Intent(Intent.ACTION_VIEW).apply {
+            data = android.net.Uri.parse(url)
+            type = "video/*"
+            addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        }
+        return if (intent.resolveActivity(packageManager) != null) {
+            startActivity(intent)
+            true
+        } else {
+            false
+        }
     }
 
     override fun onPictureInPictureModeChanged(
