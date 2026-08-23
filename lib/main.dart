@@ -508,9 +508,8 @@ class _CineoShellState extends State<CineoShell> {
           initialPositions: episodePositions,
           episodeId: option.id,
           pictureInPictureAvailable: _pictureInPictureAvailable,
-          onPictureInPicture: _pictureInPictureAvailable
-              ? () => unawaited(_enterPictureInPicture())
-              : null,
+          onPictureInPicture:
+              _pictureInPictureAvailable ? _enterPictureInPicture : null,
           onProgressChanged: (playingMedia, progress) => unawaited(
             widget.repository.saveProgress(progress, media: playingMedia),
           ),
@@ -528,14 +527,8 @@ class _CineoShellState extends State<CineoShell> {
     await _refresh();
   }
 
-  Future<void> _enterPictureInPicture() async {
-    final entered = await _pictureInPicture.enter();
-    if (!entered && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('当前设备无法进入画中画模式')),
-      );
-    }
-  }
+  Future<bool> _enterPictureInPicture(PictureInPictureRequest request) =>
+      _pictureInPicture.enter(request);
 
   Future<void> _openCategoryBrowse(
     String title,

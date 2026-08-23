@@ -2,6 +2,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:video_player/video_player.dart';
 
 import 'package:cineo_flutter/core/models/media.dart';
+import 'package:cineo_flutter/core/platform/picture_in_picture.dart';
 import 'package:cineo_flutter/features/player/player_screen.dart';
 import 'package:cineo_flutter/features/settings/m3u8_filter_settings.dart';
 
@@ -15,6 +16,20 @@ void main() {
       );
 
   group('player helpers', () {
+    test('serializes the native PiP handoff request', () {
+      const request = PictureInPictureRequest(
+        url: 'https://example.com/video.m3u8',
+        title: '示例视频',
+        position: Duration(seconds: 42),
+      );
+
+      expect(request.toMap(), <String, Object>{
+        'url': 'https://example.com/video.m3u8',
+        'title': '示例视频',
+        'positionMilliseconds': 42000,
+      });
+    });
+
     test('normalizes source-prefixed episode labels', () {
       expect(episodeDisplayLabel(option('1', 'rym3u8 · 第01集')), '第1集');
       expect(episodeDisplayLabel(option('2', '特别篇')), '特别篇');

@@ -1,15 +1,11 @@
 import UIKit
+import AVFoundation
 import AVKit
-import MediaPlayer
 import Flutter
 
-class PlayerViewController: UIViewController {
-    static let channelName = "com.cineo/player"
+enum PlayerViewController {
+    static let channelName = "com.benson.cineo/picture_in_picture"
 
-    var pictureInPictureController: AVPictureInPictureController?
-    var currentBrightness: CGFloat = UIScreen.main.brightness
-
-    // Initialize method channel for PiP and other controls
     static func setupMethodChannel(with flutterViewController: FlutterViewController) {
         let channel = FlutterMethodChannel(
             name: channelName,
@@ -18,38 +14,63 @@ class PlayerViewController: UIViewController {
 
         channel.setMethodCallHandler { call, result in
             switch call.method {
-            case "enablePictureInPicture":
-                Self.enablePictureInPicture(result: result)
+            case "isAvailable":
+                result(AVPictureInPictureController.isPictureInPictureSupported())
+            case "enter":
+                Self.presentSystemPlayer(
+                    arguments: call.arguments as? [String: Any],
+                    from: flutterViewController,
+                    result: result
+                )
             default:
                 result(FlutterMethodNotImplemented)
             }
         }
     }
 
-    static func enablePictureInPicture(result: @escaping FlutterResult) {
-        // PiP support check
-        if AVPictureInPictureController.isPictureInPictureSupported() {
-            result(true)
-        } else {
+    static func presentSystemPlayer(
+        arguments: [String: Any]?,
+        from flutterViewController: FlutterViewController,
+        result: @escaping FlutterResult
+    ) {
+        guard AVPictureInPictureController.isPictureInPictureSupported(),
+              let urlString = arguments?["url"] as? String,
+              let url = URL(string: urlString) else {
             result(false)
+            return
         }
-    }
 
-    // Brightness adjustment
-    static func setBrightness(_ value: CGFloat) {
         DispatchQueue.main.async {
-            UIScreen.main.brightness = max(0.1, min(1.0, value))
-        }
-    }
+            do {
+                try AVAudioSession.sharedInstance().setCategory(.playback)
+                try AVAudioSession.sharedInstance().setActive(true)
+            } catch {
+                result(false)
+                return
+            }
 
-    // Volume control via system audio
-    static func setVolume(_ value: Float) {
-        let audioSession = AVAudioSession.sharedInstance()
-        do {
-            try audioSession.setCategory(.playback, options: .duckOthers)
-            try audioSession.setActive(true, options: .notifyOthersOnDeactivation)
-        } catch {
-            print("Audio session error: \(error)")
+            let player = AVPlayer(url: url)
+            let controller = AVPlayerViewController()
+            controller.player = player
+            controller.allowsPictureInPicturePlayback = true
+            if #available(iOS 14.2, *) {
+                controller.canStartPictureInPictureAutomaticallyFromInline = true
+            }
+            controller.modalPresentationStyle = .fullScreen
+
+            if let title = arguments?["title"] as? String {
+                controller.title = title
+            }
+            if let milliseconds = arguments?["positionMilliseconds"] as? Int,
+               milliseconds > 0 {
+                let time = CMTime(value: Int64(milliseconds), timescale: 1000)
+                player.seek(to: time)
+            }
+
+            flutterViewController.present(controller, animated: true) {
+                player.play()
+                result(true)
+            }
         }
     }
 }

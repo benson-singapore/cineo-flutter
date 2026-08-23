@@ -1,5 +1,23 @@
 import 'package:flutter/services.dart';
 
+class PictureInPictureRequest {
+  const PictureInPictureRequest({
+    required this.url,
+    required this.title,
+    required this.position,
+  });
+
+  final String url;
+  final String title;
+  final Duration position;
+
+  Map<String, Object> toMap() => <String, Object>{
+        'url': url,
+        'title': title,
+        'positionMilliseconds': position.inMilliseconds,
+      };
+}
+
 class PictureInPictureService {
   const PictureInPictureService();
 
@@ -15,11 +33,9 @@ class PictureInPictureService {
     }
   }
 
-  Future<bool> enter({double aspectRatio = 16 / 9}) async {
+  Future<bool> enter(PictureInPictureRequest request) async {
     try {
-      return await _channel.invokeMethod<bool>('enter', {
-            'aspectRatio': aspectRatio,
-          }) ??
+      return await _channel.invokeMethod<bool>('enter', request.toMap()) ??
           false;
     } on PlatformException {
       return false;

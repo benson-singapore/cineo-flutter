@@ -7,6 +7,7 @@ import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/models/media.dart';
+import '../../core/platform/picture_in_picture.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../settings/m3u8_filter_settings.dart';
 
@@ -21,6 +22,7 @@ const List<double> supportedPlaybackSpeeds = <double>[
 
 const int _maxPlaybackInitializationAttempts = 3;
 const Duration _playbackRetryDelay = Duration(milliseconds: 500);
+const Duration _controlsHideDelay = Duration(seconds: 3);
 
 /// Keeps episode labels readable when a source prefixes its own name, such
 /// as "source-a · 第01集".
@@ -102,7 +104,8 @@ class PlayerScreen extends StatefulWidget {
 
   /// Platform-specific PiP is injected by the caller. video_player itself does
   /// not expose a portable Flutter PiP API.
-  final VoidCallback? onPictureInPicture;
+  final Future<bool> Function(PictureInPictureRequest request)?
+      onPictureInPicture;
   final bool pictureInPictureAvailable;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
   final Future<MediaItem?> Function(MediaItem media)? onLoadAlternative;
@@ -116,6 +119,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   PlaybackOption? _activeOption;
   late MediaItem _media = widget.media;
   Timer? _saveTimer;
+  Timer? _controlsHideTimer;
   String? _error;
   bool _controlsVisible = true;
   double _playbackSpeed = 1;
@@ -235,6 +239,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           await controller.play();
           _saveTimer ??=
               Timer.periodic(const Duration(seconds: 10), (_) => _save());
+          _scheduleControlsHide();
           if (mounted) setState(() {});
           return;
         } catch (error) {
@@ -278,6 +283,11 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final isPlaying = _controller?.value.isPlaying;
     if (_lastIsPlaying == isPlaying) return;
     _lastIsPlaying = isPlaying;
+    if (isPlaying == true) {
+      _scheduleControlsHide();
+    } else {
+      _showControls();
+    }
     setState(() {});
   }
 
@@ -307,7 +317,32 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   void _toggleControls() {
-    setState(() => _controlsVisible = !_controlsVisible);
+    if (_controlsVisible) {
+      _hideControls();
+    } else {
+      _showControls();
+    }
+  }
+
+  void _showControls() {
+    _controlsHideTimer?.cancel();
+    if (!_controlsVisible && mounted) {
+      setState(() => _controlsVisible = true);
+    }
+    if (_controller?.value.isPlaying == true) _scheduleControlsHide();
+  }
+
+  void _hideControls() {
+    _controlsHideTimer?.cancel();
+    if (_controlsVisible && mounted) {
+      setState(() => _controlsVisible = false);
+    }
+  }
+
+  void _scheduleControlsHide() {
+    _controlsHideTimer?.cancel();
+    if (!_controlsVisible || _controller?.value.isPlaying != true) return;
+    _controlsHideTimer = Timer(_controlsHideDelay, _hideControls);
   }
 
   void _handleVerticalDrag(DragUpdateDetails details) {
@@ -343,8 +378,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (controller == null) return;
     if (controller.value.isPlaying) {
       await controller.pause();
+      _showControls();
     } else {
       await controller.play();
+      _showControls();
     }
   }
 
@@ -363,6 +400,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   Future<void> _selectEpisode(PlaybackOption option) async {
     if (option.id == _activeOption?.id) return;
+    _showControls();
     await _loadOption(option);
   }
 
@@ -471,6 +509,30 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (!launched && mounted) _showMessage('无法使用系统浏览器打开此播放地址');
   }
 
+  Future<void> _openPictureInPicture() async {
+    final option = _activeOption;
+    final enter = widget.onPictureInPicture;
+    final controller = _initializedController;
+    if (option == null || enter == null || controller == null) return;
+
+    _showControls();
+    final wasPlaying = controller.value.isPlaying;
+    if (wasPlaying) await controller.pause();
+    final url = playbackUrlForOption(
+      option,
+      widget.m3u8FilterSettings?.activeConfig,
+    );
+    final opened = await enter(PictureInPictureRequest(
+      url: url,
+      title: _media.title,
+      position: controller.value.position,
+    ));
+    if (!opened && mounted) {
+      if (wasPlaying) await controller.play();
+      _showMessage('无法打开系统播放器');
+    }
+  }
+
   Future<void> _toggleOrientation() async {
     final landscape = _orientation == _PlayerOrientation.landscape;
     await SystemChrome.setPreferredOrientations(
@@ -500,6 +562,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void dispose() {
     _loadGeneration++;
     _saveTimer?.cancel();
+    _controlsHideTimer?.cancel();
     _save();
     unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     final controller = _controller;
@@ -549,7 +612,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
               ),
             if (_error == null && isReady && controller != null)
               IgnorePointer(
-                ignoring: false,
+                ignoring: !_controlsVisible,
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 180),
                   opacity: _controlsVisible ? 1 : 0,
@@ -577,10 +640,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
                     isLandscape: _orientation == _PlayerOrientation.landscape,
                     onOpenInBrowser: _openInExternalBrowser,
                     onToggleOrientation: _toggleOrientation,
-                    onPictureInPicture: () {
-                      setState(() => _controlsVisible = false);
-                      widget.onPictureInPicture?.call();
-                    },
+                    onPictureInPicture: _openPictureInPicture,
+                    onControlsInteraction: _showControls,
+                    onToggleControls: _toggleControls,
                   ),
                 ),
               ),
@@ -972,6 +1034,8 @@ class _PlayerControls extends StatelessWidget {
     required this.onOpenInBrowser,
     required this.onToggleOrientation,
     required this.onPictureInPicture,
+    required this.onControlsInteraction,
+    required this.onToggleControls,
   });
 
   final VideoPlayerController controller;
@@ -995,151 +1059,162 @@ class _PlayerControls extends StatelessWidget {
   final VoidCallback onOpenInBrowser;
   final VoidCallback onToggleOrientation;
   final VoidCallback? onPictureInPicture;
+  final VoidCallback onControlsInteraction;
+  final VoidCallback onToggleControls;
 
   @override
   Widget build(BuildContext context) {
-    return DecoratedBox(
-      decoration: const BoxDecoration(
-        gradient: LinearGradient(
-          begin: Alignment.topCenter,
-          end: Alignment.bottomCenter,
-          colors: [Colors.black54, Colors.transparent, Color(0xCC000000)],
-          stops: [0, .32, 1],
-        ),
-      ),
-      child: SafeArea(
-        child: Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-          child: Column(
-            children: [
-              Row(
+    return Listener(
+      onPointerDown: (_) => onControlsInteraction(),
+      child: GestureDetector(
+        behavior: HitTestBehavior.translucent,
+        onTap: onToggleControls,
+        child: DecoratedBox(
+          decoration: const BoxDecoration(
+            gradient: LinearGradient(
+              begin: Alignment.topCenter,
+              end: Alignment.bottomCenter,
+              colors: [Colors.black54, Colors.transparent, Color(0xCC000000)],
+              stops: [0, .32, 1],
+            ),
+          ),
+          child: SafeArea(
+            child: Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+              child: Column(
                 children: [
-                  IconButton(
-                    tooltip: '返回',
-                    onPressed: onClose,
-                    icon: const Icon(Icons.arrow_back_rounded),
-                  ),
-                  Expanded(
-                    child: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w700,
+                  Row(
+                    children: [
+                      IconButton(
+                        tooltip: '返回',
+                        onPressed: onClose,
+                        icon: const Icon(Icons.arrow_back_rounded),
                       ),
-                    ),
-                  ),
-                  IconButton(
-                    tooltip: '在浏览器打开',
-                    onPressed: onOpenInBrowser,
-                    icon: const Icon(Icons.open_in_browser_rounded),
-                  ),
-                  if (canSwitchSource)
-                    IconButton(
-                      tooltip: '切换资源站',
-                      onPressed: isSwitchingSource ? null : onOpenSource,
-                      icon: isSwitchingSource
-                          ? const SizedBox(
-                              width: 18,
-                              height: 18,
-                              child: CircularProgressIndicator(strokeWidth: 2),
-                            )
-                          : const Icon(Icons.switch_video_rounded),
-                    ),
-                  IconButton(
-                    tooltip: isLandscape ? '竖屏播放' : '横屏播放',
-                    onPressed: onToggleOrientation,
-                    icon: Icon(
-                      isLandscape
-                          ? Icons.stay_current_portrait_rounded
-                          : Icons.screen_rotation_alt_rounded,
-                    ),
-                  ),
-                  _PictureInPictureButton(
-                    available: pictureInPictureAvailable,
-                    onPressed: onPictureInPicture,
-                  ),
-                ],
-              ),
-              const Spacer(),
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                decoration: BoxDecoration(
-                  color: Colors.black.withOpacity(.42),
-                  borderRadius: BorderRadius.circular(26),
-                  border: Border.all(color: Colors.white12),
-                ),
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    IconButton(
-                      tooltip: '上一集',
-                      onPressed: canGoPrevious ? onPrevious : null,
-                      icon: const Icon(Icons.skip_previous_rounded),
-                    ),
-                    IconButton(
-                      tooltip: isPlaying ? '暂停' : '播放',
-                      iconSize: 54,
-                      color: CineoColors.primary,
-                      onPressed: onPlayPause,
-                      icon: Icon(
-                        isPlaying
-                            ? Icons.pause_circle_filled_rounded
-                            : Icons.play_circle_fill_rounded,
-                      ),
-                    ),
-                    IconButton(
-                      tooltip: '下一集',
-                      onPressed: canGoNext ? onNext : null,
-                      icon: const Icon(Icons.skip_next_rounded),
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 18),
-              VideoProgressIndicator(
-                controller,
-                allowScrubbing: true,
-                colors: const VideoProgressColors(
-                  playedColor: CineoColors.primary,
-                  bufferedColor: Colors.white38,
-                  backgroundColor: Colors.white24,
-                ),
-              ),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  PopupMenuButton<double>(
-                    tooltip: '播放速度',
-                    initialValue: speed,
-                    onSelected: onSpeedChanged,
-                    itemBuilder: (context) => supportedPlaybackSpeeds
-                        .map(
-                          (value) => PopupMenuItem<double>(
-                            value: value,
-                            child: Text('${value}x'),
+                      Expanded(
+                        child: Text(
+                          title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: const TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
                           ),
-                        )
-                        .toList(),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(horizontal: 12),
-                      child: Text(
-                        '${speed}x',
-                        style: const TextStyle(fontWeight: FontWeight.w700),
+                        ),
                       ),
+                      IconButton(
+                        tooltip: '在系统浏览器打开',
+                        onPressed: onOpenInBrowser,
+                        icon: const Icon(Icons.open_in_browser_rounded),
+                      ),
+                      if (canSwitchSource)
+                        IconButton(
+                          tooltip: '切换资源站',
+                          onPressed: isSwitchingSource ? null : onOpenSource,
+                          icon: isSwitchingSource
+                              ? const SizedBox(
+                                  width: 18,
+                                  height: 18,
+                                  child:
+                                      CircularProgressIndicator(strokeWidth: 2),
+                                )
+                              : const Icon(Icons.switch_video_rounded),
+                        ),
+                      IconButton(
+                        tooltip: isLandscape ? '竖屏播放' : '横屏播放',
+                        onPressed: onToggleOrientation,
+                        icon: Icon(
+                          isLandscape
+                              ? Icons.stay_current_portrait_rounded
+                              : Icons.screen_rotation_alt_rounded,
+                        ),
+                      ),
+                      _PictureInPictureButton(
+                        available: pictureInPictureAvailable,
+                        onPressed: onPictureInPicture,
+                      ),
+                    ],
+                  ),
+                  const Spacer(),
+                  Container(
+                    padding:
+                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.42),
+                      borderRadius: BorderRadius.circular(26),
+                      border: Border.all(color: Colors.white12),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          tooltip: '上一集',
+                          onPressed: canGoPrevious ? onPrevious : null,
+                          icon: const Icon(Icons.skip_previous_rounded),
+                        ),
+                        IconButton(
+                          tooltip: isPlaying ? '暂停' : '播放',
+                          iconSize: 54,
+                          color: CineoColors.primary,
+                          onPressed: onPlayPause,
+                          icon: Icon(
+                            isPlaying
+                                ? Icons.pause_circle_filled_rounded
+                                : Icons.play_circle_fill_rounded,
+                          ),
+                        ),
+                        IconButton(
+                          tooltip: '下一集',
+                          onPressed: canGoNext ? onNext : null,
+                          icon: const Icon(Icons.skip_next_rounded),
+                        ),
+                      ],
                     ),
                   ),
-                  if (hasEpisodes)
-                    IconButton(
-                      tooltip: '打开选集',
-                      onPressed: onOpenEpisodes,
-                      icon: const Icon(Icons.list_alt_rounded),
+                  const SizedBox(height: 18),
+                  VideoProgressIndicator(
+                    controller,
+                    allowScrubbing: true,
+                    colors: const VideoProgressColors(
+                      playedColor: CineoColors.primary,
+                      bufferedColor: Colors.white38,
+                      backgroundColor: Colors.white24,
                     ),
-                  const SizedBox(width: 8),
+                  ),
+                  Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      PopupMenuButton<double>(
+                        tooltip: '播放速度',
+                        initialValue: speed,
+                        onSelected: onSpeedChanged,
+                        itemBuilder: (context) => supportedPlaybackSpeeds
+                            .map(
+                              (value) => PopupMenuItem<double>(
+                                value: value,
+                                child: Text('${value}x'),
+                              ),
+                            )
+                            .toList(),
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(horizontal: 12),
+                          child: Text(
+                            '${speed}x',
+                            style: const TextStyle(fontWeight: FontWeight.w700),
+                          ),
+                        ),
+                      ),
+                      if (hasEpisodes)
+                        IconButton(
+                          tooltip: '打开选集',
+                          onPressed: onOpenEpisodes,
+                          icon: const Icon(Icons.list_alt_rounded),
+                        ),
+                      const SizedBox(width: 8),
+                    ],
+                  ),
                 ],
               ),
-            ],
+            ),
           ),
         ),
       ),
@@ -1159,7 +1234,7 @@ class _PictureInPictureButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      tooltip: available ? '画中画' : '画中画不可用',
+      tooltip: available ? '使用系统播放器（支持画中画）' : '画中画不可用',
       onPressed: available ? onPressed : null,
       icon: const Icon(Icons.picture_in_picture_alt),
     );
