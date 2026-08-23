@@ -7,8 +7,7 @@
 </div>
 
 <div align="center">
-  <a href="#中文说明">中文说明</a> ·
-  <a href="#english">English</a>
+  <a href="README_EN.md">English</a>
 </div>
 
 ## 中文说明
@@ -252,93 +251,3 @@ Android 本地发布构建会使用本地签名配置；iOS 默认生成未签�
 当前仓库未声明开源许可证。除非项目维护者另行授权，请不要将本项目或其附带的媒体源配置、图片和第三方内容用于未经许可的分发。
 
 本项目不提供、不托管任何影视资源。用户需要自行配置合法、可访问的视频源，并遵守所在地区的法律法规以及相关服务条款。TMDB、视频源站点和其他第三方服务分别遵循其各自的许可证与使用条款。
-
-## English
-
-Cineo is a local-first, cross-platform Flutter app for discovering and playing media. It lets you manage multiple video sources, import MacCMS-compatible JSON configurations, browse catalogs, search titles, inspect details, play episodes, save favorites, and resume playback.
-
-The product direction and interaction concepts are primarily inspired by [KatelyaTV](https://github.com/katelya77/KatelyaTV). Cineo is an independent Flutter app implementation built on top of that inspiration. Many thanks to the KatelyaTV project for the ideas that helped shape this app.
-
-> The app starts with a built-in demo library by default. To load real content, add or import an API source from the “Video Sources” page and set it as the default source.
-
-### Highlights
-
-- Manage multiple media sources with enable, disable, favorite, delete, and connectivity-test actions.
-- Import MacCMS-compatible JSON configurations containing an `api_site` object.
-- Keep favorites, watch progress, watch history, search history, and source preferences locally.
-- Browse home sections, categories, search results, media details, seasons, and episodes.
-- Play HLS (`.m3u8`) and MP4 streams, with Android picture-in-picture support.
-- Optionally enrich media metadata with TMDB posters, backdrops, cast, seasons, and episode summaries.
-- Protect TMDB credentials and app-lock verification data with secure local storage.
-- Build from the same Flutter codebase for Android, iOS, and Web targets.
-
-### Preview
-
-The README intentionally shows four representative screenshots:
-
-<div align="center">
-  <img src="docs/pic/IMG_3493.jpg" width="180" alt="Cineo home screen">
-  <img src="docs/pic/IMG_3494.jpg" width="180" alt="Cineo search screen">
-  <img src="docs/pic/IMG_3495.jpg" width="180" alt="Cineo details screen">
-  <img src="docs/pic/IMG_3496.jpg" width="180" alt="Cineo player screen">
-</div>
-
-### Getting started
-
-Requirements:
-
-- Flutter SDK
-- Dart SDK `>=3.1.5 <4.0.0`
-- Android compile SDK 34
-- macOS and Xcode for local iOS builds
-
-```bash
-flutter doctor
-flutter pub get
-flutter run
-```
-
-Useful build commands:
-
-```bash
-flutter build apk
-flutter build appbundle
-flutter build ios
-flutter build web
-```
-
-### Importing a source configuration
-
-Open “Video Sources” in the app and import a JSON object containing `api_site`:
-
-```json
-{
-  "cache_time": 7200,
-  "api_site": {
-    "example": {
-      "name": "Example Source",
-      "api": "https://example.com/api.php/provide/vod/",
-      "detail": "https://example.com",
-      "is_adult": false
-    }
-  }
-}
-```
-
-The import flow parses and stores the configuration locally; it does not contact the source during import. HTTPS is recommended. Only configure sources and content that you are authorized to access.
-
-### Development checks
-
-```bash
-flutter test
-flutter analyze
-dart format lib test
-```
-
-See the Chinese documentation above for details about TMDB enrichment, local storage, project structure, release builds, platform notes, and source compatibility.
-
-### License and content notice
-
-This repository currently has no declared open-source license. Do not redistribute the project, bundled media-source configurations, images, or third-party content without permission from the maintainers and the respective rights holders.
-
-Cineo does not provide or host any media content. Users are responsible for configuring lawful sources and complying with applicable laws and third-party terms of service.
