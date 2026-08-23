@@ -42,7 +42,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     final database = await openDatabase(
       resolvedPath,
-      version: 7,
+      version: 8,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -96,6 +96,7 @@ class LocalMediaRepository implements MediaRepository {
           )
         ''');
         await _createMediaSnapshotsTable(database);
+        await _createHomeCategoryCacheTable(database);
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -141,6 +142,9 @@ class LocalMediaRepository implements MediaRepository {
               'ALTER TABLE progress ADD COLUMN episode_number INTEGER');
           await database
               .execute('ALTER TABLE progress ADD COLUMN episode_count INTEGER');
+        }
+        if (oldVersion < 8) {
+          await _createHomeCategoryCacheTable(database);
         }
       },
     );
@@ -235,6 +239,58 @@ class LocalMediaRepository implements MediaRepository {
       rows.map((row) => getById(row['media_id'] as String)),
     );
     return items.whereType<MediaItem>().toList(growable: false);
+  }
+
+  /// Restores the last successful homepage snapshot without contacting a
+  /// remote source. Missing media snapshots are ignored so a partial cache
+  /// never prevents the rest of the homepage from appearing.
+  Future<List<HomeCategoryRail>> cachedHomeCategoryRails() async {
+    final rows = await (await _db).query(
+      'home_category_rails',
+      orderBy: 'position ASC',
+    );
+    final rails = <HomeCategoryRail>[];
+    for (final row in rows) {
+      final mediaIds = _decodeStringList(row['media_ids_json']);
+      final items = await Future.wait(
+        mediaIds.map((mediaId) => getById(mediaId)),
+      );
+      rails.add(
+        HomeCategoryRail(
+          title: row['title'] as String,
+          categoryIds: _decodeStringList(row['category_ids_json']),
+          items: items.whereType<MediaItem>().toList(growable: false),
+        ),
+      );
+    }
+    return rails;
+  }
+
+  /// Persists the complete homepage result as one replaceable snapshot.
+  /// User state such as favorites and progress remains in its own tables.
+  Future<void> saveHomeCategoryRails(List<HomeCategoryRail> rails) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      for (final rail in rails) {
+        for (final item in rail.items) {
+          await _saveMediaSnapshot(item, database: transaction);
+        }
+      }
+      await transaction.delete('home_category_rails');
+      for (var index = 0; index < rails.length; index++) {
+        final rail = rails[index];
+        await transaction.insert('home_category_rails', {
+          'rail_key': '$index:${rail.title}',
+          'title': rail.title,
+          'category_ids_json': jsonEncode(rail.categoryIds),
+          'media_ids_json': jsonEncode(
+            rail.items.map((item) => item.id).toList(growable: false),
+          ),
+          'position': index,
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+    });
   }
 
   @override
@@ -769,6 +825,19 @@ class LocalMediaRepository implements MediaRepository {
     ''');
   }
 
+  Future<void> _createHomeCategoryCacheTable(DatabaseExecutor database) {
+    return database.execute('''
+      CREATE TABLE home_category_rails (
+        rail_key TEXT PRIMARY KEY,
+        title TEXT NOT NULL,
+        category_ids_json TEXT NOT NULL,
+        media_ids_json TEXT NOT NULL,
+        position INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+  }
+
   Future<void> _saveMediaSnapshot(
     MediaItem media, {
     required DatabaseExecutor database,
@@ -897,6 +966,13 @@ class LocalMediaRepository implements MediaRepository {
     if (value is String) return int.tryParse(value);
     if (value is num) return value.toInt();
     return null;
+  }
+
+  List<String> _decodeStringList(Object? value) {
+    if (value is! String) return const [];
+    final decoded = jsonDecode(value);
+    if (decoded is! List) return const [];
+    return decoded.whereType<String>().toList(growable: false);
   }
 }
 

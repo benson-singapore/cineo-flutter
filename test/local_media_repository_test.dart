@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:cineo_flutter/core/models/media.dart';
 import 'package:cineo_flutter/core/models/media_source.dart';
+import 'package:cineo_flutter/core/models/home_category_rail.dart';
 import 'package:cineo_flutter/data/repositories/local_media_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -91,6 +92,44 @@ void main() {
     expect(favorites.single.posterUrl, media.posterUrl);
     expect(favorites.single.sourceName, media.sourceName);
     expect(favorites.single.genres, media.genres);
+  });
+
+  test('restores homepage category rails after the repository is recreated',
+      () async {
+    const cachedMedia = MediaItem(
+      id: 'source-a:home-1',
+      sourceId: 'source-a',
+      sourceName: '测试资源站',
+      remoteId: 'home-1',
+      title: '缓存首页视频',
+      description: '首页快照内容',
+      year: 2026,
+      kind: MediaKind.movie,
+      posterUrl: 'https://example.test/home-poster.jpg',
+      backdropUrl: 'https://example.test/home-backdrop.jpg',
+      genres: ['电影'],
+      rating: 8.2,
+      duration: Duration(minutes: 90),
+      categoryId: 'movie-1',
+    );
+    await repository.saveHomeCategoryRails([
+      const HomeCategoryRail(
+        title: '电影',
+        categoryIds: ['movie-1'],
+        items: [cachedMedia],
+      ),
+    ]);
+    await repository.close();
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+    );
+
+    final rails = await repository.cachedHomeCategoryRails();
+    expect(rails, hasLength(1));
+    expect(rails.single.title, '电影');
+    expect(rails.single.categoryIds, ['movie-1']);
+    expect(rails.single.items.single.title, cachedMedia.title);
+    expect(rails.single.items.single.posterUrl, cachedMedia.posterUrl);
   });
 
   test('persists a display snapshot when remote playback progress is saved',

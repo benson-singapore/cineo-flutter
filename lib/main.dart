@@ -165,83 +165,57 @@ class _CineoShellState extends State<CineoShell> {
   Future<void> _refresh({bool preserveContent = true}) async {
     final revision = ++_refreshRevision;
     final stopwatch = Stopwatch()..start();
-    final showCachedContent = preserveContent && _homeCategoryRails.isNotEmpty;
+    final showCachedContent = preserveContent && _hasHomeContent;
     _debugLog(
       'home_refresh phase=start revision=$revision',
     );
     if (mounted) {
       setState(() {
         _loading = !showCachedContent;
-        _refreshing = showCachedContent;
+        _refreshing = true;
         if (!showCachedContent) _errorMessage = null;
       });
     }
+    final localStateFuture = _loadLocalHomeState();
+    final remoteRailsFuture = _loadRemoteHomeState();
     try {
-      final categories = await widget.repository.defaultSourceCategories();
+      final localState = await localStateFuture;
       if (!mounted || revision != _refreshRevision) return;
-      final railsFuture = widget.repository.browseDefaultHomeCategoryRails(
-        categories,
+      setState(() {
+        _applyLocalHomeState(localState);
+        _loading = !_hasHomeContent;
+        if (_hasHomeContent) _errorMessage = null;
+      });
+    } catch (error, stackTrace) {
+      _debugError(
+        'home_refresh phase=local_restore_failed revision=$revision',
+        error,
+        stackTrace,
       );
-      final progressFuture = widget.repository.watchHistory(
-        includeAdult: _includeAdultHistory,
-      );
-      final historyFuture = widget.repository.searchHistory();
-      final favoritesFuture = widget.repository.favorites();
-      final results = await Future.wait([
-        railsFuture,
-        progressFuture,
-        historyFuture,
-        favoritesFuture,
-      ]);
-      final rails = results[0] as List<HomeCategoryRail>;
-      final items = rails.expand((rail) => rail.items).toList(growable: false);
-      final progress = results[1] as List<WatchProgress>;
-      final history = results[2] as List<String>;
-      final favorites = results[3] as List<MediaItem>;
-      final historyMedia = await Future.wait(
-        progress.map((entry) => widget.repository.getById(entry.mediaId)),
-      );
-      final byId = <String, MediaItem>{
-        for (final item in historyMedia.whereType<MediaItem>()) item.id: item,
-      };
-      final continueWatching = [
-        for (final entry in progress)
-          if (!entry.isComplete && byId[entry.mediaId] != null)
-            byId[entry.mediaId]!,
-      ];
-      if (continueWatching.isNotEmpty) {
-        try {
-          final details = await widget.tmdbMetadata.loadCachedForMedia(
-            continueWatching.first,
-          );
-          final posterUrl = details?.posterUrl.trim() ?? '';
-          if (posterUrl.isNotEmpty) {
-            continueWatching[0] = continueWatching.first.copyWith(
-              posterUrl: posterUrl,
-            );
-          }
-        } on Object {
-          // A cache read must not prevent the home screen from loading.
-        }
-      }
       if (!mounted || revision != _refreshRevision) return;
+      setState(() {
+        _loading = !_hasHomeContent;
+      });
+    }
+
+    try {
+      final remoteState = await remoteRailsFuture;
+      if (!mounted || revision != _refreshRevision) return;
+      await _saveHomeCache(remoteState.rails);
+      if (!mounted || revision != _refreshRevision) return;
+      final items = remoteState.rails
+          .expand((rail) => rail.items)
+          .toList(growable: false);
       stopwatch.stop();
       _debugLog(
         'home_refresh phase=complete revision=$revision '
-        'elapsedMs=${stopwatch.elapsedMilliseconds} rails=${rails.length} '
-        'items=${items.length} '
-        'progress=${progress.length} searchHistory=${history.length}',
+        'elapsedMs=${stopwatch.elapsedMilliseconds} rails=${remoteState.rails.length} '
+        'items=${items.length}',
       );
       setState(() {
         _items = items;
-        _homeCategoryRails = rails;
-        _categories = categories;
-        _continueWatching = continueWatching;
-        _favorites = favorites;
-        _progressByMediaId = {
-          for (final entry in progress) entry.mediaId: entry.fraction,
-        };
-        _searchHistory = history;
+        _homeCategoryRails = remoteState.rails;
+        _categories = remoteState.categories;
         _loading = false;
         _refreshing = false;
         _errorMessage = null;
@@ -249,7 +223,7 @@ class _CineoShellState extends State<CineoShell> {
     } catch (error, stackTrace) {
       stopwatch.stop();
       _debugError(
-        'home_refresh phase=failed revision=$revision '
+        'home_refresh phase=remote_failed revision=$revision '
         'elapsedMs=${stopwatch.elapsedMilliseconds}',
         error,
         stackTrace,
@@ -258,10 +232,88 @@ class _CineoShellState extends State<CineoShell> {
       setState(() {
         _loading = false;
         _refreshing = false;
-        if (!showCachedContent) _errorMessage = _homeLoadError(error);
+        if (!_hasHomeContent) _errorMessage = _homeLoadError(error);
       });
     }
   }
+
+  Future<_LocalHomeState> _loadLocalHomeState() async {
+    final results = await Future.wait([
+      widget.repository.cachedHomeCategoryRails(),
+      widget.repository.watchHistory(includeAdult: _includeAdultHistory),
+      widget.repository.searchHistory(),
+      widget.repository.favorites(),
+    ]);
+    final rails = results[0] as List<HomeCategoryRail>;
+    final progress = results[1] as List<WatchProgress>;
+    final history = results[2] as List<String>;
+    final favorites = results[3] as List<MediaItem>;
+    final historyMedia = await Future.wait(
+      progress.map((entry) => widget.repository.getById(entry.mediaId)),
+    );
+    final byId = <String, MediaItem>{
+      for (final item in historyMedia.whereType<MediaItem>()) item.id: item,
+    };
+    final continueWatching = [
+      for (final entry in progress)
+        if (!entry.isComplete && byId[entry.mediaId] != null)
+          byId[entry.mediaId]!,
+    ];
+    if (continueWatching.isNotEmpty) {
+      try {
+        final details = await widget.tmdbMetadata.loadCachedForMedia(
+          continueWatching.first,
+        );
+        final posterUrl = details?.posterUrl.trim() ?? '';
+        if (posterUrl.isNotEmpty) {
+          continueWatching[0] = continueWatching.first.copyWith(
+            posterUrl: posterUrl,
+          );
+        }
+      } on Object {
+        // A cache read must not prevent the home screen from loading.
+      }
+    }
+    return _LocalHomeState(
+      rails: rails,
+      progress: progress,
+      history: history,
+      favorites: favorites,
+      continueWatching: continueWatching,
+    );
+  }
+
+  Future<_RemoteHomeState> _loadRemoteHomeState() async {
+    final categories = await widget.repository.defaultSourceCategories();
+    final rails = await widget.repository.browseDefaultHomeCategoryRails(
+      categories,
+    );
+    return _RemoteHomeState(categories: categories, rails: rails);
+  }
+
+  Future<void> _saveHomeCache(List<HomeCategoryRail> rails) async {
+    try {
+      await widget.repository.saveHomeCategoryRails(rails);
+    } on Object catch (error, stackTrace) {
+      _debugError('home_cache phase=save_failed', error, stackTrace);
+    }
+  }
+
+  void _applyLocalHomeState(_LocalHomeState state) {
+    _homeCategoryRails = state.rails;
+    _items = state.rails.expand((rail) => rail.items).toList(growable: false);
+    _continueWatching = state.continueWatching;
+    _favorites = state.favorites;
+    _progressByMediaId = {
+      for (final entry in state.progress) entry.mediaId: entry.fraction,
+    };
+    _searchHistory = state.history;
+  }
+
+  bool get _hasHomeContent =>
+      _items.isNotEmpty ||
+      _continueWatching.isNotEmpty ||
+      _favorites.isNotEmpty;
 
   String _homeLoadError(Object error) {
     final detail = error.toString().replaceFirst('Exception: ', '').trim();
@@ -923,6 +975,29 @@ class _GlassNavigationDestination {
   final String label;
   final IconData icon;
   final IconData selectedIcon;
+}
+
+class _LocalHomeState {
+  const _LocalHomeState({
+    required this.rails,
+    required this.progress,
+    required this.history,
+    required this.favorites,
+    required this.continueWatching,
+  });
+
+  final List<HomeCategoryRail> rails;
+  final List<WatchProgress> progress;
+  final List<String> history;
+  final List<MediaItem> favorites;
+  final List<MediaItem> continueWatching;
+}
+
+class _RemoteHomeState {
+  const _RemoteHomeState({required this.categories, required this.rails});
+
+  final List<UnifiedCategory> categories;
+  final List<HomeCategoryRail> rails;
 }
 
 void _debugLog(String message) {
