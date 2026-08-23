@@ -121,6 +121,14 @@ jobs:
             exit 1
           fi
 
+      - name: Upload iOS build diagnostics
+        if: always()
+        uses: actions/upload-artifact@v5
+        with:
+          name: cineo-ios-build-diagnostics-${{ github.ref_name }}
+          path: build/ios/xcodebuild.log
+          if-no-files-found: warn
+
       - name: Package unsigned IPA
         run: |
           rm -rf build/ios/unsigned-ipa
