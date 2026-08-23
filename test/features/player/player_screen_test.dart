@@ -21,12 +21,16 @@ void main() {
         url: 'https://example.com/video.m3u8',
         title: '示例视频',
         position: Duration(seconds: 42),
+        aspectRatio: 16 / 9,
+        isPlaying: true,
       );
 
       expect(request.toMap(), <String, Object>{
         'url': 'https://example.com/video.m3u8',
         'title': '示例视频',
         'positionMilliseconds': 42000,
+        'aspectRatio': 16 / 9,
+        'isPlaying': true,
       });
     });
 

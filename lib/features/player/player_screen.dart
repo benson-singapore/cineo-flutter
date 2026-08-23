@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:math' as math;
 
+import 'package:flutter/foundation.dart'
+    show TargetPlatform, defaultTargetPlatform;
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -115,6 +117,8 @@ class PlayerScreen extends StatefulWidget {
 }
 
 class _PlayerScreenState extends State<PlayerScreen> {
+  static const _pictureInPicture = PictureInPictureService();
+
   VideoPlayerController? _controller;
   PlaybackOption? _activeOption;
   late MediaItem _media = widget.media;
@@ -129,6 +133,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double _brightness = 1.0;
   double _volume = 1.0;
   bool _searchingOtherSources = false;
+  bool _isInPictureInPicture = false;
 
   List<PlaybackOption> get _episodes {
     final activeQuality = _activeOption?.quality ?? widget.option.quality;
@@ -159,6 +164,10 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    unawaited(_pictureInPicture.setEventHandlers(
+      onAction: _handlePictureInPictureAction,
+      onModeChanged: _handlePictureInPictureModeChanged,
+    ));
     _loadOption(widget.option, initial: true);
   }
 
@@ -215,6 +224,9 @@ class _PlayerScreenState extends State<PlayerScreen> {
         final controller = VideoPlayerController.networkUrl(
           Uri.parse(playbackUrl),
           formatHint: playbackFormatHintForOption(option),
+          videoPlayerOptions: VideoPlayerOptions(
+            allowBackgroundPlayback: true,
+          ),
         );
         _controller = controller;
         if (mounted) setState(() {});
@@ -240,6 +252,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
           _saveTimer ??=
               Timer.periodic(const Duration(seconds: 10), (_) => _save());
           _scheduleControlsHide();
+          _updatePictureInPictureControls();
           if (mounted) setState(() {});
           return;
         } catch (error) {
@@ -288,7 +301,42 @@ class _PlayerScreenState extends State<PlayerScreen> {
     } else {
       _showControls();
     }
+    _updatePictureInPictureControls();
     setState(() {});
+  }
+
+  PictureInPictureRequest? _pictureInPictureRequest() {
+    final controller = _initializedController;
+    final option = _activeOption;
+    if (controller == null || option == null) return null;
+    final aspectRatio = controller.value.aspectRatio;
+    return PictureInPictureRequest(
+      url: playbackUrlForOption(
+        option,
+        widget.m3u8FilterSettings?.activeConfig,
+      ),
+      title: _media.title,
+      position: controller.value.position,
+      aspectRatio: aspectRatio > 0 ? aspectRatio : 16 / 9,
+      isPlaying: controller.value.isPlaying,
+    );
+  }
+
+  void _updatePictureInPictureControls() {
+    final request = _pictureInPictureRequest();
+    if (request != null) unawaited(_pictureInPicture.update(request));
+  }
+
+  Future<void> _handlePictureInPictureAction(String action) async {
+    switch (action) {
+      case 'toggle':
+        await _togglePlayPause();
+    }
+  }
+
+  void _handlePictureInPictureModeChanged(bool isInPictureInPicture) {
+    if (!mounted) return;
+    setState(() => _isInPictureInPicture = isInPictureInPicture);
   }
 
   void _save() {
@@ -402,6 +450,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (option.id == _activeOption?.id) return;
     _showControls();
     await _loadOption(option);
+    _updatePictureInPictureControls();
   }
 
   Future<void> _openEpisodePanel() async {
@@ -516,19 +565,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (option == null || enter == null || controller == null) return;
 
     _showControls();
-    final wasPlaying = controller.value.isPlaying;
-    if (wasPlaying) await controller.pause();
-    final url = playbackUrlForOption(
-      option,
-      widget.m3u8FilterSettings?.activeConfig,
-    );
-    final opened = await enter(PictureInPictureRequest(
-      url: url,
-      title: _media.title,
-      position: controller.value.position,
-    ));
+    final request = _pictureInPictureRequest();
+    if (request == null) return;
+
+    final isAndroid = defaultTargetPlatform == TargetPlatform.android;
+    if (isAndroid && mounted) {
+      // Render the PiP-safe surface before Android shrinks the activity. Some
+      // devices apply PiP before their mode-change callback reaches Flutter.
+      setState(() => _isInPictureInPicture = true);
+      await WidgetsBinding.instance.endOfFrame;
+      if (!mounted) return;
+    }
+
+    final opened = await enter(request);
     if (!opened && mounted) {
-      if (wasPlaying) await controller.play();
+      if (isAndroid) setState(() => _isInPictureInPicture = false);
       _showMessage('无法打开系统播放器');
     }
   }
@@ -563,6 +614,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     _loadGeneration++;
     _saveTimer?.cancel();
     _controlsHideTimer?.cancel();
+    unawaited(_pictureInPicture.setEventHandlers());
     _save();
     unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     final controller = _controller;
@@ -578,6 +630,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final controller = _controller;
     final value = controller?.value;
     final isReady = value?.isInitialized == true;
+
+    if (_isInPictureInPicture && isReady && controller != null) {
+      return ColoredBox(
+        color: Colors.black,
+        child: Center(
+          child: AspectRatio(
+            aspectRatio: value!.aspectRatio > 0 ? value.aspectRatio : 16 / 9,
+            child: VideoPlayer(controller),
+          ),
+        ),
+      );
+    }
 
     return Scaffold(
       backgroundColor: Colors.black,
