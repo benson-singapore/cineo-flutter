@@ -148,6 +148,7 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
+      extendBody: true,
       backgroundColor: CineoColors.background,
       appBar: AppBar(
         title: Text(widget.title),
@@ -190,7 +191,7 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
                           )
                         else
                           SliverPadding(
-                            padding: const EdgeInsets.fromLTRB(20, 16, 20, 8),
+                            padding: const EdgeInsets.fromLTRB(20, 16, 20, 88),
                             sliver: SliverGrid(
                               delegate: SliverChildBuilderDelegate(
                                 (context, index) => BrowseMediaCard(
@@ -228,6 +229,7 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
               child: const Icon(Icons.keyboard_arrow_up_rounded),
             )
           : null,
+      floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
     );
   }
 }
