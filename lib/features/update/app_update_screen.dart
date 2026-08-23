@@ -147,7 +147,7 @@ class _AppUpdateScreenState extends State<AppUpdateScreen> {
                                   expanded: _showFullNotes,
                                   onTapLink: _openReleaseNoteLink,
                                 ),
-                                if (notes.length > 360)
+                                if (_ReleaseNotesMarkdown.shouldCollapse(notes))
                                   TextButton(
                                     onPressed: () => setState(
                                       () => _showFullNotes = !_showFullNotes,
@@ -201,11 +201,16 @@ class _ReleaseNotesMarkdown extends StatelessWidget {
     required this.onTapLink,
   });
 
-  static const _collapsedHeight = 240.0;
+  static const _previewLineLimit = 6;
 
   final String data;
   final bool expanded;
   final Future<void> Function(String? href) onTapLink;
+
+  static bool shouldCollapse(String markdown) {
+    return markdown.split('\n').length > _previewLineLimit ||
+        markdown.length > 300;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -240,21 +245,46 @@ class _ReleaseNotesMarkdown extends StatelessWidget {
         height: 1.55,
       ),
     );
-    final markdown = MarkdownBody(
+    if (!expanded) {
+      return Text(
+        _previewText(data),
+        maxLines: _previewLineLimit,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          color: CineoColors.textSecondary,
+          height: 1.55,
+        ),
+      );
+    }
+
+    return MarkdownBody(
       data: data,
       onTapLink: (text, href, title) => onTapLink(href),
       styleSheet: styleSheet,
+      shrinkWrap: true,
+      fitContent: true,
+      listItemCrossAxisAlignment: MarkdownListItemCrossAxisAlignment.start,
     );
+  }
 
-    if (expanded) return markdown;
-    return SizedBox(
-      height: _collapsedHeight,
-      child: ClipRect(
-        child: Align(
-          alignment: Alignment.topCenter,
-          child: markdown,
-        ),
-      ),
-    );
+  static String _previewText(String markdown) {
+    return markdown
+        .split('\n')
+        .where((line) => !line.trimLeft().startsWith('```'))
+        .take(_previewLineLimit)
+        .map((line) {
+          var text = line.trim();
+          text = text.replaceFirst(RegExp(r'^#{1,6}\s+'), '');
+          text = text.replaceFirst(RegExp(r'^[-*+]\s+'), '• ');
+          text = text.replaceFirst(RegExp(r'^\d+[.)]\s+'), '• ');
+          text = text.replaceAll(RegExp(r'\*\*|__|[*_`]'), '');
+          text = text.replaceAllMapped(
+            RegExp(r'\[([^\]]+)\]\([^)]*\)'),
+            (match) => match.group(1) ?? '',
+          );
+          return text;
+        })
+        .where((line) => line.isNotEmpty)
+        .join('\n');
   }
 }
