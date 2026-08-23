@@ -1,9 +1,12 @@
 import UIKit
+import AVFoundation
 import AVKit
 
-class VideoPlayerPiPController: NSObject {
+class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
     static let shared = VideoPlayerPiPController()
 
+    var pipController: AVPictureInPictureController?
+    var playerLayer: AVPlayerLayer?
     var playerViewController: AVPlayerViewController?
 
     override private init() {
@@ -23,28 +26,39 @@ class VideoPlayerPiPController: NSObject {
             return false
         }
 
-        playerViewController.allowsPictureInPicturePlayback = true
+        guard let player = playerViewController.player else {
+            return false
+        }
+
+        let playerLayer = AVPlayerLayer(player: player)
+        guard let pipController = AVPictureInPictureController(playerLayer: playerLayer) else {
+            return false
+        }
+
+        pipController.delegate = self
+        self.playerLayer = playerLayer
+        self.pipController = pipController
         return true
     }
 
     // Start PiP
     func startPictureInPicture() -> Bool {
-        guard let playerViewController = playerViewController,
-              playerViewController.isPictureInPicturePossible else {
+        guard let pipController = pipController,
+              pipController.isPictureInPicturePossible else {
             return false
         }
 
-        playerViewController.startPictureInPicture()
+        pipController.startPictureInPicture()
         return true
     }
 
     // Stop PiP
     func stopPictureInPicture() -> Bool {
-        guard let playerViewController = playerViewController else {
+        guard let pipController = pipController else {
             return false
         }
 
-        playerViewController.stopPictureInPicture()
+        pipController.stopPictureInPicture()
         return true
     }
 }
