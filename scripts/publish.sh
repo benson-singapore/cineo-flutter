@@ -44,7 +44,7 @@ while IFS= read -r path; do
 done <<< "${dirty_paths}"
 
 makefile_stash=""
-if [[ -n "${dirty_paths}" ]]; then
+if ! git diff --quiet -- Makefile || ! git diff --cached --quiet -- Makefile; then
   makefile_stash="publish-version-$(date +%s)"
   git stash push --quiet --keep-index --message "${makefile_stash}" -- Makefile
 fi
