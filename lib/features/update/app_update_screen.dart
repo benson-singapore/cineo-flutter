@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_markdown/flutter_markdown.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../core/theme/cineo_theme.dart';
@@ -48,6 +49,13 @@ class _AppUpdateScreenState extends State<AppUpdateScreen> {
     } finally {
       if (mounted) setState(() => _openingDownload = false);
     }
+  }
+
+  Future<void> _openReleaseNoteLink(String? href) async {
+    if (href == null || href.trim().isEmpty) return;
+    final uri = Uri.tryParse(href.trim());
+    if (uri == null || !uri.hasScheme) return;
+    await widget.launchUrlCallback(uri, mode: LaunchMode.externalApplication);
   }
 
   @override
@@ -134,22 +142,19 @@ class _AppUpdateScreenState extends State<AppUpdateScreen> {
                           : Column(
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                Text(
-                                  notes,
-                                  maxLines: _showFullNotes ? null : 8,
-                                  overflow: _showFullNotes
-                                      ? TextOverflow.visible
-                                      : TextOverflow.ellipsis,
-                                  style: const TextStyle(
-                                    color: CineoColors.textSecondary,
-                                    height: 1.55,
-                                  ),
+                                _ReleaseNotesMarkdown(
+                                  data: notes,
+                                  expanded: _showFullNotes,
+                                  onTapLink: _openReleaseNoteLink,
                                 ),
                                 if (notes.length > 360)
                                   TextButton(
                                     onPressed: () => setState(
-                                        () => _showFullNotes = !_showFullNotes),
-                                    child: Text(_showFullNotes ? '收起' : '查看全部'),
+                                      () => _showFullNotes = !_showFullNotes,
+                                    ),
+                                    child: Text(
+                                      _showFullNotes ? '收起' : '查看全部',
+                                    ),
                                   ),
                               ],
                             ),
@@ -187,4 +192,69 @@ class _UpdatePanel extends StatelessWidget {
         ),
         child: child,
       );
+}
+
+class _ReleaseNotesMarkdown extends StatelessWidget {
+  const _ReleaseNotesMarkdown({
+    required this.data,
+    required this.expanded,
+    required this.onTapLink,
+  });
+
+  static const _collapsedHeight = 240.0;
+
+  final String data;
+  final bool expanded;
+  final Future<void> Function(String? href) onTapLink;
+
+  @override
+  Widget build(BuildContext context) {
+    final styleSheet = MarkdownStyleSheet.fromTheme(Theme.of(context)).copyWith(
+      p: const TextStyle(
+        color: CineoColors.textSecondary,
+        height: 1.55,
+      ),
+      h1: Theme.of(context)
+          .textTheme
+          .headlineSmall
+          ?.copyWith(fontWeight: FontWeight.w800),
+      h2: Theme.of(context)
+          .textTheme
+          .titleLarge
+          ?.copyWith(fontWeight: FontWeight.w800),
+      h3: Theme.of(context)
+          .textTheme
+          .titleMedium
+          ?.copyWith(fontWeight: FontWeight.w800),
+      a: const TextStyle(
+        color: CineoColors.primaryLight,
+        decoration: TextDecoration.underline,
+      ),
+      listBullet: const TextStyle(color: CineoColors.primaryLight),
+      code: const TextStyle(
+        color: CineoColors.textPrimary,
+        backgroundColor: CineoColors.surfaceElevated,
+      ),
+      blockquote: const TextStyle(
+        color: CineoColors.textSecondary,
+        height: 1.55,
+      ),
+    );
+    final markdown = MarkdownBody(
+      data: data,
+      onTapLink: (text, href, title) => onTapLink(href),
+      styleSheet: styleSheet,
+    );
+
+    if (expanded) return markdown;
+    return SizedBox(
+      height: _collapsedHeight,
+      child: ClipRect(
+        child: Align(
+          alignment: Alignment.topCenter,
+          child: markdown,
+        ),
+      ),
+    );
+  }
 }
