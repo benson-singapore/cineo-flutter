@@ -5,12 +5,20 @@ import Flutter
 
 enum PlayerViewController {
     static let channelName = "com.benson.cineo/picture_in_picture"
+    private static var channel: FlutterMethodChannel?
 
     static func setupMethodChannel(with flutterViewController: FlutterViewController) {
         let channel = FlutterMethodChannel(
             name: channelName,
             binaryMessenger: flutterViewController.binaryMessenger
         )
+        Self.channel = channel
+        VideoPlayerPiPController.shared.onModeChanged = { isInPictureInPicture in
+            Self.channel?.invokeMethod(
+                "pictureInPictureModeChanged",
+                arguments: isInPictureInPicture
+            )
+        }
 
         channel.setMethodCallHandler { call, result in
             switch call.method {
@@ -50,12 +58,8 @@ enum PlayerViewController {
             }
 
             let player = AVPlayer(url: url)
-            let controller = AVPlayerViewController()
-            controller.player = player
-            controller.allowsPictureInPicturePlayback = true
-            if #available(iOS 14.2, *) {
-                controller.canStartPictureInPictureAutomaticallyFromInline = true
-            }
+            let controller = UIViewController()
+            controller.view.backgroundColor = .black
             controller.modalPresentationStyle = .fullScreen
 
             if let title = arguments?["title"] as? String {
@@ -69,7 +73,21 @@ enum PlayerViewController {
 
             flutterViewController.present(controller, animated: true) {
                 player.play()
-                result(true)
+                guard VideoPlayerPiPController.shared.enablePictureInPicture(
+                    with: player,
+                    in: controller
+                ) else {
+                    controller.dismiss(animated: true)
+                    result(false)
+                    return
+                }
+
+                VideoPlayerPiPController.shared.startPictureInPicture { started in
+                    DispatchQueue.main.async {
+                        controller.dismiss(animated: true)
+                        result(started)
+                    }
+                }
             }
         }
     }

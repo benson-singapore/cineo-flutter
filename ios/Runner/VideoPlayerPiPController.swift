@@ -5,32 +5,41 @@ import AVKit
 class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
     static let shared = VideoPlayerPiPController()
 
-    var pipController: AVPictureInPictureController?
-    var playerLayer: AVPlayerLayer?
-    var playerViewController: AVPlayerViewController?
+    private(set) var pipController: AVPictureInPictureController?
+    private(set) var playerLayer: AVPlayerLayer?
+    private(set) var playerViewController: UIViewController?
+
+    var onModeChanged: ((Bool) -> Void)?
+
+    private var startCompletion: ((Bool) -> Void)?
+    private var readinessTimer: Timer?
+    private var readinessAttempts = 0
 
     override private init() {
         super.init()
     }
 
-    // Check if device supports PiP
     static func isPictureInPictureSupported() -> Bool {
         return AVPictureInPictureController.isPictureInPictureSupported()
     }
 
-    // Enable PiP with AVPlayerViewController
-    func enablePictureInPicture(with playerViewController: AVPlayerViewController) -> Bool {
+    func enablePictureInPicture(
+        with player: AVPlayer,
+        in playerViewController: UIViewController
+    ) -> Bool {
+        readinessTimer?.invalidate()
+        readinessTimer = nil
+        startCompletion = nil
         self.playerViewController = playerViewController
 
         guard AVPictureInPictureController.isPictureInPictureSupported() else {
             return false
         }
 
-        guard let player = playerViewController.player else {
-            return false
-        }
-
         let playerLayer = AVPlayerLayer(player: player)
+        playerLayer.videoGravity = .resizeAspect
+        playerLayer.frame = playerViewController.view.bounds
+        playerViewController.view.layer.addSublayer(playerLayer)
         guard let pipController = AVPictureInPictureController(playerLayer: playerLayer) else {
             return false
         }
@@ -41,24 +50,90 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
         return true
     }
 
-    // Start PiP
-    func startPictureInPicture() -> Bool {
+    func startPictureInPicture(completion: @escaping (Bool) -> Void) {
         guard let pipController = pipController,
-              pipController.isPictureInPicturePossible else {
-            return false
+              let player = playerLayer?.player else {
+            completion(false)
+            return
         }
 
-        pipController.startPictureInPicture()
-        return true
+        startCompletion = completion
+        readinessAttempts = 0
+        waitUntilPictureInPictureIsPossible(pipController, player: player)
     }
 
-    // Stop PiP
-    func stopPictureInPicture() -> Bool {
+    func stopPictureInPicture() {
         guard let pipController = pipController else {
-            return false
+            return
         }
 
         pipController.stopPictureInPicture()
-        return true
+    }
+
+    private func waitUntilPictureInPictureIsPossible(
+        _ pipController: AVPictureInPictureController,
+        player: AVPlayer
+    ) {
+        guard pipController.isPictureInPicturePossible else {
+            readinessAttempts += 1
+            if readinessAttempts >= 50 {
+                finishStart(false)
+                return
+            }
+
+            readinessTimer?.invalidate()
+            readinessTimer = Timer.scheduledTimer(
+                withTimeInterval: 0.1,
+                repeats: false
+            ) { [weak self, weak pipController, weak player] _ in
+                guard let self,
+                      let pipController,
+                      let player else {
+                    self?.finishStart(false)
+                    return
+                }
+                self.waitUntilPictureInPictureIsPossible(
+                    pipController,
+                    player: player
+                )
+            }
+            return
+        }
+
+        readinessTimer?.invalidate()
+        readinessTimer = nil
+        pipController.startPictureInPicture()
+    }
+
+    private func finishStart(_ succeeded: Bool) {
+        readinessTimer?.invalidate()
+        readinessTimer = nil
+        let completion = startCompletion
+        startCompletion = nil
+        completion?(succeeded)
+    }
+
+    func pictureInPictureControllerDidStartPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) {
+        finishStart(true)
+        onModeChanged?(true)
+    }
+
+    func pictureInPictureController(
+        _ pictureInPictureController: AVPictureInPictureController,
+        failedToStartPictureInPictureWithError error: Error
+    ) {
+        finishStart(false)
+        onModeChanged?(false)
+    }
+
+    func pictureInPictureControllerDidStopPictureInPicture(
+        _ pictureInPictureController: AVPictureInPictureController
+    ) {
+        onModeChanged?(false)
+        self.pipController = nil
+        self.playerLayer = nil
+        self.playerViewController = nil
     }
 }

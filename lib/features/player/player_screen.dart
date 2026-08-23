@@ -580,7 +580,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final opened = await enter(request);
     if (!opened && mounted) {
       if (isAndroid) setState(() => _isInPictureInPicture = false);
-      _showMessage('无法打开系统播放器');
+      _showMessage('无法打开画中画');
     }
   }
 
@@ -1298,7 +1298,7 @@ class _PictureInPictureButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      tooltip: available ? '使用系统播放器（支持画中画）' : '画中画不可用',
+      tooltip: available ? '直接进入画中画' : '画中画不可用',
       onPressed: available ? onPressed : null,
       icon: const Icon(Icons.picture_in_picture_alt),
     );
