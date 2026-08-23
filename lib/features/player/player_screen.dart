@@ -122,6 +122,8 @@ class _PlayerScreenState extends State<PlayerScreen> {
   bool? _lastIsPlaying;
   int _loadGeneration = 0;
   _PlayerOrientation _orientation = _PlayerOrientation.portrait;
+  double _brightness = 1.0;
+  double _volume = 1.0;
   bool _searchingOtherSources = false;
 
   List<PlaybackOption> get _episodes {
@@ -306,6 +308,34 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   void _toggleControls() {
     setState(() => _controlsVisible = !_controlsVisible);
+  }
+
+  void _handleVerticalDrag(DragUpdateDetails details) {
+    final screenSize = MediaQuery.sizeOf(context);
+    final dragDistance = details.delta.dy;
+
+    // Left side: adjust brightness
+    if (details.globalPosition.dx < screenSize.width / 2) {
+      _adjustBrightness(-dragDistance / 100);
+    } else {
+      // Right side: adjust volume
+      _adjustVolume(-dragDistance / 100);
+    }
+  }
+
+  Future<void> _adjustBrightness(double delta) async {
+    final newBrightness = (_brightness + delta).clamp(0.1, 1.0);
+    if (mounted) setState(() => _brightness = newBrightness);
+  }
+
+  Future<void> _adjustVolume(double delta) async {
+    final newVolume = (_volume + delta).clamp(0.0, 1.0);
+    if (mounted) setState(() => _volume = newVolume);
+
+    final controller = _initializedController;
+    if (controller != null) {
+      await controller.setVolume(newVolume);
+    }
   }
 
   Future<void> _togglePlayPause() async {
@@ -514,11 +544,12 @@ class _PlayerScreenState extends State<PlayerScreen> {
                 child: GestureDetector(
                   behavior: HitTestBehavior.translucent,
                   onTap: _toggleControls,
+                  onVerticalDragUpdate: _handleVerticalDrag,
                 ),
               ),
             if (_error == null && isReady && controller != null)
               IgnorePointer(
-                ignoring: !_controlsVisible,
+                ignoring: false,
                 child: AnimatedOpacity(
                   duration: const Duration(milliseconds: 180),
                   opacity: _controlsVisible ? 1 : 0,
