@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -5,6 +7,14 @@ import 'package:cineo_flutter/core/models/media.dart';
 import 'package:cineo_flutter/core/models/tmdb_media.dart';
 import 'package:cineo_flutter/core/theme/cineo_theme.dart';
 import 'package:cineo_flutter/features/media_details/media_details_screen.dart';
+
+class _DelayedDetailsRepository {
+  _DelayedDetailsRepository(this.detailsFuture);
+
+  final Future<MediaItem?> detailsFuture;
+
+  Future<MediaItem?> loadDetails(MediaItem item) => detailsFuture;
+}
 
 void main() {
   const lineAEpisode = PlaybackOption(
@@ -160,6 +170,65 @@ void main() {
 
     expect(find.text('简介'), findsOneWidget);
     expect(find.text('暂无简介'), findsOneWidget);
+  });
+
+  testWidgets('shows episode loading until repository details resolve',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final details = buildSeries();
+    final completer = Completer<MediaItem?>();
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: details.copyWith(episodes: const [], playbackOptions: const []),
+        favorite: false,
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
+        repository: _DelayedDetailsRepository(completer.future),
+      ),
+    ));
+    await tester.pump();
+
+    expect(find.text('剧集'), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('episode-loading')), findsOneWidget);
+    expect(find.byKey(const ValueKey('preview-episode-a-1')), findsNothing);
+
+    completer.complete(details);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('episode-loading')), findsNothing);
+    expect(find.byKey(const ValueKey('preview-episode-a-1')), findsOneWidget);
+  });
+
+  testWidgets('shows the existing empty episode state after loading',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final completer = Completer<MediaItem?>();
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: buildSeries().copyWith(
+          episodes: const [],
+          playbackOptions: const [],
+        ),
+        favorite: false,
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
+        repository: _DelayedDetailsRepository(completer.future),
+      ),
+    ));
+    await tester.pump();
+    expect(find.byKey(const ValueKey('episode-loading')), findsOneWidget);
+
+    completer.complete(null);
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('episode-loading')), findsNothing);
+    expect(find.text('当前季暂无可播放剧集'), findsOneWidget);
   });
 
   testWidgets('groups playback options by line and filters episode previews',
@@ -398,6 +467,45 @@ void main() {
     expect(find.text('第1季 · 全部剧集'), findsOneWidget);
     expect(find.byKey(const ValueKey('library-episode-a-1')), findsOneWidget);
     expect(find.textContaining('开端'), findsOneWidget);
+  });
+
+  testWidgets('uses supplied TMDB details without loading them again',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const tmdb = TmdbMediaDetails(
+      id: 7,
+      mediaType: TmdbMediaType.tv,
+      title: '预取 TMDB 剧集名',
+      originalTitle: 'Prefetched Show',
+      overview: '预取的 TMDB 简介',
+      year: 2025,
+      posterUrl: '',
+      backdropUrl: '',
+      rating: 8.7,
+      runtime: 45,
+    );
+    var loadCount = 0;
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: buildSeries(),
+        favorite: false,
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
+        initialTmdbDetails: tmdb,
+        onLoadTmdbDetails: (_) async {
+          loadCount++;
+          return null;
+        },
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.text('预取 TMDB 剧集名'), findsOneWidget);
+    expect(find.text('预取的 TMDB 简介'), findsOneWidget);
+    expect(loadCount, 0);
   });
 
   testWidgets('falls back when TMDB loading fails', (tester) async {

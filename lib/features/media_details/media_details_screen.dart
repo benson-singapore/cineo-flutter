@@ -16,6 +16,8 @@ class MediaDetailsScreen extends StatefulWidget {
     required this.onFavoriteChanged,
     required this.onPlay,
     this.initialEpisodeId,
+    this.initialTmdbDetails,
+    this.onLoadFavorite,
     this.onSearchOtherSources,
     this.onLoadAlternative,
     this.onLoadTmdbDetails,
@@ -30,6 +32,8 @@ class MediaDetailsScreen extends StatefulWidget {
   final void Function(MediaItem media, bool isFavorite) onFavoriteChanged;
   final void Function(MediaItem media, PlaybackOption option) onPlay;
   final String? initialEpisodeId;
+  final TmdbMediaDetails? initialTmdbDetails;
+  final Future<bool> Function(String mediaId)? onLoadFavorite;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
   final Future<MediaItem?> Function(MediaItem media)? onLoadAlternative;
   final Future<TmdbMediaDetails?> Function(MediaItem media)? onLoadTmdbDetails;
@@ -49,9 +53,11 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   late MediaItem _media = widget.media;
   String? _selectedSourceName;
   bool _searchingOtherSources = false;
-  TmdbMediaDetails? _tmdbDetails;
+  bool _loadingMediaDetails = false;
+  late TmdbMediaDetails? _tmdbDetails = widget.initialTmdbDetails;
   bool _tmdbLoading = false;
   int? _selectedSeason;
+  bool _favoriteChangedByUser = false;
 
   List<PlaybackOption> get _options => _media.playbackOptions;
 
@@ -169,6 +175,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   @override
   void initState() {
     super.initState();
+    _loadingMediaDetails = widget.repository != null;
     final initialEpisodeId = widget.initialEpisodeId;
     if (initialEpisodeId != null) {
       for (final episode in _media.episodes) {
@@ -183,36 +190,59 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     if (_selectedSeason == null && _sourceSeasons.isNotEmpty) {
       _selectedSeason = _sourceSeasons.first;
     }
+    if (_selectedSeason == null && _availableSeasons.isNotEmpty) {
+      _selectedSeason = _availableSeasons.first;
+    }
+    _loadFavoriteAsync();
     _loadMediaDataAsync();
+  }
+
+  Future<void> _loadFavoriteAsync() async {
+    final loader = widget.onLoadFavorite;
+    if (loader == null) return;
+    try {
+      final favorite = await loader(_media.id);
+      if (!mounted || _favoriteChangedByUser) return;
+      setState(() => _favorite = favorite);
+    } catch (_) {
+      // Favorite state is non-critical and remains usable with its initial value.
+    }
   }
 
   Future<void> _loadMediaDataAsync() async {
     final repo = widget.repository;
 
-    try {
-      if (repo != null) {
-        final resolvedMedia = await repo.loadDetails(_media) ?? _media;
-        if (!mounted) return;
-
-        setState(() {
-          _media = resolvedMedia;
-          if (_selectedSourceName == null && _sourceOptions.isNotEmpty) {
-            _selectedSourceName = _lineName(_sourceOptions.first);
-          }
-          if (_selectedSeason == null && _sourceSeasons.isNotEmpty) {
-            _selectedSeason = _sourceSeasons.first;
-          }
-        });
+    if (repo == null) {
+      if (_tmdbDetails == null && widget.onLoadTmdbDetails != null) {
+        _loadTmdbDetails();
       }
+      return;
+    }
+
+    try {
+      final resolvedMedia = await repo.loadDetails(_media) ?? _media;
+      if (!mounted) return;
+
+      setState(() {
+        _media = resolvedMedia;
+        if (_selectedSourceName == null && _sourceOptions.isNotEmpty) {
+          _selectedSourceName = _lineName(_sourceOptions.first);
+        }
+        if (_selectedSeason == null && _sourceSeasons.isNotEmpty) {
+          _selectedSeason = _sourceSeasons.first;
+        }
+      });
     } catch (error) {
       assert(() {
         debugPrint('[Cineo][Details] resolve phase=failed '
             'errorType=${error.runtimeType}');
         return true;
       }());
+    } finally {
+      if (mounted) setState(() => _loadingMediaDetails = false);
     }
 
-    if (widget.onLoadTmdbDetails != null) {
+    if (_tmdbDetails == null && widget.onLoadTmdbDetails != null) {
       _loadTmdbDetails();
     }
   }
@@ -439,7 +469,12 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             }),
           ),
         ],
-        if (media.episodes.isNotEmpty) ...[
+        if (_loadingMediaDetails) ...[
+          const SizedBox(height: 28),
+          _buildEpisodesHeader(context, isLoading: true),
+          const SizedBox(height: 12),
+          const _EpisodeLoadingPlaceholder(),
+        ] else if (media.episodes.isNotEmpty) ...[
           const SizedBox(height: 28),
           _buildEpisodesHeader(context),
           const SizedBox(height: 12),
@@ -460,6 +495,11 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             options: _activeOptions,
             onPlay: (option) => widget.onPlay(_media, option),
           ),
+        ] else if (widget.repository != null) ...[
+          const SizedBox(height: 28),
+          _buildEpisodesHeader(context),
+          const SizedBox(height: 12),
+          const _InlineEmpty(message: '当前季暂无可播放剧集'),
         ],
         if (_tmdbDetails?.cast.isNotEmpty == true) ...[
           const SizedBox(height: 30),
@@ -469,13 +509,21 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     );
   }
 
-  Widget _buildEpisodesHeader(BuildContext context) {
+  Widget _buildEpisodesHeader(
+    BuildContext context, {
+    bool isLoading = false,
+  }) {
     final count = _activeEpisodes.length;
     return Row(
       children: [
         _sectionTitle('剧集'),
         const Spacer(),
-        if (count > 0) ...[
+        if (isLoading)
+          const SizedBox.square(
+            dimension: 18,
+            child: CircularProgressIndicator(strokeWidth: 2),
+          )
+        else if (count > 0) ...[
           Text('$count 集',
               style: const TextStyle(color: CineoColors.textSecondary)),
           const SizedBox(width: 8),
@@ -685,7 +733,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
         IconButton(
           tooltip: _favorite ? '取消收藏' : '收藏',
           onPressed: () {
-            setState(() => _favorite = !_favorite);
+            setState(() {
+              _favoriteChangedByUser = true;
+              _favorite = !_favorite;
+            });
             widget.onFavoriteChanged(_media, _favorite);
           },
           icon: Icon(_favorite
@@ -1125,6 +1176,75 @@ class _InlineEmpty extends StatelessWidget {
       ),
       child: Text(message,
           style: const TextStyle(color: CineoColors.textSecondary)),
+    );
+  }
+}
+
+class _EpisodeLoadingPlaceholder extends StatefulWidget {
+  const _EpisodeLoadingPlaceholder();
+
+  @override
+  State<_EpisodeLoadingPlaceholder> createState() =>
+      _EpisodeLoadingPlaceholderState();
+}
+
+class _EpisodeLoadingPlaceholderState extends State<_EpisodeLoadingPlaceholder>
+    with SingleTickerProviderStateMixin {
+  late final AnimationController _controller = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1100),
+  )..repeat(reverse: true);
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return FadeTransition(
+      key: const ValueKey('episode-loading'),
+      opacity: Tween<double>(begin: .45, end: 1).animate(_controller),
+      child: SizedBox(
+        height: 184,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: 3,
+          separatorBuilder: (_, __) => const SizedBox(width: 10),
+          itemBuilder: (context, index) => const SizedBox(
+            width: 220,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AspectRatio(
+                  aspectRatio: 16 / 9,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: CineoColors.surface,
+                      borderRadius: BorderRadius.all(Radius.circular(8)),
+                    ),
+                    child: Center(
+                      child: CircularProgressIndicator(strokeWidth: 2),
+                    ),
+                  ),
+                ),
+                SizedBox(height: 6),
+                SizedBox(
+                  width: 110,
+                  height: 16,
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: CineoColors.surface,
+                      borderRadius: BorderRadius.all(Radius.circular(4)),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

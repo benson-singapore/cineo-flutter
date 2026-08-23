@@ -302,23 +302,31 @@ class _CineoShellState extends State<CineoShell> {
     }
     if (!mounted) return;
 
-    // Navigate immediately without waiting for details to load
+    // Keep the first detail frame visually consistent. This resolves a cached
+    // TMDB record or fetches and persists one before the page is built.
+    final tmdbDetails = widget.tmdbSettings.configured
+        ? await _loadTmdbDetails(selectedMedia)
+        : null;
+    if (!mounted) return;
+
     await Navigator.of(context).push<void>(
       adaptivePageRoute(
         context,
         builder: (_) => MediaDetailsScreen(
           media: selectedMedia,
+          initialTmdbDetails: tmdbDetails,
           initialEpisodeId: null,
           favorite: false,
           repository: widget.repository,
           includeAdultHistory: _includeAdultHistory,
+          onLoadFavorite: widget.repository.isFavorite,
           onFavoriteChanged: (favoriteMedia, isFavorite) {
             unawaited(widget.repository.setFavorite(favoriteMedia, isFavorite));
             unawaited(_refresh());
           },
           onPlay: (playingMedia, option) =>
               unawaited(_openPlayer(playingMedia, option)),
-          onLoadTmdbDetails: _loadTmdbDetails,
+          onLoadTmdbDetails: null,
           onSearchTmdbMatches: _searchTmdbMatches,
           onSelectTmdbMatch: (match) => _selectTmdbMatch(selectedMedia, match),
           onSearchOtherSources: (item) => widget.repository.searchOtherSources(
