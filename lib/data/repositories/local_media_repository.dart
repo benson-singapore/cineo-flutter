@@ -705,19 +705,38 @@ class LocalMediaRepository implements MediaRepository {
   Future<List<MediaItem>> searchOtherSources(MediaItem media,
       {bool includeAdult = false}) async {
     final allSources = await sources();
-    final candidates = allSources.where((source) =>
-        source.enabled &&
-        source.id != media.sourceId &&
-        (source.type == MediaSourceType.macCmsApi ||
-            source.type == MediaSourceType.jsonApi) &&
-        (includeAdult || !source.isAdult));
-    final results = await Future.wait(candidates.map((source) async {
-      try {
-        return await _macCmsClient.list(source, query: media.title);
-      } catch (_) {
-        return const <MediaItem>[];
-      }
-    }));
+    final candidates = allSources
+        .where((source) =>
+            source.enabled &&
+            source.id != media.sourceId &&
+            (source.type == MediaSourceType.macCmsApi ||
+                source.type == MediaSourceType.jsonApi) &&
+            (includeAdult || !source.isAdult))
+        .toList();
+
+    // Use concurrent requests with a fixed pool size (10-15 concurrent) for better performance
+    const concurrentLimit = 12;
+    final results = <List<MediaItem>>[];
+
+    for (var i = 0; i < candidates.length; i += concurrentLimit) {
+      final batch = candidates.sublist(
+        i,
+        i + concurrentLimit > candidates.length
+            ? candidates.length
+            : i + concurrentLimit,
+      );
+
+      final batchResults = await Future.wait(batch.map((source) async {
+        try {
+          return await _macCmsClient.list(source, query: media.title);
+        } catch (_) {
+          return const <MediaItem>[];
+        }
+      }));
+
+      results.addAll(batchResults);
+    }
+
     return results.expand((items) => items).toList(growable: false);
   }
 
@@ -791,13 +810,13 @@ class LocalMediaRepository implements MediaRepository {
       id: row['media_id'] as String,
       title: row['title'] as String,
       description: row['description'] as String,
-      year: row['year'] as int,
+      year: _safeParseInt(row['year']),
       kind: kind,
       posterUrl: row['poster_url'] as String,
       backdropUrl: row['backdrop_url'] as String,
       genres: genres,
       rating: (row['rating'] as num).toDouble(),
-      duration: Duration(milliseconds: row['duration_ms'] as int),
+      duration: Duration(milliseconds: _safeParseInt(row['duration_ms'])),
       sourceId: row['source_id'] as String?,
       sourceName: row['source_name'] as String?,
       remoteId: row['remote_id'] as String?,
@@ -811,10 +830,10 @@ class LocalMediaRepository implements MediaRepository {
       mediaId: row['media_id'] as String,
       episodeId: row['episode_id'] as String?,
       episodeLabel: row['episode_label'] as String?,
-      episodeNumber: row['episode_number'] as int?,
-      episodeCount: row['episode_count'] as int?,
-      position: Duration(milliseconds: row['position_ms'] as int),
-      duration: Duration(milliseconds: row['duration_ms'] as int),
+      episodeNumber: _safeParseIntNullable(row['episode_number']),
+      episodeCount: _safeParseIntNullable(row['episode_count']),
+      position: Duration(milliseconds: _safeParseInt(row['position_ms'])),
+      duration: Duration(milliseconds: _safeParseInt(row['duration_ms'])),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
     );
   }
@@ -862,6 +881,22 @@ class LocalMediaRepository implements MediaRepository {
       lastLatencyMs: row['last_latency_ms'] as int?,
       isFavorite: (row['is_favorite'] as int? ?? 0) == 1,
     );
+  }
+
+  int _safeParseInt(Object? value) {
+    if (value == null) return 0;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value) ?? 0;
+    if (value is num) return value.toInt();
+    return 0;
+  }
+
+  int? _safeParseIntNullable(Object? value) {
+    if (value == null) return null;
+    if (value is int) return value;
+    if (value is String) return int.tryParse(value);
+    if (value is num) return value.toInt();
+    return null;
   }
 }
 

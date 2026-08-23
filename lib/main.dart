@@ -300,28 +300,18 @@ class _CineoShellState extends State<CineoShell> {
       );
       if (preferred != null) selectedMedia = preferred;
     }
-    final resolvedMedia = await _resolveMediaDetails(selectedMedia);
-    final favorite = await widget.repository.isFavorite(resolvedMedia.id);
-    final history = await widget.repository.watchHistory(
-      includeAdult: _includeAdultHistory,
-    );
-    final recentEpisodeId = history
-        .where((entry) => entry.mediaId == resolvedMedia.id)
-        .map((entry) => entry.episodeId)
-        .whereType<String>()
-        .firstWhere(
-          (episodeId) => resolvedMedia.playbackOptions
-              .any((option) => option.id == episodeId),
-          orElse: () => '',
-        );
     if (!mounted) return;
+
+    // Navigate immediately without waiting for details to load
     await Navigator.of(context).push<void>(
       adaptivePageRoute(
         context,
         builder: (_) => MediaDetailsScreen(
-          media: resolvedMedia,
-          initialEpisodeId: recentEpisodeId.isEmpty ? null : recentEpisodeId,
-          favorite: favorite,
+          media: selectedMedia,
+          initialEpisodeId: null,
+          favorite: false,
+          repository: widget.repository,
+          includeAdultHistory: _includeAdultHistory,
           onFavoriteChanged: (favoriteMedia, isFavorite) {
             unawaited(widget.repository.setFavorite(favoriteMedia, isFavorite));
             unawaited(_refresh());

@@ -21,6 +21,8 @@ class MediaDetailsScreen extends StatefulWidget {
     this.onLoadTmdbDetails,
     this.onSearchTmdbMatches,
     this.onSelectTmdbMatch,
+    this.repository,
+    this.includeAdultHistory = false,
   });
 
   final MediaItem media;
@@ -35,6 +37,8 @@ class MediaDetailsScreen extends StatefulWidget {
       String query, TmdbMediaType? type, int? year)? onSearchTmdbMatches;
   final Future<TmdbMediaDetails?> Function(TmdbMediaMatch match)?
       onSelectTmdbMatch;
+  final dynamic repository;
+  final bool includeAdultHistory;
 
   @override
   State<MediaDetailsScreen> createState() => _MediaDetailsScreenState();
@@ -179,7 +183,38 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     if (_selectedSeason == null && _sourceSeasons.isNotEmpty) {
       _selectedSeason = _sourceSeasons.first;
     }
-    if (widget.onLoadTmdbDetails != null) _loadTmdbDetails();
+    _loadMediaDataAsync();
+  }
+
+  Future<void> _loadMediaDataAsync() async {
+    final repo = widget.repository;
+
+    try {
+      if (repo != null) {
+        final resolvedMedia = await repo.loadDetails(_media) ?? _media;
+        if (!mounted) return;
+
+        setState(() {
+          _media = resolvedMedia;
+          if (_selectedSourceName == null && _sourceOptions.isNotEmpty) {
+            _selectedSourceName = _lineName(_sourceOptions.first);
+          }
+          if (_selectedSeason == null && _sourceSeasons.isNotEmpty) {
+            _selectedSeason = _sourceSeasons.first;
+          }
+        });
+      }
+    } catch (error) {
+      assert(() {
+        debugPrint('[Cineo][Details] resolve phase=failed '
+            'errorType=${error.runtimeType}');
+        return true;
+      }());
+    }
+
+    if (widget.onLoadTmdbDetails != null) {
+      _loadTmdbDetails();
+    }
   }
 
   Future<void> _loadTmdbDetails() async {
