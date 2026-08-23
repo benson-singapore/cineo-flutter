@@ -99,18 +99,26 @@ jobs:
           VERSION_NAME="${VERSION%%+*}"
           BUILD_NUMBER="$(sed -nE 's/^version: [0-9]+\.[0-9]+\.[0-9]+\+([1-9][0-9]*)$/\1/p' pubspec.yaml)"
           test -n "${BUILD_NUMBER}"
-          CODE_SIGNING_ALLOWED=NO \
-          CODE_SIGNING_REQUIRED=NO \
-          CODE_SIGN_IDENTITY="" \
-          flutter build ios --release --no-codesign \
+          flutter build ios --release --no-codesign --config-only \
             --build-name "${VERSION_NAME}" \
             --build-number "${BUILD_NUMBER}"
+          xcodebuild \
+            -workspace ios/Runner.xcworkspace \
+            -scheme Runner \
+            -configuration Release \
+            -sdk iphoneos \
+            -derivedDataPath build/ios \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            build
 
       - name: Package unsigned IPA
         run: |
           rm -rf build/ios/unsigned-ipa
           mkdir -p build/ios/unsigned-ipa/Payload
-          cp -R build/ios/iphoneos/Runner.app build/ios/unsigned-ipa/Payload/Runner.app
+          cp -R build/ios/Build/Products/Release-iphoneos/Runner.app \
+            build/ios/unsigned-ipa/Payload/Runner.app
           cd build/ios/unsigned-ipa
           zip -qry Cineo-unsigned.ipa Payload
 
