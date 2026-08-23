@@ -85,33 +85,13 @@ void main() {
     expect(result?.id, 2);
   });
 
-  test('loads TV details and episode metadata with image fallbacks', () async {
+  test('loads base TV details without credits or season episode requests',
+      () async {
     final requestedPaths = <String>[];
     final client = TmdbClient(
       bearerToken: token,
       fetcher: (uri, _) async {
         requestedPaths.add(uri.path);
-        if (uri.path.endsWith('/season/1')) {
-          return TmdbHttpResponse(
-            statusCode: 200,
-            body: jsonEncode({
-              'id': 80,
-              'season_number': 1,
-              'name': '第一季',
-              'episodes': [
-                {
-                  'id': 801,
-                  'episode_number': 1,
-                  'name': '第一集',
-                  'still_path': '/episode.jpg',
-                  'overview': '第一集简介',
-                  'vote_average': 8.5,
-                  'runtime': 46,
-                },
-              ],
-            }),
-          );
-        }
         return TmdbHttpResponse(
           statusCode: 200,
           body: jsonEncode({
@@ -149,11 +129,87 @@ void main() {
       rating: 8,
     ));
 
-    expect(requestedPaths, ['/3/tv/8', '/3/tv/8/season/1']);
-    expect(details?.seasons.single.episodes.single.stillUrl,
-        'https://image.tmdb.org/t/p/w500/episode.jpg');
+    expect(requestedPaths, ['/3/tv/8']);
+    expect(details?.level, TmdbDetailsLevel.base);
+    expect(details?.seasons.single.episodes, isEmpty);
     expect(details?.seasons.single.posterUrl, isEmpty);
     expect(details?.runtime, 45);
+  });
+
+  test('loads credits and all season episodes during enrichment', () async {
+    final requestedPaths = <String>[];
+    final client = TmdbClient(
+      bearerToken: token,
+      fetcher: (uri, _) async {
+        requestedPaths.add(uri.path);
+        if (uri.path.endsWith('/credits')) {
+          return TmdbHttpResponse(
+            statusCode: 200,
+            body: jsonEncode({
+              'cast': [
+                {
+                  'id': 100,
+                  'name': '演员甲',
+                  'character': '主角',
+                  'profile_path': '/actor.jpg',
+                },
+              ],
+            }),
+          );
+        }
+        return TmdbHttpResponse(
+          statusCode: 200,
+          body: jsonEncode({
+            'id': 80,
+            'season_number': 1,
+            'name': '第一季',
+            'episodes': [
+              {
+                'id': 801,
+                'episode_number': 1,
+                'name': '第一集',
+                'still_path': '/episode.jpg',
+                'overview': '第一集简介',
+                'vote_average': 8.5,
+                'runtime': 46,
+              },
+            ],
+          }),
+        );
+      },
+    );
+    const base = TmdbMediaDetails(
+      id: 8,
+      mediaType: TmdbMediaType.tv,
+      title: '测试剧',
+      originalTitle: 'Test Show',
+      overview: '',
+      year: 2025,
+      posterUrl: '',
+      backdropUrl: '',
+      rating: 8,
+      runtime: 45,
+      level: TmdbDetailsLevel.base,
+      seasons: [
+        TmdbSeasonMetadata(
+          id: 80,
+          seasonNumber: 1,
+          name: '第一季',
+          overview: '',
+          posterUrl: '',
+          episodes: [],
+        ),
+      ],
+    );
+
+    final details = await client.getEnrichedDetails(base);
+
+    expect(
+        requestedPaths, containsAll(['/3/tv/8/credits', '/3/tv/8/season/1']));
+    expect(details.level, TmdbDetailsLevel.enriched);
+    expect(details.cast.single.name, '演员甲');
+    expect(details.seasons.single.episodes.single.stillUrl,
+        'https://image.tmdb.org/t/p/w500/episode.jpg');
   });
 
   test('parses a season endpoint and episode still image', () async {
@@ -204,16 +260,6 @@ void main() {
           'backdrop_path': null,
           'vote_average': 7.2,
           'runtime': 113,
-          'credits': {
-            'cast': [
-              {
-                'id': 101,
-                'name': '测试演员',
-                'character': '主角',
-                'profile_path': '/actor.jpg',
-              },
-            ],
-          },
         }),
       ),
     );
@@ -234,9 +280,7 @@ void main() {
     expect(details?.year, 2023);
     expect(details?.runtime, 113);
     expect(details?.posterUrl, 'https://image.tmdb.org/t/p/w500/fallback.jpg');
-    expect(details?.cast.single.name, '测试演员');
-    expect(details?.cast.single.profileUrl,
-        'https://image.tmdb.org/t/p/w185/actor.jpg');
+    expect(details?.cast, isEmpty);
     expect(details?.seasons, isEmpty);
   });
 

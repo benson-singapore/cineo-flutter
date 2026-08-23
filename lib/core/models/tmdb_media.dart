@@ -1,5 +1,7 @@
 enum TmdbMediaType { movie, tv }
 
+enum TmdbDetailsLevel { preview, base, enriched }
+
 class TmdbMediaMatch {
   const TmdbMediaMatch({
     required this.id,
@@ -38,11 +40,13 @@ class TmdbMediaDetails extends TmdbMediaMatch {
     required this.runtime,
     this.seasons = const [],
     this.cast = const [],
+    this.level = TmdbDetailsLevel.enriched,
   });
 
   final int? runtime;
   final List<TmdbSeasonMetadata> seasons;
   final List<TmdbCastMember> cast;
+  final TmdbDetailsLevel level;
 
   bool get isTv => mediaType == TmdbMediaType.tv;
 }

@@ -22,6 +22,7 @@ class MediaDetailsScreen extends StatefulWidget {
     this.onSearchOtherSources,
     this.onLoadAlternative,
     this.onLoadTmdbDetails,
+    this.onLoadTmdbEnrichment,
     this.onSearchTmdbMatches,
     this.onSelectTmdbMatch,
     this.repository,
@@ -39,6 +40,8 @@ class MediaDetailsScreen extends StatefulWidget {
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
   final Future<MediaItem?> Function(MediaItem media)? onLoadAlternative;
   final Future<TmdbMediaDetails?> Function(MediaItem media)? onLoadTmdbDetails;
+  final Future<TmdbMediaDetails?> Function(MediaItem media)?
+      onLoadTmdbEnrichment;
   final Future<List<TmdbMediaMatch>> Function(
       String query, TmdbMediaType? type, int? year)? onSearchTmdbMatches;
   final Future<TmdbMediaDetails?> Function(TmdbMediaMatch match)?
@@ -58,6 +61,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   bool _loadingMediaDetails = false;
   late TmdbMediaDetails? _tmdbDetails = widget.initialTmdbDetails;
   bool _tmdbLoading = false;
+  bool _tmdbEnrichmentLoading = false;
   int? _selectedSeason;
   bool _favoriteChangedByUser = false;
 
@@ -198,6 +202,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     }
     _loadFavoriteAsync();
     _loadMediaDataAsync();
+    _loadTmdbDataAsync();
   }
 
   Future<void> _loadFavoriteAsync() async {
@@ -216,12 +221,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     final repo = widget.repository;
     final loader = widget.onLoadMediaDetails;
 
-    if (repo == null && loader == null) {
-      if (_tmdbDetails == null && widget.onLoadTmdbDetails != null) {
-        _loadTmdbDetails();
-      }
-      return;
-    }
+    if (repo == null && loader == null) return;
 
     try {
       final resolvedMedia =
@@ -246,21 +246,28 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     } finally {
       if (mounted) setState(() => _loadingMediaDetails = false);
     }
+  }
 
-    if (_tmdbDetails == null && widget.onLoadTmdbDetails != null) {
-      _loadTmdbDetails();
+  Future<void> _loadTmdbDataAsync() async {
+    if (_tmdbDetails?.level != TmdbDetailsLevel.enriched) {
+      await _loadTmdbDetails();
+    }
+    if (mounted && _tmdbDetails?.level != TmdbDetailsLevel.enriched) {
+      await _loadTmdbEnrichment();
     }
   }
 
   Future<void> _loadTmdbDetails() async {
     final loader = widget.onLoadTmdbDetails;
-    if (loader == null) return;
+    if (loader == null || _tmdbDetails?.level == TmdbDetailsLevel.enriched) {
+      return;
+    }
     setState(() => _tmdbLoading = true);
     try {
       final details = await loader(_media);
       if (!mounted) return;
       setState(() {
-        _tmdbDetails = details;
+        if (details != null) _tmdbDetails = details;
         if (_selectedSeason == null && _availableSeasons.isNotEmpty) {
           _selectedSeason = _availableSeasons.first;
         }
@@ -273,6 +280,27 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       }());
     } finally {
       if (mounted) setState(() => _tmdbLoading = false);
+    }
+  }
+
+  Future<void> _loadTmdbEnrichment() async {
+    final loader = widget.onLoadTmdbEnrichment;
+    if (loader == null || _tmdbDetails?.level == TmdbDetailsLevel.enriched) {
+      return;
+    }
+    setState(() => _tmdbEnrichmentLoading = true);
+    try {
+      final details = await loader(_media);
+      if (!mounted || details == null) return;
+      setState(() => _tmdbDetails = details);
+    } catch (error) {
+      assert(() {
+        debugPrint('[Cineo][TMDB] enrichment_ui phase=failed '
+            'errorType=${error.runtimeType}');
+        return true;
+      }());
+    } finally {
+      if (mounted) setState(() => _tmdbEnrichmentLoading = false);
     }
   }
 
@@ -310,6 +338,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           _selectedSeason = _availableSeasons.first;
         }
       });
+      await _loadTmdbEnrichment();
     } catch (error) {
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
@@ -437,7 +466,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
               media.genres.map((genre) => Chip(label: Text(genre))).toList(),
         ),
         const SizedBox(height: 18),
-        if (_tmdbLoading)
+        if (_tmdbLoading || _tmdbEnrichmentLoading)
           const Padding(
             padding: EdgeInsets.only(bottom: 12),
             child: LinearProgressIndicator(

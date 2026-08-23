@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import '../../core/models/media.dart';
@@ -27,19 +28,12 @@ class TmdbMetadataRepository {
   final TmdbRetentionProvider _retention;
   final TmdbClient Function(String token) _clientFactory;
 
-  Future<TmdbMediaDetails?> loadForMedia(MediaItem media) async {
+  /// Resolves enough TMDB metadata to render the detail page hero. It only
+  /// performs a title match when no record exists, so first navigation is not
+  /// held up by credits, season episodes, or image downloads.
+  Future<TmdbMediaDetails?> loadPreviewForMedia(MediaItem media) async {
     final cached = await _cache.getDetails(media.id);
-    if (cached != null) {
-      if (cached.posterUrl.trim().isNotEmpty) {
-        return _withCachedImages(cached);
-      }
-      final client = await _client();
-      if (client == null) return _withCachedImages(cached);
-      final refreshed = await client.getDetails(cached);
-      return refreshed == null
-          ? _withCachedImages(cached)
-          : _storeAndLocalize(media.id, refreshed);
-    }
+    if (cached != null) return _withCachedHeroImages(cached);
 
     final client = await _client();
     if (client == null) return null;
@@ -53,9 +47,49 @@ class TmdbMetadataRepository {
           year: media.year > 0 ? media.year : null,
         );
     if (match == null) return null;
-    final details = await client.getDetails(match);
-    if (details == null) return null;
-    return _storeAndLocalize(media.id, details);
+    final preview = _previewFromMatch(match);
+    return _storeAndLocalize(media.id, preview);
+  }
+
+  /// Loads the core detail payload after the page has opened. This deliberately
+  /// excludes credits and per-season episode payloads.
+  Future<TmdbMediaDetails?> loadDetailsForMedia(MediaItem media) async {
+    final cached = await _cache.getDetails(media.id);
+    if (cached == null) return loadPreviewForMedia(media);
+    if (cached.level != TmdbDetailsLevel.preview) {
+      return _withCachedImages(cached);
+    }
+    final client = await _client();
+    if (client == null) return _withCachedImages(cached);
+    final details = await client.getDetails(cached);
+    return details == null
+        ? _withCachedImages(cached)
+        : _storeAndLocalize(media.id, details);
+  }
+
+  /// Loads cast and per-season episode metadata after core TMDB details are
+  /// visible. Image persistence remains background work.
+  Future<TmdbMediaDetails?> loadEnrichmentForMedia(MediaItem media) async {
+    // Read the persisted record rather than the localized return value from
+    // loadDetailsForMedia. The latter may contain file:// image paths, which
+    // must never be stored back as TMDB remote image URLs.
+    var details = await _cache.getDetails(media.id);
+    if (details == null || details.level == TmdbDetailsLevel.preview) {
+      await loadDetailsForMedia(media);
+      details = await _cache.getDetails(media.id);
+    }
+    if (details == null || details.level == TmdbDetailsLevel.enriched) {
+      return details == null ? null : _withCachedImages(details);
+    }
+    final client = await _client();
+    if (client == null) return _withCachedImages(details);
+    final enriched = await client.getEnrichedDetails(details);
+    return _storeAndLocalize(media.id, enriched);
+  }
+
+  /// Retained for callers that require the complete record before returning.
+  Future<TmdbMediaDetails?> loadForMedia(MediaItem media) async {
+    return loadEnrichmentForMedia(media);
   }
 
   /// Reads previously loaded metadata without initiating TMDB matching or a
@@ -65,7 +99,7 @@ class TmdbMetadataRepository {
   /// independent from TMDB availability.
   Future<TmdbMediaDetails?> loadCachedForMedia(MediaItem media) async {
     final cached = await _cache.getDetails(media.id);
-    return cached == null ? null : _withCachedImages(cached);
+    return cached == null ? null : _withCachedHeroImages(cached);
   }
 
   Future<List<TmdbMediaMatch>> search(
@@ -96,18 +130,34 @@ class TmdbMetadataRepository {
   ) async {
     final ttl = _retention();
     await _cache.putDetails(mediaId: mediaId, details: details, ttl: ttl);
-    await Future.wait(
-      _imageUrls(details).map(
-        (url) async {
-          try {
-            await _cache.cacheImage(url, ttl: ttl);
-          } on Object {
-            // Metadata remains useful when individual images cannot download.
-          }
-        },
-      ),
-    );
+    unawaited(_cacheImages(details, ttl));
     return _withCachedImages(details);
+  }
+
+  Future<void> _cacheImages(TmdbMediaDetails details, Duration ttl) async {
+    await Future.wait(_imageUrls(details).map((url) async {
+      try {
+        await _cache.cacheImage(url, ttl: ttl);
+      } on Object {
+        // Metadata remains useful when individual images cannot download.
+      }
+    }));
+  }
+
+  TmdbMediaDetails _previewFromMatch(TmdbMediaMatch match) {
+    return TmdbMediaDetails(
+      id: match.id,
+      mediaType: match.mediaType,
+      title: match.title,
+      originalTitle: match.originalTitle,
+      overview: match.overview,
+      year: match.year,
+      posterUrl: match.posterUrl,
+      backdropUrl: match.backdropUrl,
+      rating: match.rating,
+      runtime: null,
+      level: TmdbDetailsLevel.preview,
+    );
   }
 
   Future<TmdbClient?> _client() async {
@@ -168,6 +218,33 @@ class TmdbMetadataRepository {
           ),
         ),
       ),
+      level: details.level,
+    );
+  }
+
+  Future<TmdbMediaDetails> _withCachedHeroImages(
+    TmdbMediaDetails details,
+  ) async {
+    Future<String> local(String url) async {
+      if (url.trim().isEmpty) return url;
+      final path = await _cache.getCachedImagePath(url);
+      return path == null ? url : File(path).uri.toString();
+    }
+
+    return TmdbMediaDetails(
+      id: details.id,
+      mediaType: details.mediaType,
+      title: details.title,
+      originalTitle: details.originalTitle,
+      overview: details.overview,
+      year: details.year,
+      posterUrl: await local(details.posterUrl),
+      backdropUrl: await local(details.backdropUrl),
+      rating: details.rating,
+      runtime: details.runtime,
+      seasons: details.seasons,
+      cast: details.cast,
+      level: details.level,
     );
   }
 

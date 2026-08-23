@@ -118,11 +118,39 @@ class TmdbClient {
     final path = match.mediaType == TmdbMediaType.tv
         ? 'tv/${match.id}'
         : 'movie/${match.id}';
-    final payload = await _request(path, const {
-      'language': 'zh-CN',
-      'append_to_response': 'credits',
-    });
+    final payload = await _request(path, const {'language': 'zh-CN'});
     return _detailsFromMap(payload, match);
+  }
+
+  Future<TmdbMediaDetails> getEnrichedDetails(TmdbMediaDetails details) async {
+    final path = details.mediaType == TmdbMediaType.tv
+        ? 'tv/${details.id}'
+        : 'movie/${details.id}';
+    final creditsFuture =
+        _request('$path/credits', const {'language': 'zh-CN'});
+    final seasonsFuture = details.mediaType == TmdbMediaType.tv
+        ? Future.wait(
+            details.seasons.map(
+              (season) => getSeason(details.id, season.seasonNumber),
+            ),
+          )
+        : Future.value(const <TmdbSeasonMetadata>[]);
+    final results = await Future.wait<Object>([creditsFuture, seasonsFuture]);
+    return TmdbMediaDetails(
+      id: details.id,
+      mediaType: details.mediaType,
+      title: details.title,
+      originalTitle: details.originalTitle,
+      overview: details.overview,
+      year: details.year,
+      posterUrl: details.posterUrl,
+      backdropUrl: details.backdropUrl,
+      rating: details.rating,
+      runtime: details.runtime,
+      seasons: results[1] as List<TmdbSeasonMetadata>,
+      cast: _castFromCredits(results[0] as Map<String, dynamic>),
+      level: TmdbDetailsLevel.enriched,
+    );
   }
 
   Future<TmdbMediaDetails?> findDetails(
@@ -192,10 +220,10 @@ class TmdbClient {
     }
   }
 
-  Future<TmdbMediaDetails?> _detailsFromMap(
+  TmdbMediaDetails? _detailsFromMap(
     Map<String, dynamic> raw,
     TmdbMediaMatch match,
-  ) async {
+  ) {
     final type = match.mediaType;
     if (type == TmdbMediaType.movie) {
       return TmdbMediaDetails(
@@ -214,19 +242,9 @@ class TmdbClient {
             : _imageUrl(raw['backdrop_path'], size: 'w780'),
         rating: _number(raw['vote_average']) ?? match.rating,
         runtime: _int(raw['runtime']),
-        cast: _castFromDetails(raw),
+        level: TmdbDetailsLevel.base,
       );
     }
-    final seasonNumbers = _list(raw['seasons'])
-        .map((item) => _int(item['season_number']))
-        .whereType<int>()
-        .where((number) => number >= 0)
-        .toSet()
-        .toList()
-      ..sort();
-    final seasons = await Future.wait(
-      seasonNumbers.map((number) => getSeason(match.id, number)),
-    );
     return TmdbMediaDetails(
       id: _int(raw['id']) ?? match.id,
       mediaType: type,
@@ -242,15 +260,32 @@ class TmdbClient {
           : _imageUrl(raw['backdrop_path'], size: 'w780'),
       rating: _number(raw['vote_average']) ?? match.rating,
       runtime: _firstRuntime(raw['episode_run_time']),
-      seasons: seasons,
-      cast: _castFromDetails(raw),
+      seasons: _seasonSkeletons(raw),
+      level: TmdbDetailsLevel.base,
     );
   }
 
-  List<TmdbCastMember> _castFromDetails(Map<String, dynamic> raw) {
-    final credits = raw['credits'];
-    if (credits is! Map) return const [];
-    return _list(credits['cast'])
+  List<TmdbSeasonMetadata> _seasonSkeletons(Map<String, dynamic> raw) {
+    return _list(raw['seasons'])
+        .map(
+          (season) => TmdbSeasonMetadata(
+            id: _int(season['id']) ?? 0,
+            seasonNumber: _int(season['season_number']) ?? 0,
+            name: _text(
+              season['name'],
+              fallback: '第${_int(season['season_number']) ?? 0}季',
+            ),
+            overview: _text(season['overview']),
+            posterUrl: _imageUrl(season['poster_path']),
+            episodes: const [],
+          ),
+        )
+        .where((season) => season.seasonNumber >= 0)
+        .toList(growable: false);
+  }
+
+  List<TmdbCastMember> _castFromCredits(Map<String, dynamic> raw) {
+    return _list(raw['cast'])
         .map(_castMemberFromMap)
         .whereType<TmdbCastMember>()
         .take(20)

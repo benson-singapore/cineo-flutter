@@ -17,10 +17,11 @@ void main() {
   });
 
   tearDown(() async {
+    await Future<void>.delayed(const Duration(milliseconds: 20));
     if (await directory.exists()) await directory.delete(recursive: true);
   });
 
-  test('uses fresh metadata cache and local cached image URIs', () async {
+  test('uses a preview cache without waiting for image downloads', () async {
     var requestCount = 0;
     final cache = TmdbDiskCache(
       directoryProvider: () async => directory,
@@ -33,14 +34,13 @@ void main() {
       clientFactory: (token) => _client(token, () => requestCount++),
     );
 
-    final first = await repository.loadForMedia(_media());
+    final first = await repository.loadPreviewForMedia(_media());
     final requestsAfterFirst = requestCount;
-    final second = await repository.loadForMedia(_media());
+    final second = await repository.loadPreviewForMedia(_media());
 
     expect(first?.title, '测试电影');
-    expect(first?.posterUrl, startsWith('file:'));
-    expect(first?.backdropUrl, startsWith('file:'));
-    expect(second?.posterUrl, startsWith('file:'));
+    expect(first?.level, TmdbDetailsLevel.preview);
+    expect(second?.level, TmdbDetailsLevel.preview);
     expect(requestCount, requestsAfterFirst);
   });
 
@@ -92,11 +92,11 @@ void main() {
     expect(selected?.id, 77);
     expect(loaded?.id, 77);
     expect(
-        requestedPaths.where((path) => path.endsWith('/movie/77')).length, 2);
+        requestedPaths.where((path) => path.endsWith('/movie/77')).length, 1);
     expect(requestedPaths.where((path) => path.contains('/search/')), isEmpty);
   });
 
-  test('reads cached metadata without requesting TMDB again', () async {
+  test('reads cached preview metadata without requesting TMDB again', () async {
     var requestCount = 0;
     final cache = TmdbDiskCache(
       directoryProvider: () async => directory,
@@ -109,16 +109,15 @@ void main() {
       clientFactory: (token) => _client(token, () => requestCount++),
     );
 
-    await repository.loadForMedia(_media());
+    await repository.loadPreviewForMedia(_media());
     final requestsAfterLoad = requestCount;
     final cached = await repository.loadCachedForMedia(_media());
 
-    expect(cached?.posterUrl, startsWith('file:'));
+    expect(cached?.posterUrl, 'https://image.tmdb.org/t/p/w500/poster.jpg');
     expect(requestCount, requestsAfterLoad);
   });
 
-  test('refreshes cached details that have no poster when opening media',
-      () async {
+  test('upgrades a preview to base details and then enrichment', () async {
     var requestCount = 0;
     final cache = TmdbDiskCache(
       directoryProvider: () async => directory,
@@ -131,12 +130,13 @@ void main() {
         mediaType: TmdbMediaType.movie,
         title: '测试电影',
         originalTitle: 'Test Film',
-        overview: '旧详情',
+        overview: '搜索结果',
         year: 2024,
         posterUrl: '',
         backdropUrl: '',
         rating: 8.2,
-        runtime: 120,
+        runtime: null,
+        level: TmdbDetailsLevel.preview,
       ),
     );
     final repository = TmdbMetadataRepository(
@@ -146,11 +146,50 @@ void main() {
       clientFactory: (token) => _client(token, () => requestCount++),
     );
 
-    final refreshed = await repository.loadForMedia(_media());
+    final base = await repository.loadDetailsForMedia(_media());
+    final enriched = await repository.loadEnrichmentForMedia(_media());
 
-    expect(refreshed?.posterUrl, startsWith('file:'));
+    expect(base?.level, TmdbDetailsLevel.base);
+    expect(enriched?.level, TmdbDetailsLevel.enriched);
+    expect(requestCount, 2);
+  });
+
+  test('upgrades legacy metadata that has no staged loading level', () async {
+    var requestCount = 0;
+    final cache = TmdbDiskCache(
+      directoryProvider: () async => directory,
+      imageFetcher: (_) async => <int>[1],
+    );
+    await cache.putMetadata(
+      mediaId: _media().id,
+      data: <String, dynamic>{
+        'id': 12,
+        'media_type': 'movie',
+        'title': '测试电影',
+        'original_title': 'Test Film',
+        'overview': '旧缓存',
+        'year': 2024,
+        'poster_url': '',
+        'backdrop_url': '',
+        'rating': 8.2,
+        'runtime': 120,
+        'seasons': <Object>[],
+        'cast': <Object>[],
+      },
+    );
+    final repository = TmdbMetadataRepository(
+      cache: cache,
+      readToken: () async => 'test-token',
+      retention: () => const Duration(days: 30),
+      clientFactory: (token) => _client(token, () => requestCount++),
+    );
+
+    final details = await repository.loadEnrichmentForMedia(_media());
+
+    expect(details?.level, TmdbDetailsLevel.enriched);
     expect(requestCount, 1);
-    expect((await cache.getDetails(_media().id))?.posterUrl, isNotEmpty);
+    expect((await cache.getDetails(_media().id))?.level,
+        TmdbDetailsLevel.enriched);
   });
 }
 

@@ -542,6 +542,103 @@ void main() {
     expect(loadCount, 0);
   });
 
+  testWidgets('upgrades a supplied TMDB preview after the page opens',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const preview = TmdbMediaDetails(
+      id: 7,
+      mediaType: TmdbMediaType.tv,
+      title: '预览标题',
+      originalTitle: 'Preview Show',
+      overview: '搜索返回的简介',
+      year: 2025,
+      posterUrl: '',
+      backdropUrl: '',
+      rating: 8.0,
+      runtime: null,
+      level: TmdbDetailsLevel.preview,
+    );
+    const base = TmdbMediaDetails(
+      id: 7,
+      mediaType: TmdbMediaType.tv,
+      title: '完整标题',
+      originalTitle: 'Preview Show',
+      overview: '基础详情简介',
+      year: 2025,
+      posterUrl: '',
+      backdropUrl: '',
+      rating: 8.4,
+      runtime: 45,
+      level: TmdbDetailsLevel.base,
+    );
+    const enriched = TmdbMediaDetails(
+      id: 7,
+      mediaType: TmdbMediaType.tv,
+      title: '完整标题',
+      originalTitle: 'Preview Show',
+      overview: '基础详情简介',
+      year: 2025,
+      posterUrl: '',
+      backdropUrl: '',
+      rating: 8.4,
+      runtime: 45,
+      level: TmdbDetailsLevel.enriched,
+      cast: [
+        TmdbCastMember(
+          id: 1,
+          name: '异步演员',
+          character: '角色',
+          profileUrl: '',
+        ),
+      ],
+    );
+    var baseCalls = 0;
+    var enrichmentCalls = 0;
+    final baseCompleter = Completer<TmdbMediaDetails?>();
+    final enrichmentCompleter = Completer<TmdbMediaDetails?>();
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: buildSeries(),
+        favorite: false,
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
+        initialTmdbDetails: preview,
+        onLoadTmdbDetails: (_) {
+          baseCalls++;
+          return baseCompleter.future;
+        },
+        onLoadTmdbEnrichment: (_) {
+          enrichmentCalls++;
+          return enrichmentCompleter.future;
+        },
+      ),
+    ));
+
+    expect(find.text('预览标题'), findsOneWidget);
+    expect(baseCalls, 1);
+    expect(enrichmentCalls, 0);
+
+    baseCompleter.complete(base);
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.text('完整标题'), findsOneWidget);
+    expect(enrichmentCalls, 1);
+
+    enrichmentCompleter.complete(enriched);
+    await tester.pump();
+    await tester.pump();
+
+    expect(baseCalls, 1);
+    expect(enrichmentCalls, 1);
+    expect(find.text('完整标题'), findsOneWidget);
+    expect(find.byKey(const ValueKey('cast-section')), findsOneWidget);
+    expect(find.text('异步演员'), findsOneWidget);
+  });
+
   testWidgets('falls back when TMDB loading fails', (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
     addTearDown(() => tester.binding.setSurfaceSize(null));

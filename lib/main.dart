@@ -293,10 +293,10 @@ class _CineoShellState extends State<CineoShell> {
   }) async {
     final anchor = preferenceAnchor ?? media;
 
-    // Keep the first detail frame visually consistent. This resolves a cached
-    // TMDB record or fetches and persists one before the page is built.
+    // Resolve only the title-match preview before navigation. Detailed TMDB
+    // metadata continues loading inside the destination page.
     final tmdbDetails =
-        widget.tmdbSettings.configured ? await _loadTmdbDetails(media) : null;
+        widget.tmdbSettings.configured ? await _loadTmdbPreview(media) : null;
     if (!mounted) return;
 
     final detailsRoute = Navigator.of(context).push<void>(
@@ -326,7 +326,10 @@ class _CineoShellState extends State<CineoShell> {
           },
           onPlay: (playingMedia, option) =>
               unawaited(_openPlayer(playingMedia, option)),
-          onLoadTmdbDetails: null,
+          onLoadTmdbDetails:
+              widget.tmdbSettings.configured ? _loadTmdbDetails : null,
+          onLoadTmdbEnrichment:
+              widget.tmdbSettings.configured ? _loadTmdbEnrichment : null,
           onSearchTmdbMatches: _searchTmdbMatches,
           onSelectTmdbMatch: (match) => _selectTmdbMatch(media, match),
           onSearchOtherSources: (item) => widget.repository.searchOtherSources(
@@ -386,11 +389,36 @@ class _CineoShellState extends State<CineoShell> {
     await _openPlayer(resolvedMedia, selectedOption);
   }
 
+  Future<TmdbMediaDetails?> _loadTmdbPreview(MediaItem media) async {
+    final mediaType =
+        media.kind == MediaKind.series ? TmdbMediaType.tv : TmdbMediaType.movie;
+    try {
+      final details = await widget.tmdbMetadata.loadPreviewForMedia(media);
+      _debugLog(
+        'tmdb_preview phase=complete type=${mediaType.name} '
+        'matched=${details != null}',
+      );
+      return details;
+    } on TmdbApiException catch (error) {
+      _debugLog(
+        'tmdb_preview phase=unavailable kind=${error.kind.name} '
+        'type=${mediaType.name}',
+      );
+      return null;
+    } on Object catch (error) {
+      _debugLog(
+        'tmdb_preview phase=failed errorType=${error.runtimeType} '
+        'type=${mediaType.name}',
+      );
+      return null;
+    }
+  }
+
   Future<TmdbMediaDetails?> _loadTmdbDetails(MediaItem media) async {
     final mediaType =
         media.kind == MediaKind.series ? TmdbMediaType.tv : TmdbMediaType.movie;
     try {
-      final details = await widget.tmdbMetadata.loadForMedia(media);
+      final details = await widget.tmdbMetadata.loadDetailsForMedia(media);
       _debugLog(
         'tmdb_details phase=complete type=${mediaType.name} '
         'matched=${details != null}',
@@ -407,6 +435,15 @@ class _CineoShellState extends State<CineoShell> {
         'tmdb_details phase=failed errorType=${error.runtimeType} '
         'type=${mediaType.name}',
       );
+      return null;
+    }
+  }
+
+  Future<TmdbMediaDetails?> _loadTmdbEnrichment(MediaItem media) async {
+    try {
+      return await widget.tmdbMetadata.loadEnrichmentForMedia(media);
+    } on Object catch (error) {
+      _debugLog('tmdb_enrichment phase=failed errorType=${error.runtimeType}');
       return null;
     }
   }

@@ -38,6 +38,7 @@ class TmdbCacheModelCodec {
       'runtime': value.runtime,
       'seasons': value.seasons.map(encodeSeason).toList(),
       'cast': value.cast.map(encodeCastMember).toList(),
+      'level': value.level.name,
     };
   }
 
@@ -67,6 +68,7 @@ class TmdbCacheModelCodec {
               .map((item) => decodeCastMember(Map<String, dynamic>.from(item)))
               .toList()
           : const <TmdbCastMember>[],
+      level: _detailsLevel(json['level']),
     );
   }
 
@@ -146,6 +148,17 @@ class TmdbCacheModelCodec {
     return value == TmdbMediaType.movie.name
         ? TmdbMediaType.movie
         : TmdbMediaType.tv;
+  }
+
+  static TmdbDetailsLevel _detailsLevel(Object? value) {
+    return switch (value) {
+      'preview' => TmdbDetailsLevel.preview,
+      'enriched' => TmdbDetailsLevel.enriched,
+      'base' => TmdbDetailsLevel.base,
+      // Metadata written before staged loading has no level. It may not have
+      // cast or episode data, so it must be refreshed once in the background.
+      _ => TmdbDetailsLevel.base,
+    };
   }
 
   static String _asString(Object? value) => value is String ? value : '';
