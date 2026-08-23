@@ -36,7 +36,7 @@ class HomeScreen extends StatelessWidget {
   final List<MediaItem> items;
   final List<MediaItem> continueWatching;
   final List<MediaItem> favorites;
-  final ValueChanged<MediaItem> onOpenMedia;
+  final Future<void> Function(MediaItem) onOpenMedia;
   final bool isLoading;
   final bool isRefreshing;
   final String? errorMessage;
@@ -46,7 +46,7 @@ class HomeScreen extends StatelessWidget {
   final List<HomeCategoryRail> categoryRails;
 
   final HomeRailSeeAllCallback? onSeeAll;
-  final ValueChanged<MediaItem>? onContinueWatching;
+  final Future<void> Function(MediaItem)? onContinueWatching;
   final VoidCallback? onOpenSearch;
 
   @override
@@ -185,7 +185,7 @@ class _HeroBanner extends StatelessWidget {
 
   final MediaItem media;
   final bool resumeAvailable;
-  final ValueChanged<MediaItem> onTap;
+  final Future<void> Function(MediaItem) onTap;
 
   @override
   Widget build(BuildContext context) {

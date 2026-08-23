@@ -30,7 +30,7 @@ void main() {
       home: CategoryBrowseScreen(
         title: '电影',
         initialItems: initialItems,
-        onOpenMedia: (_) {},
+        onOpenMedia: (_) async {},
         onLoad: onLoad,
       ),
     );

@@ -33,7 +33,7 @@ Widget _subject({
   Future<void> Function()? onRefresh,
   List<MediaItem> continueWatching = const [],
   List<MediaItem> favorites = const [],
-  ValueChanged<MediaItem>? onContinueWatching,
+  Future<void> Function(MediaItem)? onContinueWatching,
   VoidCallback? onOpenSearch,
 }) {
   return MaterialApp(
@@ -42,7 +42,7 @@ Widget _subject({
       items: items,
       continueWatching: continueWatching,
       favorites: favorites,
-      onOpenMedia: (_) {},
+      onOpenMedia: (_) async {},
       onContinueWatching: onContinueWatching,
       categoryRails: categoryRails,
       onSeeAll: onSeeAll,
@@ -65,7 +65,9 @@ void main() {
       _subject(
         items: [recommended],
         continueWatching: [resumed],
-        onContinueWatching: (media) => selected = media,
+        onContinueWatching: (media) async {
+          selected = media;
+        },
         onSeeAll: (_, __, ___) {},
       ),
     );

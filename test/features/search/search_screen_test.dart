@@ -55,7 +55,7 @@ void main() {
               seriesCategory,
             ],
         onSearch: (_) {},
-        onOpenMedia: (_) {},
+        onOpenMedia: (_) async {},
         onBrowseCategory: onBrowse,
         onRemoteSearch: onSearch,
         libraryMode: libraryMode,

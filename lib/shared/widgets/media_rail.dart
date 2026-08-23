@@ -17,7 +17,7 @@ class MediaRail extends StatelessWidget {
 
   final String title;
   final List<MediaItem> items;
-  final ValueChanged<MediaItem> onOpenMedia;
+  final Future<void> Function(MediaItem) onOpenMedia;
   final Map<String, double> progressByMediaId;
   final bool showDescription;
   final VoidCallback? onSeeAll;

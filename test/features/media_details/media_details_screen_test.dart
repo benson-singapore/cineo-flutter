@@ -202,6 +202,40 @@ void main() {
     expect(find.byKey(const ValueKey('preview-episode-a-1')), findsOneWidget);
   });
 
+  testWidgets('starts the supplied detail loader after the page is built',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final completer = Completer<MediaItem?>();
+    var loadCount = 0;
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: buildSeries().copyWith(
+          episodes: const [],
+          playbackOptions: const [],
+        ),
+        favorite: false,
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
+        onLoadMediaDetails: (_) {
+          loadCount++;
+          return completer.future;
+        },
+      ),
+    ));
+    await tester.pump();
+
+    expect(loadCount, 1);
+    expect(find.byKey(const ValueKey('episode-loading')), findsOneWidget);
+
+    completer.complete(buildSeries());
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('preview-episode-a-1')), findsOneWidget);
+  });
+
   testWidgets('shows the existing empty episode state after loading',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));

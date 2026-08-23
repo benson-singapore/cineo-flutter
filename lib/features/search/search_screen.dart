@@ -28,7 +28,7 @@ class SearchScreen extends StatefulWidget {
   final List<MediaItem> items;
   final List<String> history;
   final ValueChanged<String> onSearch;
-  final ValueChanged<MediaItem> onOpenMedia;
+  final Future<void> Function(MediaItem) onOpenMedia;
   final Future<PagedMedia> Function(
       String query, List<String> categoryIds, int page)? onRemoteSearch;
   final Future<PagedMedia> Function(List<String> categoryIds, int page)?
@@ -821,7 +821,7 @@ class _SubcategoryRail extends StatelessWidget {
 
   final UnifiedSubcategory category;
   final _SubcategoryBrowseState state;
-  final ValueChanged<MediaItem> onOpenMedia;
+  final Future<void> Function(MediaItem) onOpenMedia;
   final VoidCallback onSeeAll;
   final VoidCallback onRetry;
 
@@ -983,19 +983,37 @@ class _SearchField extends StatelessWidget {
   }
 }
 
-class _SearchResultTile extends StatelessWidget {
+class _SearchResultTile extends StatefulWidget {
   const _SearchResultTile({required this.media, required this.onTap});
 
   final MediaItem media;
-  final VoidCallback onTap;
+  final Future<void> Function() onTap;
+
+  @override
+  State<_SearchResultTile> createState() => _SearchResultTileState();
+}
+
+class _SearchResultTileState extends State<_SearchResultTile> {
+  var _opening = false;
+
+  Future<void> _open() async {
+    if (_opening) return;
+    setState(() => _opening = true);
+    try {
+      await widget.onTap();
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return Semantics(
       button: true,
-      label: '打开${media.title}',
+      enabled: !_opening,
+      label: '打开${widget.media.title}',
       child: InkWell(
-        onTap: onTap,
+        onTap: _opening ? null : _open,
         borderRadius: BorderRadius.circular(8),
         child: Container(
           constraints: const BoxConstraints(minHeight: 116),
@@ -1006,7 +1024,7 @@ class _SearchResultTile extends StatelessWidget {
           clipBehavior: Clip.antiAlias,
           child: Row(
             children: [
-              _Poster(url: media.posterUrl),
+              _Poster(url: widget.media.posterUrl),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
@@ -1014,20 +1032,20 @@ class _SearchResultTile extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(media.title,
+                      Text(widget.media.title,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(fontWeight: FontWeight.w700)),
                       const SizedBox(height: 7),
                       Text(
-                        '${media.year}  ·  ${media.kind == MediaKind.series ? '剧集' : '电影'}  ·  ${media.rating.toStringAsFixed(1)} 分',
+                        '${widget.media.year}  ·  ${widget.media.kind == MediaKind.series ? '剧集' : '电影'}  ·  ${widget.media.rating.toStringAsFixed(1)} 分',
                         style: const TextStyle(
                           color: CineoColors.textSecondary,
                           fontSize: 12,
                         ),
                       ),
                       const SizedBox(height: 7),
-                      Text(media.description,
+                      Text(widget.media.description,
                           maxLines: 2,
                           overflow: TextOverflow.ellipsis,
                           style: const TextStyle(
@@ -1036,9 +1054,20 @@ class _SearchResultTile extends StatelessWidget {
                   ),
                 ),
               ),
-              const Padding(
-                padding: EdgeInsets.only(right: 14),
-                child: Icon(Icons.chevron_right_rounded),
+              Padding(
+                padding: const EdgeInsets.only(right: 14),
+                child: _opening
+                    ? SizedBox(
+                        width: 22,
+                        height: 22,
+                        child: CircularProgressIndicator(
+                          key: ValueKey(
+                            'search-result-loading-${widget.media.id}',
+                          ),
+                          strokeWidth: 2,
+                        ),
+                      )
+                    : const Icon(Icons.chevron_right_rounded),
               ),
             ],
           ),

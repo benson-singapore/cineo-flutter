@@ -292,33 +292,33 @@ class _CineoShellState extends State<CineoShell> {
     bool skipPreferredSource = false,
   }) async {
     final anchor = preferenceAnchor ?? media;
-    MediaItem selectedMedia = media;
-    if (!skipPreferredSource) {
-      final preferred = await widget.repository.preferredSourceFor(
-        anchor,
-        includeAdult: widget.adultSourceSettings.showAdultSources,
-      );
-      if (preferred != null) selectedMedia = preferred;
-    }
-    if (!mounted) return;
 
     // Keep the first detail frame visually consistent. This resolves a cached
     // TMDB record or fetches and persists one before the page is built.
-    final tmdbDetails = widget.tmdbSettings.configured
-        ? await _loadTmdbDetails(selectedMedia)
-        : null;
+    final tmdbDetails =
+        widget.tmdbSettings.configured ? await _loadTmdbDetails(media) : null;
     if (!mounted) return;
 
-    await Navigator.of(context).push<void>(
+    final detailsRoute = Navigator.of(context).push<void>(
       adaptivePageRoute(
         context,
         builder: (_) => MediaDetailsScreen(
-          media: selectedMedia,
+          media: media,
           initialTmdbDetails: tmdbDetails,
           initialEpisodeId: null,
           favorite: false,
           repository: widget.repository,
           includeAdultHistory: _includeAdultHistory,
+          onLoadMediaDetails: (item) async {
+            if (!skipPreferredSource) {
+              final preferred = await widget.repository.preferredSourceFor(
+                anchor,
+                includeAdult: widget.adultSourceSettings.showAdultSources,
+              );
+              if (preferred != null) return preferred;
+            }
+            return widget.repository.loadDetails(item);
+          },
           onLoadFavorite: widget.repository.isFavorite,
           onFavoriteChanged: (favoriteMedia, isFavorite) {
             unawaited(widget.repository.setFavorite(favoriteMedia, isFavorite));
@@ -328,7 +328,7 @@ class _CineoShellState extends State<CineoShell> {
               unawaited(_openPlayer(playingMedia, option)),
           onLoadTmdbDetails: null,
           onSearchTmdbMatches: _searchTmdbMatches,
-          onSelectTmdbMatch: (match) => _selectTmdbMatch(selectedMedia, match),
+          onSelectTmdbMatch: (match) => _selectTmdbMatch(media, match),
           onSearchOtherSources: (item) => widget.repository.searchOtherSources(
             item,
             includeAdult: widget.adultSourceSettings.showAdultSources,
@@ -340,7 +340,7 @@ class _CineoShellState extends State<CineoShell> {
         ),
       ),
     );
-    await _refresh();
+    unawaited(detailsRoute.then((_) => _refresh()));
   }
 
   Future<MediaItem> _resolveMediaDetails(MediaItem media) async {
@@ -511,7 +511,7 @@ class _CineoShellState extends State<CineoShell> {
         builder: (_) => CategoryBrowseScreen(
           title: title,
           initialItems: initialItems,
-          onOpenMedia: (media) => unawaited(_openMedia(media)),
+          onOpenMedia: _openMedia,
           onLoad: (page) => widget.repository.browseDefaultSourcePage(
             categoryIds: categoryIds,
             page: page,
@@ -529,7 +529,7 @@ class _CineoShellState extends State<CineoShell> {
           items: _items,
           history: _searchHistory,
           onSearch: (query) => unawaited(_recordSearch(query)),
-          onOpenMedia: (media) => unawaited(_openMedia(media)),
+          onOpenMedia: _openMedia,
           categories: _categories,
           onRemoteSearch: (query, categoryIds, page) =>
               widget.repository.searchDefaultSourcePage(
@@ -555,7 +555,7 @@ class _CineoShellState extends State<CineoShell> {
           repository: widget.repository,
           mode: mode,
           includeAdultHistory: _includeAdultHistory,
-          onMediaTap: (media) => unawaited(_openMedia(media)),
+          onMediaTap: _openMedia,
         ),
       ),
     );
@@ -624,8 +624,8 @@ class _CineoShellState extends State<CineoShell> {
         errorMessage: _errorMessage,
         onRetry: _refresh,
         onRefresh: _refresh,
-        onOpenMedia: (media) => unawaited(_openMedia(media)),
-        onContinueWatching: (media) => unawaited(_resumeMedia(media)),
+        onOpenMedia: _openMedia,
+        onContinueWatching: _resumeMedia,
         onOpenSearch: () => unawaited(_openSearch()),
         onSeeAll: (title, items, categoryIds) =>
             unawaited(_openCategoryBrowse(title, items, categoryIds)),
@@ -634,7 +634,7 @@ class _CineoShellState extends State<CineoShell> {
         items: _items,
         history: _searchHistory,
         onSearch: (query) => unawaited(_recordSearch(query)),
-        onOpenMedia: (media) => unawaited(_openMedia(media)),
+        onOpenMedia: _openMedia,
         categories: _categories,
         onRemoteSearch: (query, categoryIds, page) =>
             widget.repository.searchDefaultSourcePage(

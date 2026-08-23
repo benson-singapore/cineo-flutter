@@ -17,7 +17,7 @@ class CategoryBrowseScreen extends StatefulWidget {
 
   final String title;
   final List<MediaItem> initialItems;
-  final ValueChanged<MediaItem> onOpenMedia;
+  final Future<void> Function(MediaItem) onOpenMedia;
   final Future<PagedMedia> Function(int page)? onLoad;
 
   @override
@@ -274,7 +274,7 @@ class BrowseMediaGrid extends StatelessWidget {
   });
 
   final List<MediaItem> items;
-  final ValueChanged<MediaItem> onOpenMedia;
+  final Future<void> Function(MediaItem) onOpenMedia;
   final String emptyTitle;
   final String emptyMessage;
 
@@ -304,7 +304,7 @@ class BrowseMediaGrid extends StatelessWidget {
   }
 }
 
-class BrowseMediaCard extends StatelessWidget {
+class BrowseMediaCard extends StatefulWidget {
   const BrowseMediaCard({
     super.key,
     required this.media,
@@ -312,34 +312,72 @@ class BrowseMediaCard extends StatelessWidget {
   });
 
   final MediaItem media;
-  final VoidCallback onTap;
+  final Future<void> Function() onTap;
+
+  @override
+  State<BrowseMediaCard> createState() => _BrowseMediaCardState();
+}
+
+class _BrowseMediaCardState extends State<BrowseMediaCard> {
+  var _opening = false;
+
+  Future<void> _open() async {
+    if (_opening) return;
+    setState(() => _opening = true);
+    try {
+      await widget.onTap();
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
-    final kind = media.kind == MediaKind.series ? '剧集' : '电影';
+    final kind = widget.media.kind == MediaKind.series ? '剧集' : '电影';
     final metadata = [
-      if (media.year > 0) media.year.toString(),
+      if (widget.media.year > 0) widget.media.year.toString(),
       kind,
-      if (media.rating > 0) media.rating.toStringAsFixed(1),
+      if (widget.media.rating > 0) widget.media.rating.toStringAsFixed(1),
     ].join(' · ');
     return Semantics(
       button: true,
-      label: '打开 ${media.title}',
+      enabled: !_opening,
+      label: '打开 ${widget.media.title}',
       child: InkWell(
-        onTap: onTap,
+        onTap: _opening ? null : _open,
         borderRadius: BorderRadius.circular(8),
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: MediaImage(
-                url: media.posterUrl,
-                borderRadius: BorderRadius.circular(8),
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  MediaImage(
+                    url: widget.media.posterUrl,
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  if (_opening)
+                    DecoratedBox(
+                      key: ValueKey('browse-card-loading-${widget.media.id}'),
+                      decoration: BoxDecoration(
+                        color: Colors.black.withOpacity(.56),
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      child: const Center(
+                        child: SizedBox(
+                          width: 28,
+                          height: 28,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      ),
+                    ),
+                ],
               ),
             ),
             const SizedBox(height: 8),
             Text(
-              media.title,
+              widget.media.title,
               maxLines: 1,
               overflow: TextOverflow.ellipsis,
               style: Theme.of(context).textTheme.titleSmall?.copyWith(

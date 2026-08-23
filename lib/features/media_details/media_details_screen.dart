@@ -18,6 +18,7 @@ class MediaDetailsScreen extends StatefulWidget {
     this.initialEpisodeId,
     this.initialTmdbDetails,
     this.onLoadFavorite,
+    this.onLoadMediaDetails,
     this.onSearchOtherSources,
     this.onLoadAlternative,
     this.onLoadTmdbDetails,
@@ -34,6 +35,7 @@ class MediaDetailsScreen extends StatefulWidget {
   final String? initialEpisodeId;
   final TmdbMediaDetails? initialTmdbDetails;
   final Future<bool> Function(String mediaId)? onLoadFavorite;
+  final Future<MediaItem?> Function(MediaItem media)? onLoadMediaDetails;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
   final Future<MediaItem?> Function(MediaItem media)? onLoadAlternative;
   final Future<TmdbMediaDetails?> Function(MediaItem media)? onLoadTmdbDetails;
@@ -175,7 +177,8 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   @override
   void initState() {
     super.initState();
-    _loadingMediaDetails = widget.repository != null;
+    _loadingMediaDetails =
+        widget.repository != null || widget.onLoadMediaDetails != null;
     final initialEpisodeId = widget.initialEpisodeId;
     if (initialEpisodeId != null) {
       for (final episode in _media.episodes) {
@@ -211,8 +214,9 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
 
   Future<void> _loadMediaDataAsync() async {
     final repo = widget.repository;
+    final loader = widget.onLoadMediaDetails;
 
-    if (repo == null) {
+    if (repo == null && loader == null) {
       if (_tmdbDetails == null && widget.onLoadTmdbDetails != null) {
         _loadTmdbDetails();
       }
@@ -220,7 +224,8 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     }
 
     try {
-      final resolvedMedia = await repo.loadDetails(_media) ?? _media;
+      final resolvedMedia =
+          await (loader?.call(_media) ?? repo.loadDetails(_media)) ?? _media;
       if (!mounted) return;
 
       setState(() {

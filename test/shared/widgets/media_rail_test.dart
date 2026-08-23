@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -40,7 +42,7 @@ void main() {
         child: MediaRail(
           title: '为你推荐',
           items: items,
-          onOpenMedia: (_) {},
+          onOpenMedia: (_) async {},
           onSeeAll: () {
             title = '为你推荐';
             receivedItems = items;
@@ -62,12 +64,46 @@ void main() {
         child: MediaRail(
           title: '为你推荐',
           items: [_media('1', '第一部')],
-          onOpenMedia: (_) {},
+          onOpenMedia: (_) async {},
         ),
       ),
     );
 
     final button = tester.widget<IconButton>(find.byType(IconButton));
     expect(button.onPressed, isNull);
+  });
+
+  testWidgets('shows loading while the selected poster is opening',
+      (tester) async {
+    final opening = Completer<void>();
+    var openCalls = 0;
+
+    await tester.pumpWidget(
+      _host(
+        child: MediaRail(
+          title: '为你推荐',
+          items: [_media('slow', '加载中的视频')],
+          onOpenMedia: (_) {
+            openCalls++;
+            return opening.future;
+          },
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('加载中的视频'));
+    await tester.pump();
+
+    expect(openCalls, 1);
+    expect(
+        find.byKey(const ValueKey('media-card-loading-slow')), findsOneWidget);
+
+    await tester.tap(find.text('加载中的视频'));
+    await tester.pump();
+    expect(openCalls, 1);
+
+    opening.complete();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('media-card-loading-slow')), findsNothing);
   });
 }

@@ -4,7 +4,7 @@ import '../../core/models/media.dart';
 import '../../core/theme/cineo_theme.dart';
 import 'media_image.dart';
 
-class MediaPosterCard extends StatelessWidget {
+class MediaPosterCard extends StatefulWidget {
   const MediaPosterCard({
     super.key,
     required this.media,
@@ -15,23 +15,41 @@ class MediaPosterCard extends StatelessWidget {
   });
 
   final MediaItem media;
-  final VoidCallback onTap;
+  final Future<void> Function() onTap;
   final double width;
   final double? progress;
   final bool showDescription;
 
   @override
+  State<MediaPosterCard> createState() => _MediaPosterCardState();
+}
+
+class _MediaPosterCardState extends State<MediaPosterCard> {
+  var _opening = false;
+
+  Future<void> _open() async {
+    if (_opening) return;
+    setState(() => _opening = true);
+    try {
+      await widget.onTap();
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
     final theme = Theme.of(context);
-    final normalizedProgress = progress?.clamp(0.0, 1.0);
+    final normalizedProgress = widget.progress?.clamp(0.0, 1.0);
 
     return SizedBox(
-      width: width,
+      width: widget.width,
       child: Semantics(
         button: true,
-        label: '打开 ${media.title}',
+        enabled: !_opening,
+        label: '打开 ${widget.media.title}',
         child: InkWell(
-          onTap: onTap,
+          onTap: _opening ? null : _open,
           borderRadius: BorderRadius.circular(8),
           child: Padding(
             padding: const EdgeInsets.only(bottom: 2),
@@ -44,7 +62,7 @@ class MediaPosterCard extends StatelessWidget {
                     fit: StackFit.expand,
                     children: [
                       MediaImage(
-                        url: media.posterUrl,
+                        url: widget.media.posterUrl,
                         borderRadius: BorderRadius.circular(8),
                       ),
                       DecoratedBox(
@@ -60,13 +78,13 @@ class MediaPosterCard extends StatelessWidget {
                           ),
                         ),
                       ),
-                      if (media.rating > 0)
+                      if (widget.media.rating > 0)
                         Positioned(
                           top: 8,
                           left: 8,
-                          child: _RatingBadge(rating: media.rating),
+                          child: _RatingBadge(rating: widget.media.rating),
                         ),
-                      if (media.kind == MediaKind.series)
+                      if (widget.media.kind == MediaKind.series)
                         const Positioned(
                           top: 8,
                           right: 8,
@@ -79,12 +97,32 @@ class MediaPosterCard extends StatelessWidget {
                           bottom: 8,
                           child: _ProgressBar(value: normalizedProgress),
                         ),
+                      if (_opening)
+                        Positioned.fill(
+                          child: DecoratedBox(
+                            key: ValueKey(
+                              'media-card-loading-${widget.media.id}',
+                            ),
+                            decoration: BoxDecoration(
+                              color: Colors.black.withOpacity(.56),
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                            child: const Center(
+                              child: SizedBox(
+                                width: 28,
+                                height: 28,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            ),
+                          ),
+                        ),
                     ],
                   ),
                 ),
                 const SizedBox(height: 10),
                 Text(
-                  media.title,
+                  widget.media.title,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.titleSmall?.copyWith(
@@ -94,10 +132,10 @@ class MediaPosterCard extends StatelessWidget {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  showDescription
-                      ? media.description
-                      : '${media.year}  ·  ${media.genres.take(2).join(' / ')}',
-                  maxLines: showDescription ? 2 : 1,
+                  widget.showDescription
+                      ? widget.media.description
+                      : '${widget.media.year}  ·  ${widget.media.genres.take(2).join(' / ')}',
+                  maxLines: widget.showDescription ? 2 : 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(
                     color: CineoColors.textSecondary,

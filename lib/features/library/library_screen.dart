@@ -19,7 +19,7 @@ class LibraryScreen extends StatefulWidget {
   final MediaRepository repository;
   final LibraryContentMode mode;
   final bool includeAdultHistory;
-  final ValueChanged<MediaItem>? onMediaTap;
+  final Future<void> Function(MediaItem)? onMediaTap;
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -261,7 +261,7 @@ class _MediaGrid extends StatelessWidget {
   final List<MediaItem> items;
   final String emptyTitle;
   final IconData emptyIcon;
-  final ValueChanged<MediaItem>? onTap;
+  final Future<void> Function(MediaItem)? onTap;
   final ValueChanged<MediaItem>? onRemove;
 
   @override
@@ -292,7 +292,7 @@ class _HistoryList extends StatelessWidget {
       {required this.entries, this.onTap, required this.onDelete});
 
   final List<_HistoryEntry> entries;
-  final ValueChanged<MediaItem>? onTap;
+  final Future<void> Function(MediaItem)? onTap;
   final ValueChanged<String> onDelete;
 
   @override
@@ -316,17 +316,34 @@ class _HistoryList extends StatelessWidget {
   }
 }
 
-class _MediaTile extends StatelessWidget {
+class _MediaTile extends StatefulWidget {
   const _MediaTile({required this.media, this.onTap, this.onRemove});
 
   final MediaItem media;
-  final VoidCallback? onTap;
+  final Future<void> Function()? onTap;
   final VoidCallback? onRemove;
+
+  @override
+  State<_MediaTile> createState() => _MediaTileState();
+}
+
+class _MediaTileState extends State<_MediaTile> {
+  var _opening = false;
+
+  Future<void> _open() async {
+    if (_opening || widget.onTap == null) return;
+    setState(() => _opening = true);
+    try {
+      await widget.onTap!();
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
 
   @override
   Widget build(BuildContext context) {
     return InkWell(
-      onTap: onTap,
+      onTap: _opening || widget.onTap == null ? null : _open,
       borderRadius: BorderRadius.circular(8),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -337,9 +354,24 @@ class _MediaTile extends StatelessWidget {
               children: [
                 ClipRRect(
                   borderRadius: BorderRadius.circular(8),
-                  child: MediaImage(url: media.posterUrl),
+                  child: MediaImage(url: widget.media.posterUrl),
                 ),
-                if (onRemove != null)
+                if (_opening)
+                  DecoratedBox(
+                    key: ValueKey('library-card-loading-${widget.media.id}'),
+                    decoration: BoxDecoration(
+                      color: Colors.black.withOpacity(.56),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: const Center(
+                      child: SizedBox(
+                        width: 28,
+                        height: 28,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    ),
+                  ),
+                if (widget.onRemove != null)
                   Positioned(
                     top: 6,
                     right: 6,
@@ -348,7 +380,7 @@ class _MediaTile extends StatelessWidget {
                       shape: const CircleBorder(),
                       child: IconButton(
                         tooltip: '取消收藏',
-                        onPressed: onRemove,
+                        onPressed: widget.onRemove,
                         constraints: const BoxConstraints.tightFor(
                           width: 36,
                           height: 36,
@@ -365,14 +397,14 @@ class _MediaTile extends StatelessWidget {
           ),
           const SizedBox(height: 8),
           Text(
-            media.title,
+            widget.media.title,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
             style: const TextStyle(fontWeight: FontWeight.w700),
           ),
           const SizedBox(height: 3),
           Text(
-            '${media.year}  ·  ${media.rating.toStringAsFixed(1)} 分',
+            '${widget.media.year}  ·  ${widget.media.rating.toStringAsFixed(1)} 分',
             style: const TextStyle(
               color: CineoColors.textSecondary,
               fontSize: 12,
@@ -384,78 +416,119 @@ class _MediaTile extends StatelessWidget {
   }
 }
 
-class _HistoryTile extends StatelessWidget {
+class _HistoryTile extends StatefulWidget {
   const _HistoryTile({required this.entry, this.onTap, required this.onDelete});
 
   final _HistoryEntry entry;
-  final VoidCallback? onTap;
+  final Future<void> Function()? onTap;
   final VoidCallback onDelete;
 
   @override
+  State<_HistoryTile> createState() => _HistoryTileState();
+}
+
+class _HistoryTileState extends State<_HistoryTile> {
+  var _opening = false;
+
+  Future<void> _open() async {
+    if (_opening || widget.onTap == null) return;
+    setState(() => _opening = true);
+    try {
+      await widget.onTap!();
+    } finally {
+      if (mounted) setState(() => _opening = false);
+    }
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final progress = entry.progress.fraction;
-    return Material(
-      color: CineoColors.surface,
-      borderRadius: BorderRadius.circular(8),
-      child: InkWell(
-        onTap: onTap,
-        borderRadius: BorderRadius.circular(8),
-        child: Padding(
-          padding: const EdgeInsets.all(10),
-          child: Row(
-            children: [
-              SizedBox(
-                width: 68,
-                height: 94,
-                child: ClipRRect(
-                  borderRadius: BorderRadius.circular(6),
-                  child: MediaImage(url: entry.media.posterUrl),
-                ),
-              ),
-              const SizedBox(width: 14),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Text(
-                      entry.media.title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: Theme.of(context).textTheme.titleSmall?.copyWith(
-                            fontWeight: FontWeight.w800,
+    final progress = widget.entry.progress.fraction;
+    return Stack(
+      children: [
+        Material(
+          color: CineoColors.surface,
+          borderRadius: BorderRadius.circular(8),
+          child: InkWell(
+            onTap: _opening || widget.onTap == null ? null : _open,
+            borderRadius: BorderRadius.circular(8),
+            child: Padding(
+              padding: const EdgeInsets.all(10),
+              child: Row(
+                children: [
+                  SizedBox(
+                    width: 68,
+                    height: 94,
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(6),
+                      child: MediaImage(url: widget.entry.media.posterUrl),
+                    ),
+                  ),
+                  const SizedBox(width: 14),
+                  Expanded(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Text(
+                          widget.entry.media.title,
+                          maxLines: 1,
+                          overflow: TextOverflow.ellipsis,
+                          style: Theme.of(context)
+                              .textTheme
+                              .titleSmall
+                              ?.copyWith(fontWeight: FontWeight.w800),
+                        ),
+                        const SizedBox(height: 6),
+                        Text(
+                          _episodeSummary(widget.entry.progress),
+                          style: const TextStyle(
+                            color: CineoColors.textSecondary,
+                            fontSize: 12,
                           ),
+                        ),
+                        const SizedBox(height: 8),
+                        Text(
+                          _watchTimeSummary(widget.entry.progress),
+                          style: const TextStyle(
+                            color: CineoColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                        const SizedBox(height: 8),
+                        LinearProgressIndicator(value: progress, minHeight: 4),
+                      ],
                     ),
-                    const SizedBox(height: 6),
-                    Text(
-                      _episodeSummary(entry.progress),
-                      style: const TextStyle(
-                        color: CineoColors.textSecondary,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      _watchTimeSummary(entry.progress),
-                      style: const TextStyle(
-                        color: CineoColors.textSecondary,
-                        fontSize: 12,
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    LinearProgressIndicator(value: progress, minHeight: 4),
-                  ],
-                ),
+                  ),
+                  IconButton(
+                    tooltip: '删除此记录',
+                    onPressed: widget.onDelete,
+                    icon: const Icon(Icons.delete_outline_rounded),
+                  ),
+                ],
               ),
-              IconButton(
-                tooltip: '删除此记录',
-                onPressed: onDelete,
-                icon: const Icon(Icons.delete_outline_rounded),
-              ),
-            ],
+            ),
           ),
         ),
-      ),
+        if (_opening)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                key: ValueKey('history-card-loading-${widget.entry.media.id}'),
+                decoration: BoxDecoration(
+                  color: Colors.black.withOpacity(.56),
+                  borderRadius: BorderRadius.circular(8),
+                ),
+                child: const Center(
+                  child: SizedBox(
+                    width: 28,
+                    height: 28,
+                    child: CircularProgressIndicator(strokeWidth: 2),
+                  ),
+                ),
+              ),
+            ),
+          ),
+      ],
     );
   }
 
