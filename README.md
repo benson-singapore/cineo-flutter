@@ -34,8 +34,8 @@ Cineo 的产品思路和交互方向主要借鉴了 [KatelyaTV](https://github.c
 
 <div align="center">
   <img src="docs/pic/IMG_3493.jpg" width="180" alt="Cineo 首页预览">
+  <img src="docs/pic/IMG_3499.jpg" width="180" alt="Cineo 搜索预览">
   <img src="docs/pic/IMG_3495.jpg" width="180" alt="Cineo 详情预览">
-  <img src="docs/pic/IMG_3507.jpg" width="180" alt="Cineo 搜索预览">
   <img src="docs/pic/IMG_3496.jpg" width="180" alt="Cineo 播放预览">
 </div>
 
