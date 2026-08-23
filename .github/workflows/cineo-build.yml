@@ -115,7 +115,7 @@ jobs:
               CODE_SIGN_IDENTITY="" \
               build 2>&1 | tee build/ios/xcodebuild.log; then
             echo 'xcodebuild failed; relevant diagnostics:' >&2
-            rg -n -i 'error:|failed|failure|signing|deployment target' \
+            grep -Ein 'error:|failed|failure|signing|deployment target' \
               build/ios/xcodebuild.log | tail -80 >&2 || true
             exit 1
           fi

@@ -1,10 +1,9 @@
 import UIKit
 import AVKit
 
-class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
+class VideoPlayerPiPController: NSObject {
     static let shared = VideoPlayerPiPController()
 
-    var pipController: AVPictureInPictureController?
     var playerViewController: AVPlayerViewController?
 
     override private init() {
@@ -24,42 +23,28 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
             return false
         }
 
-        guard let pipController = AVPictureInPictureController(playerViewController: playerViewController) else {
-            return false
-        }
-
-        pipController.delegate = self
-        self.pipController = pipController
+        playerViewController.allowsPictureInPicturePlayback = true
         return true
     }
 
     // Start PiP
     func startPictureInPicture() -> Bool {
-        guard let pipController = pipController, pipController.isPossible else {
+        guard let playerViewController = playerViewController,
+              playerViewController.isPictureInPicturePossible else {
             return false
         }
 
-        pipController.startPictureInPicture()
+        playerViewController.startPictureInPicture()
         return true
     }
 
     // Stop PiP
     func stopPictureInPicture() -> Bool {
-        guard let pipController = pipController else {
+        guard let playerViewController = playerViewController else {
             return false
         }
 
-        pipController.stopPictureInPicture()
+        playerViewController.stopPictureInPicture()
         return true
-    }
-
-    // MARK: - AVPictureInPictureControllerDelegate
-
-    func pictureInPictureControllerDidStartPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        print("PiP started")
-    }
-
-    func pictureInPictureControllerDidStopPictureInPicture(_ pictureInPictureController: AVPictureInPictureController) {
-        print("PiP stopped")
     }
 }
