@@ -95,6 +95,7 @@ jobs:
 
       - name: Build unsigned iOS app
         run: |
+          set -o pipefail
           VERSION="${RELEASE_VERSION#v}"
           VERSION_NAME="${VERSION%%+*}"
           BUILD_NUMBER="$(sed -nE 's/^version: [0-9]+\.[0-9]+\.[0-9]+\+([1-9][0-9]*)$/\1/p' pubspec.yaml)"
@@ -102,16 +103,22 @@ jobs:
           flutter build ios --release --no-codesign --config-only \
             --build-name "${VERSION_NAME}" \
             --build-number "${BUILD_NUMBER}"
-          xcodebuild \
-            -workspace ios/Runner.xcworkspace \
-            -scheme Runner \
-            -configuration Release \
-            -sdk iphoneos \
-            -derivedDataPath build/ios \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGNING_REQUIRED=NO \
-            CODE_SIGN_IDENTITY="" \
-            build
+          if ! xcodebuild \
+              -workspace ios/Runner.xcworkspace \
+              -scheme Runner \
+              -configuration Release \
+              -destination 'generic/platform=iOS' \
+              -derivedDataPath build/ios \
+              IPHONEOS_DEPLOYMENT_TARGET=15.0 \
+              CODE_SIGNING_ALLOWED=NO \
+              CODE_SIGNING_REQUIRED=NO \
+              CODE_SIGN_IDENTITY="" \
+              build 2>&1 | tee build/ios/xcodebuild.log; then
+            echo 'xcodebuild failed; relevant diagnostics:' >&2
+            rg -n -i 'error:|failed|failure|signing|deployment target' \
+              build/ios/xcodebuild.log | tail -80 >&2 || true
+            exit 1
+          fi
 
       - name: Package unsigned IPA
         run: |
