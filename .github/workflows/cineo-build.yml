@@ -103,6 +103,7 @@ jobs:
           flutter build ios --release --no-codesign --config-only \
             --build-name "${VERSION_NAME}" \
             --build-number "${BUILD_NUMBER}"
+          mkdir -p build/ios
           if ! xcodebuild \
               -workspace ios/Runner.xcworkspace \
               -scheme Runner \
