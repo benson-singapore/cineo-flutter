@@ -141,7 +141,9 @@ class _CineoShellState extends State<CineoShell> {
   int _selectedIndex = 0;
   int _refreshRevision = 0;
   bool _pictureInPictureAvailable = false;
+  bool _showHomeScrollToTop = false;
   bool _showLibraryScrollToTop = false;
+  final _homeScrollController = ScrollController();
   final _libraryScrollController = ScrollController();
 
   @override
@@ -153,6 +155,7 @@ class _CineoShellState extends State<CineoShell> {
 
   @override
   void dispose() {
+    _homeScrollController.dispose();
     _libraryScrollController.dispose();
     super.dispose();
   }
@@ -711,6 +714,12 @@ class _CineoShellState extends State<CineoShell> {
         onOpenSearch: () => unawaited(_openSearch()),
         onSeeAll: (title, items, categoryIds) =>
             unawaited(_openCategoryBrowse(title, items, categoryIds)),
+        scrollController: _homeScrollController,
+        onScrollToTopVisibilityChanged: (visible) {
+          if (mounted && visible != _showHomeScrollToTop) {
+            setState(() => _showHomeScrollToTop = visible);
+          }
+        },
       ),
       SearchScreen(
         items: _items,
@@ -752,12 +761,15 @@ class _CineoShellState extends State<CineoShell> {
         onOpenUpdates: () => unawaited(_openUpdates()),
       ),
     ];
+    final showScrollToTop = (_selectedIndex == 0 && _showHomeScrollToTop) ||
+        (_selectedIndex == 1 && _showLibraryScrollToTop);
+    final scrollToTop =
+        _selectedIndex == 0 ? _scrollHomeToTop : _scrollLibraryToTop;
     return Scaffold(
       extendBody: true,
       body: IndexedStack(index: _selectedIndex, children: pages),
-      floatingActionButton: _selectedIndex == 1 && _showLibraryScrollToTop
-          ? _ScrollToTopButton(onPressed: _scrollLibraryToTop)
-          : null,
+      floatingActionButton:
+          showScrollToTop ? _ScrollToTopButton(onPressed: scrollToTop) : null,
       floatingActionButtonLocation: FloatingActionButtonLocation.endFloat,
       bottomNavigationBar: AnimatedBuilder(
         animation: widget.updateService,
@@ -777,6 +789,18 @@ class _CineoShellState extends State<CineoShell> {
       return;
     }
     await _libraryScrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 420),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  Future<void> _scrollHomeToTop() async {
+    if (!_homeScrollController.hasClients ||
+        _homeScrollController.offset <= 0) {
+      return;
+    }
+    await _homeScrollController.animateTo(
       0,
       duration: const Duration(milliseconds: 420),
       curve: Curves.easeOutCubic,

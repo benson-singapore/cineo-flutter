@@ -14,7 +14,7 @@ typedef HomeRailSeeAllCallback = void Function(
   List<String> categoryIds,
 );
 
-class HomeScreen extends StatelessWidget {
+class HomeScreen extends StatefulWidget {
   const HomeScreen({
     super.key,
     required this.items,
@@ -31,6 +31,8 @@ class HomeScreen extends StatelessWidget {
     this.onSeeAll,
     this.onContinueWatching,
     this.onOpenSearch,
+    this.scrollController,
+    this.onScrollToTopVisibilityChanged,
   });
 
   final List<MediaItem> items;
@@ -48,6 +50,40 @@ class HomeScreen extends StatelessWidget {
   final HomeRailSeeAllCallback? onSeeAll;
   final Future<void> Function(MediaItem)? onContinueWatching;
   final VoidCallback? onOpenSearch;
+  final ScrollController? scrollController;
+  final ValueChanged<bool>? onScrollToTopVisibilityChanged;
+
+  @override
+  State<HomeScreen> createState() => _HomeScreenState();
+}
+
+class _HomeScreenState extends State<HomeScreen> {
+  late final ScrollController _scrollController;
+  late final bool _ownsScrollController;
+  bool _showScrollToTop = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = widget.scrollController ?? ScrollController();
+    _ownsScrollController = widget.scrollController == null;
+    _scrollController.addListener(_updateScrollToTopVisibility);
+  }
+
+  @override
+  void dispose() {
+    _scrollController.removeListener(_updateScrollToTopVisibility);
+    if (_ownsScrollController) _scrollController.dispose();
+    super.dispose();
+  }
+
+  void _updateScrollToTopVisibility() {
+    if (!_scrollController.hasClients) return;
+    final shouldShow = _scrollController.offset > 24;
+    if (shouldShow == _showScrollToTop || !mounted) return;
+    setState(() => _showScrollToTop = shouldShow);
+    widget.onScrollToTopVisibilityChanged?.call(shouldShow);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -57,48 +93,47 @@ class HomeScreen extends StatelessWidget {
       body: SafeArea(
         bottom: false,
         child: RefreshIndicator(
-          onRefresh: onRefresh ?? () async {},
+          onRefresh: widget.onRefresh ?? () async {},
           child: CustomScrollView(
             key: const PageStorageKey('cineo-home-scroll'),
+            controller: _scrollController,
             physics: const AlwaysScrollableScrollPhysics(
               parent: BouncingScrollPhysics(),
             ),
             slivers: [
               _buildTopBar(context),
-              if (isRefreshing)
+              if (widget.isRefreshing)
                 const SliverToBoxAdapter(
                   child: LinearProgressIndicator(minHeight: 2),
                 ),
               if (state != null)
                 ContentStateView(
                   state: state,
-                  message: errorMessage,
-                  onRetry: onRetry,
+                  message: widget.errorMessage,
+                  onRetry: widget.onRetry,
                 )
               else ...[
                 SliverToBoxAdapter(
                   child: _HeroBanner(
-                    media: continueWatching.isNotEmpty
-                        ? continueWatching.first
-                        : items.first,
-                    resumeAvailable: continueWatching.isNotEmpty,
-                    onTap: continueWatching.isNotEmpty
-                        ? onContinueWatching ?? onOpenMedia
-                        : onOpenMedia,
+                    media: _heroMedia!,
+                    resumeAvailable: widget.continueWatching.isNotEmpty,
+                    onTap: widget.continueWatching.isNotEmpty
+                        ? widget.onContinueWatching ?? widget.onOpenMedia
+                        : widget.onOpenMedia,
                   ),
                 ),
-                if (continueWatching.isNotEmpty)
+                if (widget.continueWatching.isNotEmpty)
                   MediaRail(
                     title: '继续观看',
-                    items: continueWatching,
-                    progressByMediaId: progressByMediaId,
-                    onOpenMedia: onOpenMedia,
+                    items: widget.continueWatching,
+                    progressByMediaId: widget.progressByMediaId,
+                    onOpenMedia: widget.onOpenMedia,
                   ),
-                if (favorites.isNotEmpty)
+                if (widget.favorites.isNotEmpty)
                   MediaRail(
                     title: '我的收藏',
-                    items: favorites,
-                    onOpenMedia: onOpenMedia,
+                    items: widget.favorites,
+                    onOpenMedia: widget.onOpenMedia,
                   ),
                 ..._fixedCategoryRails(),
                 const SliverToBoxAdapter(child: SizedBox(height: 132)),
@@ -111,9 +146,23 @@ class HomeScreen extends StatelessWidget {
   }
 
   ContentState? get _contentState {
-    if (isLoading && items.isEmpty) return ContentState.loading;
-    if (errorMessage != null) return ContentState.error;
-    if (items.isEmpty) return ContentState.empty;
+    if (_hasContent) return null;
+    if (widget.isLoading) return ContentState.loading;
+    if (widget.errorMessage != null) return ContentState.error;
+    return ContentState.empty;
+  }
+
+  bool get _hasContent =>
+      widget.items.isNotEmpty ||
+      widget.continueWatching.isNotEmpty ||
+      widget.favorites.isNotEmpty;
+
+  MediaItem? get _heroMedia {
+    if (widget.continueWatching.isNotEmpty) {
+      return widget.continueWatching.first;
+    }
+    if (widget.items.isNotEmpty) return widget.items.first;
+    if (widget.favorites.isNotEmpty) return widget.favorites.first;
     return null;
   }
 
@@ -122,7 +171,7 @@ class HomeScreen extends StatelessWidget {
     List<MediaItem> initialItems,
     List<String> categoryIds,
   ) {
-    onSeeAll?.call(title, initialItems, categoryIds);
+    widget.onSeeAll?.call(title, initialItems, categoryIds);
   }
 
   SliverAppBar _buildTopBar(BuildContext context) {
@@ -135,7 +184,7 @@ class HomeScreen extends StatelessWidget {
       title: const CineoBrandMark(),
       actions: [
         IconButton(
-          onPressed: onOpenSearch,
+          onPressed: widget.onOpenSearch,
           tooltip: '搜索',
           icon: const Icon(Icons.search_rounded, size: 25),
         ),
@@ -145,14 +194,14 @@ class HomeScreen extends StatelessWidget {
   }
 
   List<Widget> _fixedCategoryRails() {
-    return categoryRails
+    return widget.categoryRails
         .where((rail) => rail.items.isNotEmpty)
         .map(
           (rail) => MediaRail(
             title: rail.title,
             items: rail.items,
-            onOpenMedia: onOpenMedia,
-            onSeeAll: onSeeAll == null
+            onOpenMedia: widget.onOpenMedia,
+            onSeeAll: widget.onSeeAll == null
                 ? null
                 : () => _notifySeeAll(
                       rail.title,

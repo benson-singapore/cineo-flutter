@@ -35,6 +35,8 @@ Widget _subject({
   List<MediaItem> favorites = const [],
   Future<void> Function(MediaItem)? onContinueWatching,
   VoidCallback? onOpenSearch,
+  ScrollController? scrollController,
+  ValueChanged<bool>? onScrollToTopVisibilityChanged,
 }) {
   return MaterialApp(
     theme: buildCineoTheme(),
@@ -48,6 +50,8 @@ Widget _subject({
       onSeeAll: onSeeAll,
       onRefresh: onRefresh,
       onOpenSearch: onOpenSearch,
+      scrollController: scrollController,
+      onScrollToTopVisibilityChanged: onScrollToTopVisibilityChanged,
     ),
   );
 }
@@ -263,5 +267,35 @@ void main() {
 
     expect(refreshCount, 1);
     expect(find.text('已缓存内容'), findsWidgets);
+  });
+
+  testWidgets('notifies the shell when scrolling away from and back to top',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final controller = ScrollController();
+    final visibilityChanges = <bool>[];
+    addTearDown(controller.dispose);
+
+    await tester.pumpWidget(
+      _subject(
+        items: [_media('featured', '首页资源')],
+        onSeeAll: (_, __, ___) {},
+        scrollController: controller,
+        onScrollToTopVisibilityChanged: visibilityChanges.add,
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, -160));
+    await tester.pumpAndSettle();
+
+    expect(controller.offset, greaterThan(24));
+    expect(visibilityChanges, contains(true));
+
+    controller.jumpTo(0);
+    await tester.pump();
+
+    expect(visibilityChanges.last, isFalse);
   });
 }
