@@ -64,35 +64,26 @@ enum PlayerViewController {
             }
 
             let player = AVPlayer(url: url)
-            let controller = UIViewController()
-            controller.view.backgroundColor = .black
-            controller.modalPresentationStyle = .fullScreen
-
-            if let title = arguments?["title"] as? String {
-                controller.title = title
-            }
             if let milliseconds = arguments?["positionMilliseconds"] as? Int,
                milliseconds > 0 {
                 let time = CMTime(value: Int64(milliseconds), timescale: 1000)
                 player.seek(to: time)
             }
 
-            flutterViewController.present(controller, animated: true) {
-                player.play()
-                guard VideoPlayerPiPController.shared.enablePictureInPicture(
-                    with: player,
-                    in: controller
-                ) else {
-                    controller.dismiss(animated: true)
-                    result(false)
-                    return
-                }
+            guard VideoPlayerPiPController.shared.enablePictureInPicture(
+                with: player,
+                in: flutterViewController
+            ) else {
+                result(false)
+                return
+            }
 
-                VideoPlayerPiPController.shared.startPictureInPicture { started in
-                    DispatchQueue.main.async {
-                        controller.dismiss(animated: true)
-                        result(started)
-                    }
+            if arguments?["isPlaying"] as? Bool ?? true {
+                player.play()
+            }
+            VideoPlayerPiPController.shared.startPictureInPicture { started in
+                DispatchQueue.main.async {
+                    result(started)
                 }
             }
         }
@@ -135,7 +126,9 @@ enum PlayerViewController {
             }
 
             flutterViewController.present(controller, animated: true) {
-                player.play()
+                if arguments?["isPlaying"] as? Bool ?? true {
+                    player.play()
+                }
                 result(true)
             }
         }

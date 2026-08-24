@@ -544,8 +544,16 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final request = _pictureInPictureRequest();
     if (request == null) return;
 
+    await _pauseForExternalPlayback();
     final opened = await _pictureInPicture.openSystemPlayer(request);
     if (!opened && mounted) _showMessage('无法打开系统播放器');
+  }
+
+  Future<void> _pauseForExternalPlayback() async {
+    final controller = _initializedController;
+    if (controller?.value.isPlaying == true) {
+      await controller!.pause();
+    }
   }
 
   Future<void> _openPictureInPicture() async {
@@ -559,6 +567,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
     if (request == null) return;
 
     final isAndroid = defaultTargetPlatform == TargetPlatform.android;
+    if (!isAndroid) await _pauseForExternalPlayback();
     if (isAndroid && mounted) {
       // Render the PiP-safe surface before Android shrinks the activity. Some
       // devices apply PiP before their mode-change callback reaches Flutter.
