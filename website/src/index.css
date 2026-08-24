@@ -1,0 +1,73 @@
+@import url('https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700&display=swap');
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root { color-scheme: dark; }
+  html { scroll-behavior: smooth; }
+  body {
+    @apply bg-ink text-copy antialiased;
+    background-image: radial-gradient(circle at 50% -20%, rgba(255, 161, 58, .08), transparent 34rem), linear-gradient(rgba(255,255,255,.018) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.018) 1px, transparent 1px);
+    background-size: auto, 64px 64px, 64px 64px;
+  }
+  ::selection { @apply bg-cineo text-[#251300]; }
+  a, button { -webkit-tap-highlight-color: transparent; }
+}
+
+@layer components {
+  .container-wide { @apply mx-auto w-full max-w-[1520px] px-5 sm:px-8 lg:px-12; }
+  .keep-cjk { word-break: keep-all; overflow-wrap: normal; }
+  .eyebrow { @apply font-mono text-[10px] font-medium uppercase tracking-[.25em] text-cineo-light; }
+  .section-title { @apply font-display text-4xl font-semibold leading-[.98] tracking-[-.04em] text-copy sm:text-5xl lg:text-[4.3rem]; }
+  .section-copy { @apply max-w-xl text-base leading-7 text-muted sm:text-lg; }
+  .image-frame { @apply overflow-hidden rounded-[1.6rem] border border-white/10 bg-panel shadow-2xl shadow-black/40; }
+  .soft-grid { background-image: linear-gradient(rgba(255,255,255,.04) 1px, transparent 1px), linear-gradient(90deg, rgba(255,255,255,.04) 1px, transparent 1px); background-size: 38px 38px; }
+  .phone-shell { @apply relative h-full w-full overflow-hidden rounded-[2.45rem] border-[7px] border-[#292a2c] bg-[#050505] shadow-2xl shadow-black/60; box-shadow: 0 30px 80px rgba(0,0,0,.55), inset 0 0 0 1px rgba(255,255,255,.1), inset 8px 0 18px rgba(255,255,255,.035), inset -8px 0 18px rgba(0,0,0,.22); }
+  .phone-shell::before { content: ''; @apply pointer-events-none absolute inset-[3px] z-10 rounded-[2rem] border border-white/[.12]; }
+  .phone-shell::after { content: ''; @apply pointer-events-none absolute inset-0 z-20 rounded-[2.2rem] ring-1 ring-inset ring-black/60; }
+  .phone-image { @apply relative z-0 block h-full w-full object-cover; }
+  .phone-speaker { @apply pointer-events-none absolute left-1/2 top-[9px] z-30 h-[4px] w-[3.9rem] -translate-x-1/2 rounded-full bg-black/80 shadow-[0_1px_0_rgba(255,255,255,.18)]; }
+  .phone-camera { @apply pointer-events-none absolute left-[calc(50%+2.5rem)] top-[8px] z-30 h-[6px] w-[6px] -translate-x-1/2 rounded-full border border-white/10 bg-[#111] shadow-[inset_0_0_2px_rgba(255,161,58,.7)]; }
+  .phone-side-button { @apply pointer-events-none absolute -right-[9px] z-30 w-[3px] rounded-r bg-[#3d3e40] shadow-[1px_0_2px_rgba(0,0,0,.7)]; }
+  .phone-side-button-top { @apply top-[22%] h-[3.5rem]; }
+  .phone-side-button-bottom { @apply top-[32%] h-[4.8rem]; }
+  .phone-shell-modal { @apply h-[min(78vh,54rem)] w-[min(78vw,25rem)]; }
+  .preview-track { scrollbar-width: none; cursor: grab; }
+  .preview-track::-webkit-scrollbar { display: none; }
+  .preview-track.is-dragging { cursor: grabbing; scroll-snap-type: none; }
+  .preview-track.is-dragging .preview-slide { pointer-events: none; }
+  .preview-slide img { user-select: none; -webkit-user-drag: none; }
+  .button-arrow { @apply transition-transform duration-200 group-hover:translate-x-1; }
+  .feature-grid > * {
+    align-self: stretch;
+    margin-top: 0 !important;
+    position: relative;
+    top: auto !important;
+    transform: none !important;
+    translate: none !important;
+  }
+}
+
+@media (min-width: 1024px) {
+  .feature-grid { grid-auto-rows: 1fr; }
+}
+
+@keyframes float-slow { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-12px) rotate(0deg); } }
+@keyframes float-reverse { 0%, 100% { transform: translateY(0) rotate(3deg); } 50% { transform: translateY(12px) rotate(1deg); } }
+.float-slow { animation: float-slow 7s ease-in-out infinite; }
+.float-reverse { animation: float-reverse 8s ease-in-out infinite; }
+
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: .01ms !important; animation-iteration-count: 1 !important; transition-duration: .01ms !important; }
+}
+
+@media (max-width: 639px) {
+  .phone-shell { border-width: 6px; border-radius: 2rem; }
+  .phone-shell::before { inset: 3px; border-radius: 1.65rem; }
+  .phone-speaker { top: 8px; width: 3rem; }
+  .phone-camera { top: 7px; left: calc(50% + 2rem); }
+  .phone-side-button { right: -8px; }
+  .phone-shell-modal { height: min(76vh, 42rem); width: min(78vw, 20rem); }
+}
