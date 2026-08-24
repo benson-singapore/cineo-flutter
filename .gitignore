@@ -4,6 +4,7 @@
 *.pyc
 *.swp
 .DS_Store
+.playwright-cli/
 .atom/
 .buildlog/
 .history

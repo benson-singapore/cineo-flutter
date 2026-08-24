@@ -39,6 +39,12 @@
   .preview-track.is-dragging .preview-slide { pointer-events: none; }
   .preview-slide img { user-select: none; -webkit-user-drag: none; }
   .button-arrow { @apply transition-transform duration-200 group-hover:translate-x-1; }
+  .feature-grid > * { transform: none !important; }
+}
+
+@media (min-width: 1024px) {
+  .feature-grid { grid-auto-rows: 1fr; }
+  .feature-grid > * { align-self: stretch; }
 }
 
 @keyframes float-slow { 0%, 100% { transform: translateY(0) rotate(-2deg); } 50% { transform: translateY(-12px) rotate(0deg); } }
