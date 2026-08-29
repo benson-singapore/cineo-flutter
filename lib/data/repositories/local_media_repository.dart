@@ -791,36 +791,50 @@ class LocalMediaRepository implements MediaRepository {
         .where((category) => category.type == UnifiedMediaType.adult)
         .firstOrNull;
     final subcategories = adultCategory?.subcategories ?? const [];
-    final definitions = subcategories.isEmpty
-        ? [
-            const _AdultHomeCategoryDefinition(
-              title: '成人资源',
-              categoryIds: <String>[],
-            ),
-          ]
-        : [
-            for (final category in subcategories)
-              _AdultHomeCategoryDefinition(
-                title: category.name,
-                categoryIds: category.sourceCategoryIds,
-              ),
-          ];
-    final pages = await Future.wait(
-      definitions.map(
-        (definition) => browseDefaultSourcePage(
-          categoryIds: definition.categoryIds,
-        ).then((page) => page.items),
-      ),
-    );
-    return List<HomeCategoryRail>.generate(
-      definitions.length,
-      (index) => HomeCategoryRail(
-        title: definitions[index].title,
-        categoryIds: definitions[index].categoryIds,
-        items: pages[index],
-      ),
-      growable: false,
-    );
+
+    // For adult sources, load resources lightly to avoid freezing:
+    // - Show all first-level categories as separate rails
+    // - Only preload the first category with actual resources
+    // - Other categories show as empty placeholders for on-demand loading
+
+    if (subcategories.isEmpty) {
+      return [
+        const HomeCategoryRail(
+          title: '成人资源',
+          categoryIds: <String>[],
+          items: <MediaItem>[],
+        ),
+      ];
+    }
+
+    final rails = <HomeCategoryRail>[];
+    for (int i = 0; i < subcategories.length; i++) {
+      final category = subcategories[i];
+      if (i == 0) {
+        // Load only the first category eagerly
+        final page = await browseDefaultSourcePage(
+          categoryIds: category.sourceCategoryIds,
+        );
+        rails.add(
+          HomeCategoryRail(
+            title: category.name,
+            categoryIds: category.sourceCategoryIds,
+            items: page.items,
+          ),
+        );
+      } else {
+        // Other categories: empty placeholders for on-demand loading
+        rails.add(
+          HomeCategoryRail(
+            title: category.name,
+            categoryIds: category.sourceCategoryIds,
+            items: const <MediaItem>[],
+          ),
+        );
+      }
+    }
+
+    return rails;
   }
 
   Future<List<UnifiedCategory>> defaultSourceCategories() async {
@@ -1284,16 +1298,6 @@ class _HomeCategoryDefinition {
   final bool useAllTypeIds;
 
   bool matches(String text) => pattern.hasMatch(text);
-}
-
-class _AdultHomeCategoryDefinition {
-  const _AdultHomeCategoryDefinition({
-    required this.title,
-    required this.categoryIds,
-  });
-
-  final String title;
-  final List<String> categoryIds;
 }
 
 final _homeCategoryDefinitions = <_HomeCategoryDefinition>[
