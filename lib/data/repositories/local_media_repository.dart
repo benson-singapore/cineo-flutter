@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
@@ -687,11 +688,12 @@ class LocalMediaRepository implements MediaRepository {
         _homeCategoryIds(definition, categories),
     ];
     final pages = await Future.wait(
-      idsByRail.map(
-        (ids) => ids.isEmpty
-            ? Future<List<MediaItem>>.value(const [])
-            : browseDefaultSourcePage(categoryIds: ids)
-                .then((page) => page.items),
+      List.generate(
+        _homeCategoryDefinitions.length,
+        (index) => _browseHomeCategoryRailItems(
+          title: _homeCategoryDefinitions[index].title,
+          categoryIds: idsByRail[index],
+        ),
       ),
     );
     return List<HomeCategoryRail>.generate(
@@ -733,14 +735,15 @@ class LocalMediaRepository implements MediaRepository {
       final category = subcategories[i];
       if (i == 0) {
         // Load only the first category eagerly
-        final page = await browseDefaultSourcePage(
+        final items = await _browseHomeCategoryRailItems(
+          title: category.name,
           categoryIds: category.sourceCategoryIds,
         );
         rails.add(
           HomeCategoryRail(
             title: category.name,
             categoryIds: category.sourceCategoryIds,
-            items: page.items,
+            items: items,
           ),
         );
       } else {
@@ -756,6 +759,53 @@ class LocalMediaRepository implements MediaRepository {
     }
 
     return rails;
+  }
+
+  /// Keeps independent home rails available when one source category fails.
+  Future<List<MediaItem>> _browseHomeCategoryRailItems({
+    required String title,
+    required List<String> categoryIds,
+  }) async {
+    final ids = _normalizedCategoryIds(categoryIds);
+    if (ids.isEmpty) return const [];
+
+    final pages = await Future.wait(
+      ids.map((categoryId) async {
+        try {
+          return await browseDefaultSourcePage(categoryIds: [categoryId]);
+        } on Object catch (error, stackTrace) {
+          _debugHomeRailError(
+            title: title,
+            categoryId: categoryId,
+            error: error,
+            stackTrace: stackTrace,
+          );
+          return null;
+        }
+      }),
+    );
+    return _combinePages(pages.whereType<PagedMedia>().toList(), 1).items;
+  }
+
+  static void _debugHomeRailError({
+    required String title,
+    required String categoryId,
+    required Object error,
+    required StackTrace stackTrace,
+  }) {
+    assert(() {
+      debugPrint(
+        '[Cineo][Repository] home_rail phase=load_failed '
+        'title=$title categoryId=$categoryId '
+        'error=${error.runtimeType}: $error',
+      );
+      debugPrintStack(
+        label: '[Cineo][Repository] home_rail stack',
+        stackTrace: stackTrace,
+        maxFrames: 12,
+      );
+      return true;
+    }());
   }
 
   Future<List<UnifiedCategory>> defaultSourceCategories() async {

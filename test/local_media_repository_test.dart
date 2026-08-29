@@ -1,8 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:cineo_flutter/core/models/media.dart';
 import 'package:cineo_flutter/core/models/media_source.dart';
 import 'package:cineo_flutter/core/models/home_category_rail.dart';
+import 'package:cineo_flutter/data/remote/mac_cms_client.dart';
+import 'package:cineo_flutter/data/remote/media_category_adapter.dart';
 import 'package:cineo_flutter/data/repositories/local_media_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -130,6 +133,64 @@ void main() {
     expect(rails.single.categoryIds, ['movie-1']);
     expect(rails.single.items.single.title, cachedMedia.title);
     expect(rails.single.items.single.posterUrl, cachedMedia.posterUrl);
+  });
+
+  test('keeps successful home rails when another category request fails',
+      () async {
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+      macCmsClient: MacCmsClient(
+        maxAttempts: 1,
+        fetcher: (uri) async {
+          switch (uri.queryParameters['t']) {
+            case 'cn':
+              throw const HttpException('站点返回 HTTP 500');
+            case 'kr':
+              return jsonEncode({
+                'list': [
+                  {
+                    'vod_id': '18',
+                    'vod_name': '成功加载的韩剧',
+                    'type_id': 'kr',
+                    'type_name': '韩剧',
+                  },
+                ],
+              });
+            default:
+              return '{"list":[]}';
+          }
+        },
+      ),
+    );
+    const categories = [
+      UnifiedCategory(
+        type: UnifiedMediaType.series,
+        sourceCategoryIds: ['cn', 'kr'],
+        subcategories: [
+          UnifiedSubcategory(
+            id: 'cn',
+            name: '国产剧',
+            sourceCategoryIds: ['cn'],
+            matchText: '电视剧 国产剧',
+          ),
+          UnifiedSubcategory(
+            id: 'kr',
+            name: '韩剧',
+            sourceCategoryIds: ['kr'],
+            matchText: '电视剧 韩剧',
+          ),
+        ],
+      ),
+    ];
+
+    final rails = await repository.browseDefaultHomeCategoryRails(categories);
+
+    final domestic = rails.singleWhere((rail) => rail.title == '国产剧');
+    final korean = rails.singleWhere((rail) => rail.title == '韩剧');
+    expect(domestic.categoryIds, ['cn']);
+    expect(domestic.items, isEmpty);
+    expect(korean.categoryIds, ['kr']);
+    expect(korean.items.single.title, '成功加载的韩剧');
   });
 
   test('persists a display snapshot when remote playback progress is saved',
