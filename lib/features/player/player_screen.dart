@@ -25,8 +25,18 @@ const int _maxPlaybackInitializationAttempts = 3;
 const Duration _playbackRetryDelay = Duration(milliseconds: 500);
 const Duration _controlsHideDelay = Duration(seconds: 3);
 
-/// Keeps episode labels readable when a source prefixes its own name, such
-/// as "source-a · 第01集".
+/// Formats the elapsed or total playback duration for the player controls.
+String formatPlaybackDuration(Duration duration) {
+  final totalSeconds = duration.inSeconds.clamp(0, 359999);
+  final hours = totalSeconds ~/ 3600;
+  final minutes = (totalSeconds % 3600) ~/ 60;
+  final seconds = totalSeconds % 60;
+  if (hours > 0) {
+    return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
+  }
+  return '$minutes:${seconds.toString().padLeft(2, '0')}';
+}
+
 String episodeDisplayLabel(PlaybackOption option) {
   final match = RegExp(r'第\s*(\d+)\s*集').firstMatch(option.label);
   final episodeNumber = int.tryParse(match?.group(1) ?? '');
@@ -115,7 +125,8 @@ class PlayerScreen extends StatefulWidget {
   State<PlayerScreen> createState() => _PlayerScreenState();
 }
 
-class _PlayerScreenState extends State<PlayerScreen> {
+class _PlayerScreenState extends State<PlayerScreen>
+    with WidgetsBindingObserver {
   static const _pictureInPicture = PictureInPictureService();
 
   VideoPlayerController? _controller;
@@ -133,6 +144,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   double _volume = 1.0;
   bool _searchingOtherSources = false;
   bool _isInPictureInPicture = false;
+  bool _pictureInPictureRequestInFlight = false;
 
   List<PlaybackOption> get _episodes {
     final activeQuality = _activeOption?.quality ?? widget.option.quality;
@@ -163,6 +175,7 @@ class _PlayerScreenState extends State<PlayerScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_pictureInPicture.setEventHandlers(
       onAction: _handlePictureInPictureAction,
       onModeChanged: _handlePictureInPictureModeChanged,
@@ -293,14 +306,17 @@ class _PlayerScreenState extends State<PlayerScreen> {
   void _onControllerChanged() {
     if (!mounted) return;
     final isPlaying = _controller?.value.isPlaying;
-    if (_lastIsPlaying == isPlaying) return;
-    _lastIsPlaying = isPlaying;
-    if (isPlaying == true) {
-      _scheduleControlsHide();
-    } else {
-      _showControls();
+    if (_lastIsPlaying != isPlaying) {
+      _lastIsPlaying = isPlaying;
+      if (isPlaying == true) {
+        _scheduleControlsHide();
+      } else {
+        _showControls();
+      }
+      _updatePictureInPictureControls();
     }
-    _updatePictureInPictureControls();
+    // The listener also fires as the position advances, so rebuild the time
+    // labels together with the progress indicator.
     setState(() {});
   }
 
@@ -333,9 +349,41 @@ class _PlayerScreenState extends State<PlayerScreen> {
     }
   }
 
-  void _handlePictureInPictureModeChanged(bool isInPictureInPicture) {
+  Future<void> _handlePictureInPictureModeChanged(
+    bool isInPictureInPicture,
+    Duration? position,
+  ) async {
     if (!mounted) return;
+    final wasInPictureInPicture = _isInPictureInPicture;
     setState(() => _isInPictureInPicture = isInPictureInPicture);
+    if (!isInPictureInPicture && wasInPictureInPicture) {
+      final controller = _initializedController;
+      if (controller == null) return;
+      if (position != null && position > Duration.zero) {
+        await controller.seekTo(position);
+      }
+      if (mounted) {
+        await controller.play();
+        _showControls();
+      }
+    }
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (defaultTargetPlatform != TargetPlatform.iOS) return;
+    if (state == AppLifecycleState.resumed) {
+      if (_isInPictureInPicture) {
+        unawaited(_pictureInPicture.stop());
+      }
+    } else if (state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden) {
+      final controller = _initializedController;
+      if (controller?.value.isPlaying == true && !_isInPictureInPicture) {
+        unawaited(_openPictureInPicture());
+      }
+    }
   }
 
   void _save() {
@@ -557,14 +605,19 @@ class _PlayerScreenState extends State<PlayerScreen> {
   }
 
   Future<void> _openPictureInPicture() async {
+    if (_pictureInPictureRequestInFlight || _isInPictureInPicture) return;
     final option = _activeOption;
     final enter = widget.onPictureInPicture;
     final controller = _initializedController;
     if (option == null || enter == null || controller == null) return;
 
+    _pictureInPictureRequestInFlight = true;
     _showControls();
     final request = _pictureInPictureRequest();
-    if (request == null) return;
+    if (request == null) {
+      _pictureInPictureRequestInFlight = false;
+      return;
+    }
 
     final isAndroid = defaultTargetPlatform == TargetPlatform.android;
     if (!isAndroid) await _pauseForExternalPlayback();
@@ -576,10 +629,21 @@ class _PlayerScreenState extends State<PlayerScreen> {
       if (!mounted) return;
     }
 
-    final opened = await enter(request);
-    if (!opened && mounted) {
-      if (isAndroid) setState(() => _isInPictureInPicture = false);
-      _showMessage('无法打开画中画');
+    try {
+      final opened = await enter(request);
+      if (!opened) {
+        if (isAndroid && mounted) {
+          setState(() => _isInPictureInPicture = false);
+        }
+        // iOS pauses the Flutter player before handing playback to AVPlayer.
+        // Resume it when the native handoff is rejected or times out.
+        if (!isAndroid && mounted) {
+          await controller.play();
+        }
+        if (mounted) _showMessage('无法打开画中画');
+      }
+    } finally {
+      _pictureInPictureRequestInFlight = false;
     }
   }
 
@@ -610,10 +674,14 @@ class _PlayerScreenState extends State<PlayerScreen> {
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _loadGeneration++;
     _saveTimer?.cancel();
     _controlsHideTimer?.cancel();
     unawaited(_pictureInPicture.setEventHandlers());
+    if (_isInPictureInPicture) {
+      unawaited(_pictureInPicture.stop());
+    }
     _save();
     unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     final controller = _controller;
@@ -631,6 +699,18 @@ class _PlayerScreenState extends State<PlayerScreen> {
     final isReady = value?.isInitialized == true;
 
     if (_isInPictureInPicture && isReady && controller != null) {
+      if (defaultTargetPlatform == TargetPlatform.iOS) {
+        return const ColoredBox(
+          color: Colors.black,
+          child: Center(
+            child: Icon(
+              Icons.picture_in_picture_alt_rounded,
+              color: Colors.white54,
+              size: 56,
+            ),
+          ),
+        );
+      }
       return ColoredBox(
         color: Colors.black,
         child: Center(
@@ -1141,143 +1221,168 @@ class _PlayerControls extends StatelessWidget {
               stops: [0, .32, 1],
             ),
           ),
-          child: SafeArea(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
-              child: Column(
-                children: [
-                  Row(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              SafeArea(
+                child: Padding(
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 8, vertical: 6),
+                  child: Column(
                     children: [
-                      IconButton(
-                        tooltip: '返回',
-                        onPressed: onClose,
-                        icon: const Icon(Icons.arrow_back_rounded),
-                      ),
-                      Expanded(
-                        child: Text(
-                          title,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            fontWeight: FontWeight.w700,
+                      Row(
+                        children: [
+                          IconButton(
+                            tooltip: '返回',
+                            onPressed: onClose,
+                            icon: const Icon(Icons.arrow_back_rounded),
                           ),
-                        ),
-                      ),
-                      IconButton(
-                        tooltip: '使用系统播放器打开',
-                        onPressed: onOpenSystemPlayer,
-                        icon: const Icon(Icons.open_in_browser_rounded),
-                      ),
-                      if (canSwitchSource)
-                        IconButton(
-                          tooltip: '切换资源站',
-                          onPressed: isSwitchingSource ? null : onOpenSource,
-                          icon: isSwitchingSource
-                              ? const SizedBox(
-                                  width: 18,
-                                  height: 18,
-                                  child:
-                                      CircularProgressIndicator(strokeWidth: 2),
-                                )
-                              : const Icon(Icons.switch_video_rounded),
-                        ),
-                      IconButton(
-                        tooltip: isLandscape ? '竖屏播放' : '横屏播放',
-                        onPressed: onToggleOrientation,
-                        icon: Icon(
-                          isLandscape
-                              ? Icons.stay_current_portrait_rounded
-                              : Icons.screen_rotation_alt_rounded,
-                        ),
-                      ),
-                      _PictureInPictureButton(
-                        available: pictureInPictureAvailable,
-                        onPressed: onPictureInPicture,
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  Container(
-                    padding:
-                        const EdgeInsets.symmetric(horizontal: 6, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: Colors.black.withOpacity(.42),
-                      borderRadius: BorderRadius.circular(26),
-                      border: Border.all(color: Colors.white12),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        IconButton(
-                          tooltip: '上一集',
-                          onPressed: canGoPrevious ? onPrevious : null,
-                          icon: const Icon(Icons.skip_previous_rounded),
-                        ),
-                        IconButton(
-                          tooltip: isPlaying ? '暂停' : '播放',
-                          iconSize: 54,
-                          color: CineoColors.primary,
-                          onPressed: onPlayPause,
-                          icon: Icon(
-                            isPlaying
-                                ? Icons.pause_circle_filled_rounded
-                                : Icons.play_circle_fill_rounded,
-                          ),
-                        ),
-                        IconButton(
-                          tooltip: '下一集',
-                          onPressed: canGoNext ? onNext : null,
-                          icon: const Icon(Icons.skip_next_rounded),
-                        ),
-                      ],
-                    ),
-                  ),
-                  const SizedBox(height: 18),
-                  VideoProgressIndicator(
-                    controller,
-                    allowScrubbing: true,
-                    colors: const VideoProgressColors(
-                      playedColor: CineoColors.primary,
-                      bufferedColor: Colors.white38,
-                      backgroundColor: Colors.white24,
-                    ),
-                  ),
-                  Row(
-                    mainAxisAlignment: MainAxisAlignment.end,
-                    children: [
-                      PopupMenuButton<double>(
-                        tooltip: '播放速度',
-                        initialValue: speed,
-                        onSelected: onSpeedChanged,
-                        itemBuilder: (context) => supportedPlaybackSpeeds
-                            .map(
-                              (value) => PopupMenuItem<double>(
-                                value: value,
-                                child: Text('${value}x'),
+                          Expanded(
+                            child: Text(
+                              title,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                fontWeight: FontWeight.w700,
                               ),
-                            )
-                            .toList(),
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 12),
-                          child: Text(
-                            '${speed}x',
-                            style: const TextStyle(fontWeight: FontWeight.w700),
+                            ),
                           ),
+                          if (canSwitchSource)
+                            IconButton(
+                              tooltip: '搜索其他播放源',
+                              onPressed:
+                                  isSwitchingSource ? null : onOpenSource,
+                              icon: isSwitchingSource
+                                  ? const SizedBox(
+                                      width: 18,
+                                      height: 18,
+                                      child: CircularProgressIndicator(
+                                          strokeWidth: 2),
+                                    )
+                                  : const Icon(Icons.travel_explore_rounded),
+                            ),
+                          IconButton(
+                            tooltip: '放大播放',
+                            onPressed: onOpenSystemPlayer,
+                            icon: const Icon(Icons.zoom_out_map_rounded),
+                          ),
+                          _PictureInPictureButton(
+                            available: pictureInPictureAvailable,
+                            onPressed: onPictureInPicture,
+                          ),
+                        ],
+                      ),
+                      const Spacer(),
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 4),
+                        decoration: BoxDecoration(
+                          color: Colors.black.withOpacity(.42),
+                          borderRadius: BorderRadius.circular(26),
+                          border: Border.all(color: Colors.white12),
+                        ),
+                        child: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            IconButton(
+                              tooltip: '上一集',
+                              onPressed: canGoPrevious ? onPrevious : null,
+                              icon: const Icon(Icons.skip_previous_rounded),
+                            ),
+                            IconButton(
+                              tooltip: isPlaying ? '暂停' : '播放',
+                              iconSize: 54,
+                              color: CineoColors.primary,
+                              onPressed: onPlayPause,
+                              icon: Icon(
+                                isPlaying
+                                    ? Icons.pause_circle_filled_rounded
+                                    : Icons.play_circle_fill_rounded,
+                              ),
+                            ),
+                            IconButton(
+                              tooltip: '下一集',
+                              onPressed: canGoNext ? onNext : null,
+                              icon: const Icon(Icons.skip_next_rounded),
+                            ),
+                          ],
                         ),
                       ),
-                      if (hasEpisodes)
-                        IconButton(
-                          tooltip: '打开选集',
-                          onPressed: onOpenEpisodes,
-                          icon: const Icon(Icons.list_alt_rounded),
+                      const SizedBox(height: 18),
+                      VideoProgressIndicator(
+                        controller,
+                        allowScrubbing: true,
+                        colors: const VideoProgressColors(
+                          playedColor: CineoColors.primary,
+                          bufferedColor: Colors.white38,
+                          backgroundColor: Colors.white24,
                         ),
-                      const SizedBox(width: 8),
+                      ),
+                      Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              '${formatPlaybackDuration(controller.value.position)} / '
+                              '${formatPlaybackDuration(controller.value.duration)}',
+                              style: const TextStyle(
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          PopupMenuButton<double>(
+                            tooltip: '播放速度',
+                            initialValue: speed,
+                            onSelected: onSpeedChanged,
+                            itemBuilder: (context) => supportedPlaybackSpeeds
+                                .map(
+                                  (value) => PopupMenuItem<double>(
+                                    value: value,
+                                    child: Text('${value}x'),
+                                  ),
+                                )
+                                .toList(),
+                            child: Padding(
+                              padding:
+                                  const EdgeInsets.symmetric(horizontal: 12),
+                              child: Text(
+                                '${speed}x',
+                                style: const TextStyle(
+                                    fontWeight: FontWeight.w700),
+                              ),
+                            ),
+                          ),
+                          if (hasEpisodes)
+                            IconButton(
+                              tooltip: '打开选集',
+                              onPressed: onOpenEpisodes,
+                              icon: const Icon(Icons.list_alt_rounded),
+                            ),
+                          const SizedBox(width: 8),
+                        ],
+                      ),
                     ],
                   ),
-                ],
+                ),
               ),
-            ),
+              Positioned(
+                right: 4,
+                top: 0,
+                bottom: 0,
+                child: Center(
+                  child: IconButton(
+                    tooltip: isLandscape ? '竖屏播放' : '横屏播放',
+                    onPressed: onToggleOrientation,
+                    icon: Icon(
+                      isLandscape
+                          ? Icons.stay_current_portrait_rounded
+                          : Icons.screen_rotation_alt_rounded,
+                    ),
+                  ),
+                ),
+              ),
+            ],
           ),
         ),
       ),

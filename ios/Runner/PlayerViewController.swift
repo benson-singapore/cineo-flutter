@@ -13,10 +13,16 @@ enum PlayerViewController {
             binaryMessenger: flutterViewController.binaryMessenger
         )
         Self.channel = channel
-        VideoPlayerPiPController.shared.onModeChanged = { isInPictureInPicture in
+        VideoPlayerPiPController.shared.onModeChanged = { isInPictureInPicture, position in
+            var arguments: [String: Any] = [
+                "isInPictureInPicture": isInPictureInPicture,
+            ]
+            if let position {
+                arguments["positionMilliseconds"] = position
+            }
             Self.channel?.invokeMethod(
                 "pictureInPictureModeChanged",
-                arguments: isInPictureInPicture
+                arguments: arguments
             )
         }
 
@@ -36,6 +42,9 @@ enum PlayerViewController {
                     from: flutterViewController,
                     result: result
                 )
+            case "stop":
+                VideoPlayerPiPController.shared.stopPictureInPicture()
+                result(nil)
             default:
                 result(FlutterMethodNotImplemented)
             }

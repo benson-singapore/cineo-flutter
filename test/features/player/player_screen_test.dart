@@ -34,6 +34,19 @@ void main() {
       });
     });
 
+    test('formats playback durations for short and long videos', () {
+      expect(formatPlaybackDuration(Duration.zero), '0:00');
+      expect(
+        formatPlaybackDuration(const Duration(minutes: 1, seconds: 9)),
+        '1:09',
+      );
+      expect(
+        formatPlaybackDuration(
+          const Duration(hours: 1, minutes: 2, seconds: 3),
+        ),
+        '1:02:03',
+      );
+    });
     test('normalizes source-prefixed episode labels', () {
       expect(episodeDisplayLabel(option('1', 'rym3u8 · 第01集')), '第1集');
       expect(episodeDisplayLabel(option('2', '特别篇')), '特别篇');

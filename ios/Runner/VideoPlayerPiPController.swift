@@ -9,11 +9,13 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
     private(set) var playerLayer: AVPlayerLayer?
     private(set) var playerHostView: UIView?
 
-    var onModeChanged: ((Bool) -> Void)?
+    var onModeChanged: ((Bool, Int64?) -> Void)?
 
     private var startCompletion: ((Bool) -> Void)?
     private var readinessTimer: Timer?
     private var readinessAttempts = 0
+    private let maxReadinessAttempts = 40
+    private let readinessInterval: TimeInterval = 0.05
 
     override private init() {
         super.init()
@@ -54,6 +56,9 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
         }
 
         pipController.delegate = self
+        if #available(iOS 14.2, *) {
+            pipController.canStartPictureInPictureAutomaticallyFromInline = true
+        }
         self.playerLayer = playerLayer
         self.pipController = pipController
         self.playerHostView = hostView
@@ -77,7 +82,15 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
             return
         }
 
-        pipController.stopPictureInPicture()
+        if pipController.isPictureInPictureActive {
+            pipController.stopPictureInPicture()
+        } else {
+            readinessTimer?.invalidate()
+            readinessTimer = nil
+            finishStart(false)
+            onModeChanged?(false, currentPositionMilliseconds())
+            cleanup()
+        }
     }
 
     private func waitUntilPictureInPictureIsPossible(
@@ -86,7 +99,7 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
     ) {
         guard pipController.isPictureInPicturePossible else {
             readinessAttempts += 1
-            if readinessAttempts >= 50 {
+            if readinessAttempts >= maxReadinessAttempts {
                 finishStart(false)
                 cleanup()
                 return
@@ -94,7 +107,7 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
 
             readinessTimer?.invalidate()
             readinessTimer = Timer.scheduledTimer(
-                withTimeInterval: 0.1,
+                withTimeInterval: readinessInterval,
                 repeats: false
             ) { [weak self, weak pipController, weak player] _ in
                 guard let self,
@@ -128,7 +141,7 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
         _ pictureInPictureController: AVPictureInPictureController
     ) {
         finishStart(true)
-        onModeChanged?(true)
+        onModeChanged?(true, currentPositionMilliseconds())
     }
 
     func pictureInPictureController(
@@ -136,15 +149,22 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
         failedToStartPictureInPictureWithError error: Error
     ) {
         finishStart(false)
-        onModeChanged?(false)
+        onModeChanged?(false, currentPositionMilliseconds())
         cleanup()
     }
 
     func pictureInPictureControllerDidStopPictureInPicture(
         _ pictureInPictureController: AVPictureInPictureController
     ) {
-        onModeChanged?(false)
+        onModeChanged?(false, currentPositionMilliseconds())
         cleanup()
+    }
+
+    private func currentPositionMilliseconds() -> Int64? {
+        guard let player = playerLayer?.player else { return nil }
+        let seconds = CMTimeGetSeconds(player.currentTime())
+        guard seconds.isFinite, seconds >= 0 else { return nil }
+        return Int64(seconds * 1000)
     }
 
     private func cleanup() {

@@ -25,7 +25,10 @@ class PictureInPictureRequest {
 }
 
 typedef PictureInPictureActionHandler = Future<void> Function(String action);
-typedef PictureInPictureModeHandler = void Function(bool isInPictureInPicture);
+typedef PictureInPictureModeHandler = void Function(
+  bool isInPictureInPicture,
+  Duration? position,
+);
 
 class PictureInPictureService {
   const PictureInPictureService();
@@ -42,9 +45,20 @@ class PictureInPictureService {
           final action = call.arguments as String?;
           if (action != null && onAction != null) await onAction(action);
         case 'pictureInPictureModeChanged':
-          final isInPictureInPicture = call.arguments as bool?;
+          final arguments = call.arguments;
+          final isInPictureInPicture = arguments is Map
+              ? arguments['isInPictureInPicture'] as bool?
+              : arguments as bool?;
+          final milliseconds = arguments is Map
+              ? arguments['positionMilliseconds'] as int?
+              : null;
           if (isInPictureInPicture != null && onModeChanged != null) {
-            onModeChanged(isInPictureInPicture);
+            onModeChanged(
+              isInPictureInPicture,
+              milliseconds == null
+                  ? null
+                  : Duration(milliseconds: milliseconds),
+            );
           }
       }
     });
@@ -90,6 +104,16 @@ class PictureInPictureService {
       await _channel.invokeMethod<void>('update', request.toMap());
     } on PlatformException {
       // The current platform may not expose dynamic PiP controls.
+    } on MissingPluginException {
+      // PiP is optional on platforms other than Android and iOS.
+    }
+  }
+
+  Future<void> stop() async {
+    try {
+      await _channel.invokeMethod<void>('stop');
+    } on PlatformException {
+      // PiP is optional on platforms other than Android and iOS.
     } on MissingPluginException {
       // PiP is optional on platforms other than Android and iOS.
     }
