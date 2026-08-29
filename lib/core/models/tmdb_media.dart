@@ -40,12 +40,16 @@ class TmdbMediaDetails extends TmdbMediaMatch {
     required this.runtime,
     this.seasons = const [],
     this.cast = const [],
+    this.genres = const [],
+    this.releaseDate,
     this.level = TmdbDetailsLevel.enriched,
   });
 
   final int? runtime;
   final List<TmdbSeasonMetadata> seasons;
   final List<TmdbCastMember> cast;
+  final List<String> genres; // Genre names like ["Action", "Adventure"]
+  final String? releaseDate; // ISO date string like "2024-01-15"
   final TmdbDetailsLevel level;
 
   bool get isTv => mediaType == TmdbMediaType.tv;

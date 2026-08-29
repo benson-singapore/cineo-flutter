@@ -242,6 +242,8 @@ class TmdbClient {
             : _imageUrl(raw['backdrop_path'], size: 'w780'),
         rating: _number(raw['vote_average']) ?? match.rating,
         runtime: _int(raw['runtime']),
+        genres: _genreNames(raw['genres']),
+        releaseDate: _text(raw['release_date']),
         level: TmdbDetailsLevel.base,
       );
     }
@@ -261,6 +263,8 @@ class TmdbClient {
       rating: _number(raw['vote_average']) ?? match.rating,
       runtime: _firstRuntime(raw['episode_run_time']),
       seasons: _seasonSkeletons(raw),
+      genres: _genreNames(raw['genres']),
+      releaseDate: _text(raw['first_air_date']),
       level: TmdbDetailsLevel.base,
     );
   }
@@ -460,5 +464,14 @@ class TmdbClient {
     if (value.startsWith('https://image.tmdb.org/t/p/')) return value;
     final normalized = value.startsWith('/') ? value : '/$value';
     return 'https://image.tmdb.org/t/p/$size$normalized';
+  }
+
+  static List<String> _genreNames(Object? genres) {
+    if (genres is! List) return const [];
+    return genres
+        .whereType<Map<String, dynamic>>()
+        .map((genre) => _text(genre['name']))
+        .where((name) => name.isNotEmpty)
+        .toList(growable: false);
   }
 }
