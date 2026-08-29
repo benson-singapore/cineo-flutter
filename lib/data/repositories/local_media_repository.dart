@@ -494,11 +494,9 @@ class LocalMediaRepository implements MediaRepository {
       'source_group_configs',
       {
         'source_id': config.sourceId,
-        'group_id': config.groupId,
-        'parent_group_id': config.parentGroupId,
-        'group_name': config.groupName,
+        'category_id': config.categoryId,
+        'category_name': config.categoryName,
         'is_enabled': config.isEnabled ? 1 : 0,
-        'is_leaf': config.isLeaf ? 1 : 0,
         'created_at': config.createdAt.millisecondsSinceEpoch,
         'updated_at': config.updatedAt.millisecondsSinceEpoch,
       },
@@ -506,7 +504,7 @@ class LocalMediaRepository implements MediaRepository {
     );
   }
 
-  /// Retrieves all group configurations for a specific source.
+  /// Retrieves all category configurations for a source.
   @override
   Future<List<SourceGroupConfig>> getSourceGroupConfigs(String sourceId) async {
     final database = await _db;
@@ -514,28 +512,31 @@ class LocalMediaRepository implements MediaRepository {
       'source_group_configs',
       where: 'source_id = ?',
       whereArgs: [sourceId],
-      orderBy: 'parent_group_id, group_name',
+      orderBy: 'category_name',
     );
     return rows.map(_groupConfigFromRow).toList();
   }
 
-  /// Gets only the enabled leaf group IDs for a source.
-  /// Used for filtering API requests to only include enabled categories.
+  /// Gets only the enabled category IDs for a source.
+  /// Used for filtering API requests to show only enabled categories.
   @override
   Future<List<String>> getEnabledGroupIdsForSource(String sourceId) async {
     final database = await _db;
     final rows = await database.query(
       'source_group_configs',
-      columns: ['group_id'],
-      where: 'source_id = ? AND is_enabled = 1 AND is_leaf = 1',
+      columns: ['category_id'],
+      where: 'source_id = ? AND is_enabled = 1',
       whereArgs: [sourceId],
     );
-    return rows.map((row) => row['group_id'] as String).toList();
+    return rows.map((row) => row['category_id'] as String).toList();
   }
 
   /// Initializes all group configurations for a source based on remote leaf categories.
   /// All groups start as enabled by default.
   /// Groups are based on the source's native subcategories.
+  /// Initializes all category configurations for a source.
+  /// Called when first setting up a new adult source.
+  /// All categories start enabled by default.
   @override
   Future<void> initializeSourceGroupConfigs(
     String sourceId,
@@ -544,20 +545,6 @@ class LocalMediaRepository implements MediaRepository {
     final database = await _db;
     final now = DateTime.now();
 
-    final configs = <SourceGroupConfig>[];
-    for (final category in leafCategories) {
-      configs.add(SourceGroupConfig(
-        sourceId: sourceId,
-        groupId: category.id,
-        parentGroupId: '',
-        groupName: category.name,
-        isEnabled: true,
-        isLeaf: true,
-        createdAt: now,
-        updatedAt: now,
-      ));
-    }
-
     await database.transaction((transaction) async {
       // Clear existing configs for this source
       await transaction.delete(
@@ -565,28 +552,25 @@ class LocalMediaRepository implements MediaRepository {
         where: 'source_id = ?',
         whereArgs: [sourceId],
       );
-      // Insert new configs
-      for (final config in configs) {
+      // Insert new configs - all enabled by default
+      for (final category in leafCategories) {
         await transaction.insert(
           'source_group_configs',
           {
-            'source_id': config.sourceId,
-            'group_id': config.groupId,
-            'parent_group_id': config.parentGroupId,
-            'group_name': config.groupName,
-            'is_enabled': config.isEnabled ? 1 : 0,
-            'is_leaf': config.isLeaf ? 1 : 0,
-            'created_at': config.createdAt.millisecondsSinceEpoch,
-            'updated_at': config.updatedAt.millisecondsSinceEpoch,
+            'source_id': sourceId,
+            'category_id': category.id,
+            'category_name': category.name,
+            'is_enabled': 1,
+            'created_at': now.millisecondsSinceEpoch,
+            'updated_at': now.millisecondsSinceEpoch,
           },
         );
       }
     });
   }
 
-  /// Toggles a group config enabled/disabled state and syncs parent/child states.
-  /// - If disabling a parent, all children are also disabled.
-  /// - If enabling a leaf, the parent chain is automatically enabled.
+  /// Toggles a category's enabled/disabled state.
+  /// Simple toggle - no parent/child sync needed for flat category lists.
   @override
   Future<void> toggleSourceGroupConfig(
     String sourceId,
@@ -594,78 +578,15 @@ class LocalMediaRepository implements MediaRepository {
     bool enable,
   ) async {
     final database = await _db;
-    await database.transaction((transaction) async {
-      // Find the config to understand its level
-      final targetRows = await transaction.query(
-        'source_group_configs',
-        where: 'source_id = ? AND group_id = ?',
-        whereArgs: [sourceId, groupId],
-        limit: 1,
-      );
-      if (targetRows.isEmpty) return;
-
-      final target = _groupConfigFromRow(targetRows.single);
-
-      // Update the target
-      await transaction.update(
-        'source_group_configs',
-        {
-          'is_enabled': enable ? 1 : 0,
-          'updated_at': DateTime.now().millisecondsSinceEpoch,
-        },
-        where: 'source_id = ? AND group_id = ?',
-        whereArgs: [sourceId, groupId],
-      );
-
-      if (enable) {
-        // Enable all parents up the chain
-        var parentId = target.parentGroupId;
-        while (parentId.isNotEmpty) {
-          await transaction.update(
-            'source_group_configs',
-            {
-              'is_enabled': 1,
-              'updated_at': DateTime.now().millisecondsSinceEpoch,
-            },
-            where: 'source_id = ? AND group_id = ?',
-            whereArgs: [sourceId, parentId],
-          );
-          final parentRows = await transaction.query(
-            'source_group_configs',
-            where: 'source_id = ? AND group_id = ?',
-            whereArgs: [sourceId, parentId],
-            limit: 1,
-          );
-          parentId = parentRows.isNotEmpty
-              ? _groupConfigFromRow(parentRows.single).parentGroupId
-              : '';
-        }
-      } else {
-        // Disable all children recursively
-        final queue = [groupId];
-        while (queue.isNotEmpty) {
-          final currentId = queue.removeAt(0);
-          await transaction.update(
-            'source_group_configs',
-            {
-              'is_enabled': 0,
-              'updated_at': DateTime.now().millisecondsSinceEpoch,
-            },
-            where: 'source_id = ? AND parent_group_id = ?',
-            whereArgs: [sourceId, currentId],
-          );
-          final childRows = await transaction.query(
-            'source_group_configs',
-            columns: ['group_id'],
-            where: 'source_id = ? AND parent_group_id = ?',
-            whereArgs: [sourceId, currentId],
-          );
-          for (final row in childRows) {
-            queue.add(row['group_id'] as String);
-          }
-        }
-      }
-    });
+    await database.update(
+      'source_group_configs',
+      {
+        'is_enabled': enable ? 1 : 0,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'source_id = ? AND category_id = ?',
+      whereArgs: [sourceId, groupId],
+    );
   }
 
   Future<List<MediaItem>> browseDefaultSource({String? category}) async {
@@ -1119,14 +1040,12 @@ class LocalMediaRepository implements MediaRepository {
     return database.execute('''
       CREATE TABLE source_group_configs (
         source_id TEXT NOT NULL,
-        group_id TEXT NOT NULL,
-        parent_group_id TEXT NOT NULL,
-        group_name TEXT NOT NULL,
+        category_id TEXT NOT NULL,
+        category_name TEXT NOT NULL,
         is_enabled INTEGER NOT NULL DEFAULT 1,
-        is_leaf INTEGER NOT NULL,
         created_at INTEGER NOT NULL,
         updated_at INTEGER NOT NULL,
-        PRIMARY KEY (source_id, group_id)
+        PRIMARY KEY (source_id, category_id)
       )
     ''');
   }
@@ -1248,11 +1167,9 @@ class LocalMediaRepository implements MediaRepository {
   SourceGroupConfig _groupConfigFromRow(Map<String, Object?> row) {
     return SourceGroupConfig(
       sourceId: row['source_id'] as String,
-      groupId: row['group_id'] as String,
-      parentGroupId: row['parent_group_id'] as String? ?? '',
-      groupName: row['group_name'] as String,
+      categoryId: row['category_id'] as String,
+      categoryName: row['category_name'] as String,
       isEnabled: (row['is_enabled'] as int? ?? 1) == 1,
-      isLeaf: (row['is_leaf'] as int? ?? 0) == 1,
       createdAt:
           DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int? ?? 0),
       updatedAt:

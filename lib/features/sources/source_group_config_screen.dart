@@ -60,7 +60,7 @@ class _SourceGroupConfigScreenState extends State<SourceGroupConfigScreen> {
     try {
       await widget.repository.toggleSourceGroupConfig(
         widget.sourceId,
-        config.groupId,
+        config.categoryId,
         !config.isEnabled,
       );
       await _loadGroupConfigs();
@@ -79,7 +79,7 @@ class _SourceGroupConfigScreenState extends State<SourceGroupConfigScreen> {
         if (!config.isEnabled) {
           await widget.repository.toggleSourceGroupConfig(
             widget.sourceId,
-            config.groupId,
+            config.categoryId,
             true,
           );
         }
@@ -100,7 +100,7 @@ class _SourceGroupConfigScreenState extends State<SourceGroupConfigScreen> {
         if (config.isEnabled) {
           await widget.repository.toggleSourceGroupConfig(
             widget.sourceId,
-            config.groupId,
+            config.categoryId,
             false,
           );
         }
@@ -276,7 +276,7 @@ class _GroupConfigTile extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: <Widget>[
                     Text(
-                      config.groupName,
+                      config.categoryName,
                       style: TextStyle(
                         fontWeight: FontWeight.w600,
                         color: config.isEnabled
@@ -286,7 +286,7 @@ class _GroupConfigTile extends StatelessWidget {
                     ),
                     const SizedBox(height: 4),
                     Text(
-                      'ID: ${config.groupId}',
+                      'ID: ${config.categoryId}',
                       style: const TextStyle(
                         fontSize: 11,
                         color: CineoColors.textSecondary,
