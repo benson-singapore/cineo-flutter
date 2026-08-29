@@ -146,6 +146,10 @@ class _CineoShellState extends State<CineoShell> {
   final _homeScrollController = ScrollController();
   final _libraryScrollController = ScrollController();
 
+  // Stream to notify LibraryScreen when default source changes
+  late final StreamController<void> _sourceChangedController =
+      StreamController<void>.broadcast();
+
   @override
   void initState() {
     super.initState();
@@ -157,6 +161,7 @@ class _CineoShellState extends State<CineoShell> {
   void dispose() {
     _homeScrollController.dispose();
     _libraryScrollController.dispose();
+    _sourceChangedController.close();
     super.dispose();
   }
 
@@ -670,6 +675,7 @@ class _CineoShellState extends State<CineoShell> {
           mode: mode,
           includeAdultHistory: _includeAdultHistory,
           onMediaTap: _openMedia,
+          onSourceChanged: _sourceChangedController.stream,
         ),
       ),
     );
@@ -683,6 +689,7 @@ class _CineoShellState extends State<CineoShell> {
         builder: (_) => SourceListScreen(
           repository: widget.repository,
           adultSourceSettings: widget.adultSourceSettings,
+          onDefaultSourceChanged: () => _sourceChangedController.add(null),
         ),
       ),
     );

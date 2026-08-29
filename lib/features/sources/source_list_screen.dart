@@ -15,11 +15,13 @@ class SourceListScreen extends StatefulWidget {
     required this.repository,
     required this.adultSourceSettings,
     this.onSourceTest,
+    this.onDefaultSourceChanged,
   });
 
   final MediaRepository repository;
   final AdultSourceSettings adultSourceSettings;
   final Future<bool> Function(MediaSource source)? onSourceTest;
+  final VoidCallback? onDefaultSourceChanged;
 
   @override
   State<SourceListScreen> createState() => _SourceListScreenState();

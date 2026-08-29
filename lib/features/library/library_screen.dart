@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
@@ -14,12 +16,15 @@ class LibraryScreen extends StatefulWidget {
     required this.mode,
     this.includeAdultHistory = true,
     this.onMediaTap,
+    this.onSourceChanged,
   });
 
   final MediaRepository repository;
   final LibraryContentMode mode;
   final bool includeAdultHistory;
   final Future<void> Function(MediaItem)? onMediaTap;
+  final Stream<void>?
+      onSourceChanged; // Stream to trigger refresh when source changes
 
   @override
   State<LibraryScreen> createState() => _LibraryScreenState();
@@ -30,12 +35,28 @@ class _LibraryScreenState extends State<LibraryScreen> {
   List<_HistoryEntry> _history = const [];
   bool _loading = true;
   Object? _error;
+  StreamSubscription<void>? _sourceChangedSubscription;
 
   @override
   void initState() {
     super.initState();
     _load();
+    // Listen for source changes and auto-refresh
+    if (widget.onSourceChanged != null) {
+      _sourceChangedSubscription = widget.onSourceChanged!.listen((_) {
+        _load();
+      });
+    }
   }
+
+  @override
+  void dispose() {
+    _sourceChangedSubscription?.cancel();
+    super.dispose();
+  }
+
+  /// Public method to refresh library data (called from parent when source changes)
+  Future<void> refreshLibraryData() => _load();
 
   Future<void> _load() async {
     setState(() {
