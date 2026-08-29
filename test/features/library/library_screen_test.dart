@@ -85,6 +85,11 @@ class _FakeMediaRepository implements MediaRepository {
       const [];
 
   @override
+  Future<List<SourceGroupConfig>> syncSourceGroupConfigs(
+          String sourceId) async =>
+      const [];
+
+  @override
   Future<void> saveSourceGroupConfig(SourceGroupConfig config) async {}
 
   @override

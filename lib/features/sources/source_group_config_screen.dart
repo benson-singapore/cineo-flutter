@@ -41,13 +41,27 @@ class _SourceGroupConfigScreenState extends State<SourceGroupConfigScreen> {
     });
     try {
       final configs =
-          await widget.repository.getSourceGroupConfigs(widget.sourceId);
+          await widget.repository.syncSourceGroupConfigs(widget.sourceId);
       if (!mounted) return;
       setState(() {
         _configs = configs;
         _loading = false;
       });
-    } catch (error) {
+    } catch (error, stackTrace) {
+      assert(() {
+        debugPrint(
+          '[Cineo][SourceGroups] load_failed '
+          'sourceId=${widget.sourceId} '
+          'sourceName=${widget.sourceName} '
+          'error=${error.runtimeType}: $error',
+        );
+        debugPrintStack(
+          label: '[Cineo][SourceGroups] stack',
+          stackTrace: stackTrace,
+          maxFrames: 16,
+        );
+        return true;
+      }());
       if (!mounted) return;
       setState(() {
         _error = '加载分组配置失败';
@@ -134,21 +148,26 @@ class _SourceGroupConfigScreenState extends State<SourceGroupConfigScreen> {
     }
 
     if (_error != null) {
-      return const Center(
+      return Center(
         child: Column(
           mainAxisAlignment: MainAxisAlignment.center,
           children: <Widget>[
-            Icon(
+            const Icon(
               Icons.error_outline_rounded,
               size: 48,
               color: CineoColors.textSecondary,
             ),
-            SizedBox(height: 16),
-            Text(
+            const SizedBox(height: 16),
+            const Text(
               '加载分组配置失败',
               style: TextStyle(color: CineoColors.textSecondary),
             ),
-            SizedBox(height: 16),
+            const SizedBox(height: 16),
+            FilledButton.icon(
+              onPressed: _loadGroupConfigs,
+              icon: const Icon(Icons.refresh_rounded),
+              label: const Text('重试'),
+            ),
           ],
         ),
       );
@@ -166,7 +185,7 @@ class _SourceGroupConfigScreenState extends State<SourceGroupConfigScreen> {
             ),
             SizedBox(height: 16),
             Text(
-              '暂无分组配置',
+              '该视频源未提供可配置的片库分组',
               style: TextStyle(color: CineoColors.textSecondary),
             ),
           ],

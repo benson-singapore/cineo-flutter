@@ -154,6 +154,9 @@ class LocalMediaRepository implements MediaRepository {
         }
       },
     );
+    // A previous build may have recorded version 9 without creating the
+    // table. Re-checking it here repairs that state without touching data.
+    await _ensureSourceGroupConfigTable(database);
     await _ensureBuiltInSource(database);
     return database;
   }
@@ -518,6 +521,86 @@ class LocalMediaRepository implements MediaRepository {
     return rows.map(_groupConfigFromRow).toList();
   }
 
+  /// Fetches the source's native leaf categories and merges them into the
+  /// user's saved visibility settings.
+  @override
+  Future<List<SourceGroupConfig>> syncSourceGroupConfigs(
+      String sourceId) async {
+    final sourceRows = await (await _db).query(
+      'sources',
+      where: 'id = ?',
+      whereArgs: [sourceId],
+      limit: 1,
+    );
+    if (sourceRows.isEmpty) throw StateError('未找到视频源');
+    final source = _sourceFromRow(sourceRows.single);
+    if (source.type != MediaSourceType.macCmsApi &&
+        source.type != MediaSourceType.jsonApi) {
+      throw StateError('该视频源不支持片库分组');
+    }
+
+    final categories = MediaCategoryAdapter.adapt(
+      await _macCmsClient.categories(source),
+      isAdult: source.isAdult,
+    );
+    final leavesById = <String, UnifiedSubcategory>{};
+    for (final category in categories) {
+      for (final leaf in category.subcategories) {
+        leavesById.putIfAbsent(leaf.id, () => leaf);
+      }
+    }
+
+    final database = await _db;
+    await database.transaction((transaction) async {
+      final existingRows = await transaction.query(
+        'source_group_configs',
+        where: 'source_id = ?',
+        whereArgs: [sourceId],
+      );
+      final existingById = <String, Map<String, Object?>>{
+        for (final row in existingRows)
+          if (_stringValue(row['category_id']).isNotEmpty)
+            _stringValue(row['category_id']): row,
+      };
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      final staleIds = existingById.keys
+          .where((id) => !leavesById.containsKey(id))
+          .toList(growable: false);
+      if (staleIds.isNotEmpty) {
+        final placeholders = List.filled(staleIds.length, '?').join(', ');
+        await transaction.delete(
+          'source_group_configs',
+          where: 'source_id = ? AND category_id IN ($placeholders)',
+          whereArgs: [sourceId, ...staleIds],
+        );
+      }
+
+      for (final leaf in leavesById.values) {
+        final existing = existingById[leaf.id];
+        if (existing == null) {
+          await transaction.insert('source_group_configs', {
+            'source_id': sourceId,
+            'category_id': leaf.id,
+            'category_name': leaf.name,
+            'is_enabled': 1,
+            'created_at': now,
+            'updated_at': now,
+          });
+        } else if (_stringValue(existing['category_name']) != leaf.name) {
+          await transaction.update(
+            'source_group_configs',
+            {'category_name': leaf.name, 'updated_at': now},
+            where: 'source_id = ? AND category_id = ?',
+            whereArgs: [sourceId, leaf.id],
+          );
+        }
+      }
+    });
+
+    return getSourceGroupConfigs(sourceId);
+  }
+
   /// Gets only the enabled category IDs for a source.
   /// Used for filtering API requests to show only enabled categories.
   @override
@@ -525,11 +608,15 @@ class LocalMediaRepository implements MediaRepository {
     final database = await _db;
     final rows = await database.query(
       'source_group_configs',
-      columns: ['category_id'],
-      where: 'source_id = ? AND is_enabled = 1',
+      columns: ['category_id', 'is_enabled'],
+      where: 'source_id = ?',
       whereArgs: [sourceId],
     );
-    return rows.map((row) => row['category_id'] as String).toList();
+    return rows
+        .where((row) => _safeParseInt(row['is_enabled']) == 1)
+        .map((row) => _stringValue(row['category_id']))
+        .where((id) => id.isNotEmpty)
+        .toList(growable: false);
   }
 
   /// Initializes all group configurations for a source based on remote leaf categories.
@@ -611,24 +698,21 @@ class LocalMediaRepository implements MediaRepository {
       return _localPage(filtered, page);
     }
 
-    // Get enabled group IDs if source uses group filtering
-    List<String> enabledGroupIds = [];
-    try {
-      enabledGroupIds = await getEnabledGroupIdsForSource(source.id);
-    } catch (_) {
-      // If group config is not available, allow all categories
-    }
+    final groupFilter = await _sourceGroupFilter(source.id);
 
     final ids = _normalizedCategoryIds(categoryIds);
 
-    // Filter by enabled groups if any are configured
-    final filteredIds = enabledGroupIds.isEmpty
-        ? ids
-        : ids
-            .where((id) => enabledGroupIds.contains(id))
-            .toList(growable: false);
+    // For an unqualified browse, request each enabled leaf so disabled groups
+    // cannot leak into the all-category result.
+    final requestedIds =
+        ids.isEmpty && groupFilter.hasConfig ? groupFilter.enabledIds : ids;
+    final filteredIds = groupFilter.hasConfig
+        ? requestedIds
+            .where((id) => groupFilter.enabledIds.contains(id))
+            .toList(growable: false)
+        : requestedIds;
 
-    if (filteredIds.isEmpty && enabledGroupIds.isNotEmpty) {
+    if (filteredIds.isEmpty && groupFilter.hasConfig) {
       // All specified categories are disabled
       return PagedMedia(
         items: const [],
@@ -817,9 +901,13 @@ class LocalMediaRepository implements MediaRepository {
         UnifiedCategory(type: UnifiedMediaType.series, sourceCategoryIds: []),
       ];
     }
-    return MediaCategoryAdapter.adapt(
+    final categories = MediaCategoryAdapter.adapt(
       await _macCmsClient.categories(source),
       isAdult: source.isAdult,
+    );
+    return _filterCategoriesByGroupConfig(
+      categories,
+      await _sourceGroupFilter(source.id),
     );
   }
 
@@ -872,15 +960,35 @@ class LocalMediaRepository implements MediaRepository {
       return _localPage(filtered, page);
     }
     final ids = _normalizedCategoryIds(categoryIds);
-    if (ids.isEmpty) {
+    final groupFilter = await _sourceGroupFilter(source.id);
+    final requestedIds =
+        ids.isEmpty && groupFilter.hasConfig ? groupFilter.enabledIds : ids;
+    final filteredIds = groupFilter.hasConfig
+        ? requestedIds
+            .where((id) => groupFilter.enabledIds.contains(id))
+            .toList(growable: false)
+        : requestedIds;
+
+    if (filteredIds.isEmpty && groupFilter.hasConfig) {
+      return PagedMedia(
+        items: const [],
+        page: page,
+        pageCount: 0,
+        limit: 0,
+        total: 0,
+        hasMore: false,
+      );
+    }
+    if (filteredIds.isEmpty) {
       return _macCmsClient.listPage(source, query: normalizedQuery, page: page);
     }
-    final pages = await Future.wait(ids.map((id) => _macCmsClient.listPage(
-          source,
-          query: normalizedQuery,
-          category: id,
-          page: page,
-        )));
+    final pages =
+        await Future.wait(filteredIds.map((id) => _macCmsClient.listPage(
+              source,
+              query: normalizedQuery,
+              category: id,
+              page: page,
+            )));
     return _combinePages(pages, page);
   }
 
@@ -889,6 +997,55 @@ class LocalMediaRepository implements MediaRepository {
       .where((id) => id.isNotEmpty)
       .toSet()
       .toList(growable: false);
+
+  Future<_SourceGroupFilter> _sourceGroupFilter(String sourceId) async {
+    try {
+      final configs = await getSourceGroupConfigs(sourceId);
+      return _SourceGroupFilter(
+        hasConfig: configs.isNotEmpty,
+        enabledIds: configs
+            .where((config) => config.isEnabled)
+            .map((config) => config.categoryId)
+            .toSet()
+            .toList(growable: false),
+      );
+    } catch (_) {
+      // A missing or unreadable config table must not break normal browsing.
+      return const _SourceGroupFilter.unconfigured();
+    }
+  }
+
+  List<UnifiedCategory> _filterCategoriesByGroupConfig(
+    List<UnifiedCategory> categories,
+    _SourceGroupFilter groupFilter,
+  ) {
+    if (!groupFilter.hasConfig) return categories;
+
+    final filtered = <UnifiedCategory>[];
+    for (final category in categories) {
+      if (category.type == UnifiedMediaType.all) {
+        filtered.add(category);
+        continue;
+      }
+      final subcategories = category.subcategories
+          .where(
+              (subcategory) => groupFilter.enabledIds.contains(subcategory.id))
+          .toList(growable: false);
+      final sourceCategoryIds = category.sourceCategoryIds
+          .where((id) => groupFilter.enabledIds.contains(id))
+          .toList(growable: false);
+      if (subcategories.isEmpty && sourceCategoryIds.isEmpty) continue;
+      filtered.add(
+        UnifiedCategory(
+          type: category.type,
+          sourceCategoryIds: sourceCategoryIds,
+          displayName: category.displayName,
+          subcategories: subcategories,
+        ),
+      );
+    }
+    return List.unmodifiable(filtered);
+  }
 
   PagedMedia _localPage(List<MediaItem> items, int requestedPage) {
     final page = requestedPage < 1 ? 1 : requestedPage;
@@ -1088,7 +1245,7 @@ class LocalMediaRepository implements MediaRepository {
 
   Future<void> _createSourceGroupConfigTable(DatabaseExecutor database) {
     return database.execute('''
-      CREATE TABLE source_group_configs (
+      CREATE TABLE IF NOT EXISTS source_group_configs (
         source_id TEXT NOT NULL,
         category_id TEXT NOT NULL,
         category_name TEXT NOT NULL,
@@ -1098,6 +1255,91 @@ class LocalMediaRepository implements MediaRepository {
         PRIMARY KEY (source_id, category_id)
       )
     ''');
+  }
+
+  /// Repairs partially-created group tables left by older iOS migrations.
+  ///
+  /// `CREATE TABLE IF NOT EXISTS` does not validate an existing table's
+  /// columns, so a table with a legacy/corrupt schema can still make inserts
+  /// fail. Rebuild only this table and copy values from known legacy names.
+  Future<void> _ensureSourceGroupConfigTable(Database database) async {
+    final info =
+        await database.rawQuery('PRAGMA table_info(source_group_configs)');
+    if (info.isEmpty) {
+      await _createSourceGroupConfigTable(database);
+      return;
+    }
+
+    final columns = <String>{
+      for (final row in info) _stringValue(row['name']).toLowerCase(),
+    };
+    const required = {
+      'source_id',
+      'category_id',
+      'category_name',
+      'is_enabled',
+      'created_at',
+      'updated_at',
+    };
+    if (required.every(columns.contains)) return;
+
+    await database.transaction((transaction) async {
+      await transaction.execute(
+        'ALTER TABLE source_group_configs RENAME TO source_group_configs_legacy',
+      );
+      await _createSourceGroupConfigTable(transaction);
+
+      final legacyRows = await transaction.query('source_group_configs_legacy');
+      final legacyInfo = await transaction.rawQuery(
+        'PRAGMA table_info(source_group_configs_legacy)',
+      );
+      final actualNames = <String, String>{
+        for (final row in legacyInfo)
+          _stringValue(row['name']).toLowerCase(): _stringValue(row['name']),
+      };
+
+      Object? value(Map<String, Object?> row, List<String> candidates) {
+        for (final candidate in candidates) {
+          final actual = actualNames[candidate.toLowerCase()];
+          if (actual != null && row.containsKey(actual)) return row[actual];
+        }
+        return null;
+      }
+
+      for (final row in legacyRows) {
+        final sourceId = _stringValue(value(row, ['source_id', 'sourceId']));
+        final categoryId =
+            _stringValue(value(row, ['category_id', 'categoryId']));
+        if (sourceId.isEmpty || categoryId.isEmpty) continue;
+
+        final categoryName = _stringValue(
+          value(row, ['category_name', 'categoryName']),
+        );
+        final enabledValue = value(row, ['is_enabled', 'isEnabled']);
+        await transaction.insert(
+          'source_group_configs',
+          {
+            'source_id': sourceId,
+            'category_id': categoryId,
+            'category_name': categoryName.isEmpty ? categoryId : categoryName,
+            'is_enabled': enabledValue == null
+                ? 1
+                : _safeParseInt(enabledValue) == 0
+                    ? 0
+                    : 1,
+            'created_at': _safeParseInt(
+              value(row, ['created_at', 'createdAt']),
+            ),
+            'updated_at': _safeParseInt(
+              value(row, ['updated_at', 'updatedAt']),
+            ),
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      await transaction.execute('DROP TABLE source_group_configs_legacy');
+    });
   }
 
   Future<void> _saveMediaSnapshot(
@@ -1216,16 +1458,20 @@ class LocalMediaRepository implements MediaRepository {
 
   SourceGroupConfig _groupConfigFromRow(Map<String, Object?> row) {
     return SourceGroupConfig(
-      sourceId: row['source_id'] as String,
-      categoryId: row['category_id'] as String,
-      categoryName: row['category_name'] as String,
-      isEnabled: (row['is_enabled'] as int? ?? 1) == 1,
-      createdAt:
-          DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int? ?? 0),
-      updatedAt:
-          DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int? ?? 0),
+      sourceId: _stringValue(row['source_id']),
+      categoryId: _stringValue(row['category_id']),
+      categoryName: _stringValue(row['category_name']),
+      isEnabled: _safeParseInt(row['is_enabled'] ?? 1) == 1,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(
+        _safeParseInt(row['created_at']),
+      ),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(
+        _safeParseInt(row['updated_at']),
+      ),
     );
   }
+
+  String _stringValue(Object? value) => value?.toString().trim() ?? '';
 
   int _safeParseInt(Object? value) {
     if (value == null) return 0;
@@ -1249,6 +1495,20 @@ class LocalMediaRepository implements MediaRepository {
     if (decoded is! List) return const [];
     return decoded.whereType<String>().toList(growable: false);
   }
+}
+
+class _SourceGroupFilter {
+  const _SourceGroupFilter({
+    required this.hasConfig,
+    required this.enabledIds,
+  });
+
+  const _SourceGroupFilter.unconfigured()
+      : hasConfig = false,
+        enabledIds = const [];
+
+  final bool hasConfig;
+  final List<String> enabledIds;
 }
 
 class _HomeCategoryDefinition {

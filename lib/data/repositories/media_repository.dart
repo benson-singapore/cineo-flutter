@@ -24,6 +24,7 @@ abstract class MediaRepository {
   Future<MediaSource?> defaultSource();
   Future<void> setDefaultSource(String id);
   Future<List<SourceGroupConfig>> getSourceGroupConfigs(String sourceId);
+  Future<List<SourceGroupConfig>> syncSourceGroupConfigs(String sourceId);
   Future<void> saveSourceGroupConfig(SourceGroupConfig config);
   Future<List<String>> getEnabledGroupIdsForSource(String sourceId);
   Future<void> initializeSourceGroupConfigs(
