@@ -8,6 +8,7 @@ import '../../core/models/home_category_rail.dart';
 import '../../core/models/media.dart';
 import '../../core/models/media_source.dart';
 import '../../core/models/paged_media.dart';
+import '../../core/models/source_group_config.dart';
 import '../remote/mac_cms_client.dart';
 import '../remote/media_category_adapter.dart';
 import 'media_repository.dart';
@@ -42,7 +43,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     final database = await openDatabase(
       resolvedPath,
-      version: 8,
+      version: 9,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -97,6 +98,7 @@ class LocalMediaRepository implements MediaRepository {
         ''');
         await _createMediaSnapshotsTable(database);
         await _createHomeCategoryCacheTable(database);
+        await _createSourceGroupConfigTable(database);
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -145,6 +147,9 @@ class LocalMediaRepository implements MediaRepository {
         }
         if (oldVersion < 8) {
           await _createHomeCategoryCacheTable(database);
+        }
+        if (oldVersion < 9) {
+          await _createSourceGroupConfigTable(database);
         }
       },
     );
@@ -481,6 +486,188 @@ class LocalMediaRepository implements MediaRepository {
     });
   }
 
+  /// Saves or updates a source group configuration in the database.
+  @override
+  Future<void> saveSourceGroupConfig(SourceGroupConfig config) async {
+    final database = await _db;
+    await database.insert(
+      'source_group_configs',
+      {
+        'source_id': config.sourceId,
+        'group_id': config.groupId,
+        'parent_group_id': config.parentGroupId,
+        'group_name': config.groupName,
+        'is_enabled': config.isEnabled ? 1 : 0,
+        'is_leaf': config.isLeaf ? 1 : 0,
+        'created_at': config.createdAt.millisecondsSinceEpoch,
+        'updated_at': config.updatedAt.millisecondsSinceEpoch,
+      },
+      conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Retrieves all group configurations for a specific source.
+  @override
+  Future<List<SourceGroupConfig>> getSourceGroupConfigs(String sourceId) async {
+    final database = await _db;
+    final rows = await database.query(
+      'source_group_configs',
+      where: 'source_id = ?',
+      whereArgs: [sourceId],
+      orderBy: 'parent_group_id, group_name',
+    );
+    return rows.map(_groupConfigFromRow).toList();
+  }
+
+  /// Gets only the enabled leaf group IDs for a source.
+  /// Used for filtering API requests to only include enabled categories.
+  @override
+  Future<List<String>> getEnabledGroupIdsForSource(String sourceId) async {
+    final database = await _db;
+    final rows = await database.query(
+      'source_group_configs',
+      columns: ['group_id'],
+      where: 'source_id = ? AND is_enabled = 1 AND is_leaf = 1',
+      whereArgs: [sourceId],
+    );
+    return rows.map((row) => row['group_id'] as String).toList();
+  }
+
+  /// Initializes all group configurations for a source based on remote leaf categories.
+  /// All groups start as enabled by default.
+  /// Groups are based on the source's native subcategories.
+  @override
+  Future<void> initializeSourceGroupConfigs(
+    String sourceId,
+    List<UnifiedSubcategory> leafCategories,
+  ) async {
+    final database = await _db;
+    final now = DateTime.now();
+
+    final configs = <SourceGroupConfig>[];
+    for (final category in leafCategories) {
+      configs.add(SourceGroupConfig(
+        sourceId: sourceId,
+        groupId: category.id,
+        parentGroupId: '',
+        groupName: category.name,
+        isEnabled: true,
+        isLeaf: true,
+        createdAt: now,
+        updatedAt: now,
+      ));
+    }
+
+    await database.transaction((transaction) async {
+      // Clear existing configs for this source
+      await transaction.delete(
+        'source_group_configs',
+        where: 'source_id = ?',
+        whereArgs: [sourceId],
+      );
+      // Insert new configs
+      for (final config in configs) {
+        await transaction.insert(
+          'source_group_configs',
+          {
+            'source_id': config.sourceId,
+            'group_id': config.groupId,
+            'parent_group_id': config.parentGroupId,
+            'group_name': config.groupName,
+            'is_enabled': config.isEnabled ? 1 : 0,
+            'is_leaf': config.isLeaf ? 1 : 0,
+            'created_at': config.createdAt.millisecondsSinceEpoch,
+            'updated_at': config.updatedAt.millisecondsSinceEpoch,
+          },
+        );
+      }
+    });
+  }
+
+  /// Toggles a group config enabled/disabled state and syncs parent/child states.
+  /// - If disabling a parent, all children are also disabled.
+  /// - If enabling a leaf, the parent chain is automatically enabled.
+  @override
+  Future<void> toggleSourceGroupConfig(
+    String sourceId,
+    String groupId,
+    bool enable,
+  ) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      // Find the config to understand its level
+      final targetRows = await transaction.query(
+        'source_group_configs',
+        where: 'source_id = ? AND group_id = ?',
+        whereArgs: [sourceId, groupId],
+        limit: 1,
+      );
+      if (targetRows.isEmpty) return;
+
+      final target = _groupConfigFromRow(targetRows.single);
+
+      // Update the target
+      await transaction.update(
+        'source_group_configs',
+        {
+          'is_enabled': enable ? 1 : 0,
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        },
+        where: 'source_id = ? AND group_id = ?',
+        whereArgs: [sourceId, groupId],
+      );
+
+      if (enable) {
+        // Enable all parents up the chain
+        var parentId = target.parentGroupId;
+        while (parentId.isNotEmpty) {
+          await transaction.update(
+            'source_group_configs',
+            {
+              'is_enabled': 1,
+              'updated_at': DateTime.now().millisecondsSinceEpoch,
+            },
+            where: 'source_id = ? AND group_id = ?',
+            whereArgs: [sourceId, parentId],
+          );
+          final parentRows = await transaction.query(
+            'source_group_configs',
+            where: 'source_id = ? AND group_id = ?',
+            whereArgs: [sourceId, parentId],
+            limit: 1,
+          );
+          parentId = parentRows.isNotEmpty
+              ? _groupConfigFromRow(parentRows.single).parentGroupId
+              : '';
+        }
+      } else {
+        // Disable all children recursively
+        final queue = [groupId];
+        while (queue.isNotEmpty) {
+          final currentId = queue.removeAt(0);
+          await transaction.update(
+            'source_group_configs',
+            {
+              'is_enabled': 0,
+              'updated_at': DateTime.now().millisecondsSinceEpoch,
+            },
+            where: 'source_id = ? AND parent_group_id = ?',
+            whereArgs: [sourceId, currentId],
+          );
+          final childRows = await transaction.query(
+            'source_group_configs',
+            columns: ['group_id'],
+            where: 'source_id = ? AND parent_group_id = ?',
+            whereArgs: [sourceId, currentId],
+          );
+          for (final row in childRows) {
+            queue.add(row['group_id'] as String);
+          }
+        }
+      }
+    });
+  }
+
   Future<List<MediaItem>> browseDefaultSource({String? category}) async {
     return (await browseDefaultSourcePage(
       categoryIds: category == null ? const [] : [category],
@@ -501,12 +688,42 @@ class LocalMediaRepository implements MediaRepository {
               .toList(growable: false);
       return _localPage(filtered, page);
     }
+
+    // Get enabled group IDs if source uses group filtering
+    List<String> enabledGroupIds = [];
+    try {
+      enabledGroupIds = await getEnabledGroupIdsForSource(source.id);
+    } catch (_) {
+      // If group config is not available, allow all categories
+    }
+
     final ids = _normalizedCategoryIds(categoryIds);
-    if (ids.isEmpty) {
+
+    // Filter by enabled groups if any are configured
+    final filteredIds = enabledGroupIds.isEmpty
+        ? ids
+        : ids
+            .where((id) => enabledGroupIds.contains(id))
+            .toList(growable: false);
+
+    if (filteredIds.isEmpty && enabledGroupIds.isNotEmpty) {
+      // All specified categories are disabled
+      return PagedMedia(
+        items: const [],
+        page: page,
+        pageCount: 0,
+        limit: 0,
+        total: 0,
+        hasMore: false,
+      );
+    }
+
+    if (filteredIds.isEmpty) {
       return _macCmsClient.listPage(source, page: page);
     }
     final pages = await Future.wait(
-      ids.map((id) => _macCmsClient.listPage(source, category: id, page: page)),
+      filteredIds.map(
+          (id) => _macCmsClient.listPage(source, category: id, page: page)),
     );
     return _combinePages(pages, page);
   }
@@ -540,6 +757,10 @@ class LocalMediaRepository implements MediaRepository {
           .toList(growable: false);
     }
 
+    if (source.isAdult) {
+      return _browseAdultHomeCategoryRails(categories);
+    }
+
     final idsByRail = [
       for (final definition in _homeCategoryDefinitions)
         _homeCategoryIds(definition, categories),
@@ -563,6 +784,45 @@ class LocalMediaRepository implements MediaRepository {
     );
   }
 
+  Future<List<HomeCategoryRail>> _browseAdultHomeCategoryRails(
+    List<UnifiedCategory> categories,
+  ) async {
+    final adultCategory = categories
+        .where((category) => category.type == UnifiedMediaType.adult)
+        .firstOrNull;
+    final subcategories = adultCategory?.subcategories ?? const [];
+    final definitions = subcategories.isEmpty
+        ? [
+            const _AdultHomeCategoryDefinition(
+              title: '成人资源',
+              categoryIds: <String>[],
+            ),
+          ]
+        : [
+            for (final category in subcategories)
+              _AdultHomeCategoryDefinition(
+                title: category.name,
+                categoryIds: category.sourceCategoryIds,
+              ),
+          ];
+    final pages = await Future.wait(
+      definitions.map(
+        (definition) => browseDefaultSourcePage(
+          categoryIds: definition.categoryIds,
+        ).then((page) => page.items),
+      ),
+    );
+    return List<HomeCategoryRail>.generate(
+      definitions.length,
+      (index) => HomeCategoryRail(
+        title: definitions[index].title,
+        categoryIds: definitions[index].categoryIds,
+        items: pages[index],
+      ),
+      growable: false,
+    );
+  }
+
   Future<List<UnifiedCategory>> defaultSourceCategories() async {
     final source = await defaultSource();
     if (source == null) {
@@ -572,7 +832,10 @@ class LocalMediaRepository implements MediaRepository {
         UnifiedCategory(type: UnifiedMediaType.series, sourceCategoryIds: []),
       ];
     }
-    return MediaCategoryAdapter.adapt(await _macCmsClient.categories(source));
+    return MediaCategoryAdapter.adapt(
+      await _macCmsClient.categories(source),
+      isAdult: source.isAdult,
+    );
   }
 
   List<String> _homeCategoryIds(
@@ -838,6 +1101,22 @@ class LocalMediaRepository implements MediaRepository {
     ''');
   }
 
+  Future<void> _createSourceGroupConfigTable(DatabaseExecutor database) {
+    return database.execute('''
+      CREATE TABLE source_group_configs (
+        source_id TEXT NOT NULL,
+        group_id TEXT NOT NULL,
+        parent_group_id TEXT NOT NULL,
+        group_name TEXT NOT NULL,
+        is_enabled INTEGER NOT NULL DEFAULT 1,
+        is_leaf INTEGER NOT NULL,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (source_id, group_id)
+      )
+    ''');
+  }
+
   Future<void> _saveMediaSnapshot(
     MediaItem media, {
     required DatabaseExecutor database,
@@ -952,6 +1231,21 @@ class LocalMediaRepository implements MediaRepository {
     );
   }
 
+  SourceGroupConfig _groupConfigFromRow(Map<String, Object?> row) {
+    return SourceGroupConfig(
+      sourceId: row['source_id'] as String,
+      groupId: row['group_id'] as String,
+      parentGroupId: row['parent_group_id'] as String? ?? '',
+      groupName: row['group_name'] as String,
+      isEnabled: (row['is_enabled'] as int? ?? 1) == 1,
+      isLeaf: (row['is_leaf'] as int? ?? 0) == 1,
+      createdAt:
+          DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int? ?? 0),
+      updatedAt:
+          DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int? ?? 0),
+    );
+  }
+
   int _safeParseInt(Object? value) {
     if (value == null) return 0;
     if (value is int) return value;
@@ -990,6 +1284,16 @@ class _HomeCategoryDefinition {
   final bool useAllTypeIds;
 
   bool matches(String text) => pattern.hasMatch(text);
+}
+
+class _AdultHomeCategoryDefinition {
+  const _AdultHomeCategoryDefinition({
+    required this.title,
+    required this.categoryIds,
+  });
+
+  final String title;
+  final List<String> categoryIds;
 }
 
 final _homeCategoryDefinitions = <_HomeCategoryDefinition>[

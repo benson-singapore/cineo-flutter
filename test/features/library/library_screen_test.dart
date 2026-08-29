@@ -1,5 +1,7 @@
 import 'package:cineo_flutter/core/models/media.dart';
 import 'package:cineo_flutter/core/models/media_source.dart';
+import 'package:cineo_flutter/core/models/source_group_config.dart';
+import 'package:cineo_flutter/data/remote/media_category_adapter.dart';
 import 'package:cineo_flutter/data/repositories/media_repository.dart';
 import 'package:cineo_flutter/features/library/library_screen.dart';
 import 'package:flutter/material.dart';
@@ -76,6 +78,31 @@ class _FakeMediaRepository implements MediaRepository {
 
   @override
   Future<void> setDefaultSource(String id) async {}
+
+  @override
+  Future<List<SourceGroupConfig>> getSourceGroupConfigs(
+          String sourceId) async =>
+      const [];
+
+  @override
+  Future<void> saveSourceGroupConfig(SourceGroupConfig config) async {}
+
+  @override
+  Future<List<String>> getEnabledGroupIdsForSource(String sourceId) async =>
+      const [];
+
+  @override
+  Future<void> initializeSourceGroupConfigs(
+    String sourceId,
+    List<UnifiedSubcategory> leafCategories,
+  ) async {}
+
+  @override
+  Future<void> toggleSourceGroupConfig(
+    String sourceId,
+    String groupId,
+    bool enable,
+  ) async {}
 }
 
 MediaItem _media(String id, String title) {

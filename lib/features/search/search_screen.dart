@@ -171,7 +171,12 @@ class _SearchScreenState extends State<SearchScreen>
   }
 
   bool _matchesType(MediaItem media, UnifiedMediaType type) {
-    if (type == UnifiedMediaType.all) return true;
+    if (type == UnifiedMediaType.all || type == UnifiedMediaType.adult) {
+      // Adult sources use source-native category IDs. When no remote loader is
+      // available, keep the local fallback permissive instead of applying the
+      // regular movie/series heuristics to adult content.
+      return true;
+    }
     if (type == UnifiedMediaType.movie) return media.kind == MediaKind.movie;
     if (media.kind != MediaKind.series) return false;
     final text = [media.title, ...media.genres].join(' ').toLowerCase();

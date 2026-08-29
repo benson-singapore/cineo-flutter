@@ -7,6 +7,7 @@ import '../../data/repositories/media_repository.dart';
 import '../settings/adult_source_settings.dart';
 import 'source_config_importer.dart';
 import 'source_editor_screen.dart';
+import 'source_group_config_screen.dart';
 
 class SourceListScreen extends StatefulWidget {
   const SourceListScreen({
@@ -155,6 +156,20 @@ class _SourceListScreenState extends State<SourceListScreen> {
     if (confirmed != true) return;
     await widget.repository.deleteSource(source.id);
     await _load();
+  }
+
+  Future<void> _openGroupConfig(MediaSource source) async {
+    if (!mounted) return;
+    await Navigator.of(context).push<void>(
+      adaptivePageRoute(
+        context,
+        builder: (_) => SourceGroupConfigScreen(
+          sourceId: source.id,
+          sourceName: source.name,
+          repository: widget.repository,
+        ),
+      ),
+    );
   }
 
   Future<void> _runTest(MediaSource source) async {
@@ -430,6 +445,7 @@ class _SourceListScreenState extends State<SourceListScreen> {
                         onSetDefault: _setDefaultSource,
                         onEdit: _openEditor,
                         onDelete: _deleteSource,
+                        onGroupConfig: _openGroupConfig,
                       ),
                       _SourceTabList(
                         sources: regularSources,
@@ -441,6 +457,7 @@ class _SourceListScreenState extends State<SourceListScreen> {
                         onSetDefault: _setDefaultSource,
                         onEdit: _openEditor,
                         onDelete: _deleteSource,
+                        onGroupConfig: _openGroupConfig,
                       ),
                       if (adultTabVisible)
                         _SourceTabList(
@@ -456,6 +473,7 @@ class _SourceListScreenState extends State<SourceListScreen> {
                           onSetDefault: _setDefaultSource,
                           onEdit: _openEditor,
                           onDelete: _deleteSource,
+                          onGroupConfig: _openGroupConfig,
                         ),
                     ],
                   ),
@@ -479,6 +497,7 @@ class _SourceCard extends StatelessWidget {
     required this.onSetDefault,
     required this.onEdit,
     required this.onDelete,
+    this.onGroupConfig,
   });
 
   final MediaSource source;
@@ -489,6 +508,7 @@ class _SourceCard extends StatelessWidget {
   final VoidCallback onSetDefault;
   final VoidCallback onEdit;
   final VoidCallback onDelete;
+  final VoidCallback? onGroupConfig;
 
   @override
   Widget build(BuildContext context) {
@@ -579,7 +599,7 @@ class _SourceCard extends StatelessWidget {
               runSpacing: 4,
               children: [
                 if (source.type == MediaSourceType.macCmsApi ||
-                    source.type == MediaSourceType.jsonApi)
+                    source.type == MediaSourceType.jsonApi) ...[
                   TextButton.icon(
                     onPressed: source.isDefault || !source.enabled
                         ? null
@@ -591,6 +611,13 @@ class _SourceCard extends StatelessWidget {
                     ),
                     label: Text(source.isDefault ? '默认站点' : '设为默认'),
                   ),
+                  if (onGroupConfig != null)
+                    IconButton(
+                      tooltip: '分组配置',
+                      onPressed: source.enabled ? onGroupConfig : null,
+                      icon: const Icon(Icons.category_outlined),
+                    ),
+                ],
                 IconButton(
                   tooltip: source.isFavorite ? '取消收藏来源' : '收藏来源',
                   onPressed: onToggleFavorite,
@@ -637,6 +664,7 @@ class _SourceTabList extends StatelessWidget {
     required this.onSetDefault,
     required this.onEdit,
     required this.onDelete,
+    this.onGroupConfig,
   });
 
   final List<MediaSource> sources;
@@ -648,6 +676,7 @@ class _SourceTabList extends StatelessWidget {
   final Future<void> Function(MediaSource source) onSetDefault;
   final Future<void> Function([MediaSource? source]) onEdit;
   final Future<void> Function(MediaSource source) onDelete;
+  final Future<void> Function(MediaSource source)? onGroupConfig;
 
   @override
   Widget build(BuildContext context) {
@@ -658,6 +687,8 @@ class _SourceTabList extends StatelessWidget {
       separatorBuilder: (_, __) => const SizedBox(height: 10),
       itemBuilder: (context, index) {
         final source = sources[index];
+        final groupConfigCallback =
+            onGroupConfig != null ? () => onGroupConfig!(source) : null;
         return _SourceCard(
           source: source,
           testing: testing.contains(source.id),
@@ -667,6 +698,7 @@ class _SourceTabList extends StatelessWidget {
           onSetDefault: () => onSetDefault(source),
           onEdit: () => onEdit(source),
           onDelete: () => onDelete(source),
+          onGroupConfig: groupConfigCallback,
         );
       },
     );

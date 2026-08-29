@@ -1,5 +1,7 @@
 import '../../core/models/media.dart';
 import '../../core/models/media_source.dart';
+import '../../core/models/source_group_config.dart';
+import '../remote/media_category_adapter.dart';
 
 abstract class MediaRepository {
   Future<List<MediaItem>> featured();
@@ -21,4 +23,16 @@ abstract class MediaRepository {
   Future<bool> testSource(MediaSource source);
   Future<MediaSource?> defaultSource();
   Future<void> setDefaultSource(String id);
+  Future<List<SourceGroupConfig>> getSourceGroupConfigs(String sourceId);
+  Future<void> saveSourceGroupConfig(SourceGroupConfig config);
+  Future<List<String>> getEnabledGroupIdsForSource(String sourceId);
+  Future<void> initializeSourceGroupConfigs(
+    String sourceId,
+    List<UnifiedSubcategory> leafCategories,
+  );
+  Future<void> toggleSourceGroupConfig(
+    String sourceId,
+    String groupId,
+    bool enable,
+  );
 }

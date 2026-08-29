@@ -447,6 +447,17 @@ class _CineoShellState extends State<CineoShell> {
   Future<TmdbMediaDetails?> _loadTmdbPreview(MediaItem media) async {
     final mediaType =
         media.kind == MediaKind.series ? TmdbMediaType.tv : TmdbMediaType.movie;
+
+    // Skip TMDB if default source is adult
+    final defaultSource = await widget.repository.defaultSource();
+    if (defaultSource?.isAdult ?? false) {
+      _debugLog(
+        'tmdb_preview phase=skipped reason=adult_default_source '
+        'type=${mediaType.name}',
+      );
+      return null;
+    }
+
     try {
       final details = await widget.tmdbMetadata.loadPreviewForMedia(media);
       _debugLog(
@@ -472,6 +483,17 @@ class _CineoShellState extends State<CineoShell> {
   Future<TmdbMediaDetails?> _loadTmdbDetails(MediaItem media) async {
     final mediaType =
         media.kind == MediaKind.series ? TmdbMediaType.tv : TmdbMediaType.movie;
+
+    // Skip TMDB if default source is adult
+    final defaultSource = await widget.repository.defaultSource();
+    if (defaultSource?.isAdult ?? false) {
+      _debugLog(
+        'tmdb_details phase=skipped reason=adult_default_source '
+        'type=${mediaType.name}',
+      );
+      return null;
+    }
+
     try {
       final details = await widget.tmdbMetadata.loadDetailsForMedia(media);
       _debugLog(
@@ -495,6 +517,13 @@ class _CineoShellState extends State<CineoShell> {
   }
 
   Future<TmdbMediaDetails?> _loadTmdbEnrichment(MediaItem media) async {
+    // Skip TMDB if default source is adult
+    final defaultSource = await widget.repository.defaultSource();
+    if (defaultSource?.isAdult ?? false) {
+      _debugLog('tmdb_enrichment phase=skipped reason=adult_default_source');
+      return null;
+    }
+
     try {
       return await widget.tmdbMetadata.loadEnrichmentForMedia(media);
     } on Object catch (error) {

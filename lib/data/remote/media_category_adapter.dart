@@ -1,4 +1,4 @@
-enum UnifiedMediaType { all, movie, series, variety, animation }
+enum UnifiedMediaType { all, movie, series, variety, animation, adult }
 
 extension UnifiedMediaTypeLabel on UnifiedMediaType {
   String get label => switch (this) {
@@ -7,6 +7,7 @@ extension UnifiedMediaTypeLabel on UnifiedMediaType {
         UnifiedMediaType.series => '剧集',
         UnifiedMediaType.variety => '综艺',
         UnifiedMediaType.animation => '动漫',
+        UnifiedMediaType.adult => '成人资源',
       };
 }
 
@@ -62,7 +63,10 @@ class UnifiedSubcategory {
 class MediaCategoryAdapter {
   const MediaCategoryAdapter._();
 
-  static List<UnifiedCategory> adapt(List<RemoteCategory> categories) {
+  static List<UnifiedCategory> adapt(
+    List<RemoteCategory> categories, {
+    bool isAdult = false,
+  }) {
     final byId = <String, RemoteCategory>{};
     for (final category in categories) {
       byId.putIfAbsent(category.id, () => category);
@@ -83,7 +87,10 @@ class MediaCategoryAdapter {
     final subcategories = <UnifiedMediaType, List<UnifiedSubcategory>>{};
     final subcategoryIds = <UnifiedMediaType, Set<String>>{};
     for (final category in categories) {
-      final type = _typeFor(category, byId);
+      // Adult sources have source-native groups such as 无码、中文字幕 and
+      // 素人. They must not be guessed as movie/series/animation based on
+      // their names, otherwise the source's own grouping is lost.
+      final type = isAdult ? UnifiedMediaType.adult : _typeFor(category, byId);
       if (type == null) continue;
 
       // A request should target the leaves of a source's category tree. The
@@ -115,7 +122,7 @@ class MediaCategoryAdapter {
         );
       }
     }
-    return [
+    final result = <UnifiedCategory>[
       const UnifiedCategory(
         type: UnifiedMediaType.all,
         sourceCategoryIds: [],
@@ -128,6 +135,15 @@ class MediaCategoryAdapter {
             subcategories: List.unmodifiable(subcategories[type]!),
           ),
     ];
+    // Some adult APIs do not expose a class list. Keep an explicit adult tab
+    // so the fallback can still browse the complete source catalog.
+    if (isAdult && !result.any((item) => item.type == UnifiedMediaType.adult)) {
+      result.add(const UnifiedCategory(
+        type: UnifiedMediaType.adult,
+        sourceCategoryIds: [],
+      ));
+    }
+    return List.unmodifiable(result);
   }
 
   static Set<String> _cycleIds(Map<String, RemoteCategory> byId) {
