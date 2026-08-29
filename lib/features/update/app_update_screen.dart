@@ -104,14 +104,21 @@ class _AppUpdateScreenState extends State<AppUpdateScreen> {
                           color: CineoColors.primary),
                       title: Text(service.hasUpdate
                           ? '发现新版本 v$latest'
-                          : latest == null
+                          : service.isChecking
                               ? '正在检查更新'
-                              : '已是最新版本'),
+                              : service.checkError != null
+                                  ? '检查更新失败'
+                                  : latest == null
+                                      ? '暂无版本信息'
+                                      : '已是最新版本'),
                       subtitle: Text(service.hasUpdate
                           ? '已为你准备好最新版本'
-                          : latest == null
+                          : service.isChecking
                               ? '正在连接版本服务'
-                              : '最新版本 v$latest'),
+                              : service.checkError ??
+                                  (latest == null
+                                      ? '点击右侧按钮重新检查'
+                                      : '最新版本 v$latest')),
                       trailing: service.isChecking
                           ? const SizedBox.square(
                               dimension: 20,

@@ -13,6 +13,9 @@ class AppUpdateService extends ChangeNotifier {
   static final _latestReleaseUri = Uri.parse(
     'https://api.github.com/repos/benson-singapore/cineo-flutter/releases/latest',
   );
+  static final _releasesAtomUri = Uri.parse(
+    'https://github.com/benson-singapore/cineo-flutter/releases.atom',
+  );
 
   final http.Client _client;
 
@@ -22,6 +25,7 @@ class AppUpdateService extends ChangeNotifier {
   Uri? latestDownloadUri;
   String? releaseNotes;
   DateTime? latestPublishedAt;
+  String? checkError;
   bool isChecking = false;
 
   bool get hasUpdate {
@@ -47,49 +51,123 @@ class AppUpdateService extends ChangeNotifier {
   Future<void> checkForUpdates() async {
     if (isChecking) return;
     isChecking = true;
+    checkError = null;
     notifyListeners();
     try {
-      final response = await _client.get(
-        _latestReleaseUri,
-        headers: const {
-          'Accept': 'application/vnd.github+json',
-          'X-GitHub-Api-Version': '2022-11-28',
-        },
-      );
-      if (response.statusCode != 200) return;
-      final payload = jsonDecode(response.body);
-      if (payload is! Map<String, dynamic>) return;
-      final tagName = payload['tag_name'];
-      if (tagName is String && tagName.trim().isNotEmpty) {
-        latestVersion = tagName.trim();
+      var loaded = false;
+      try {
+        loaded = await _loadLatestReleaseFromApi();
+      } catch (error) {
+        _logCheckFailure(error);
       }
-      latestReleaseUri = _uriFrom(payload['html_url']) ?? releasesUri;
-      releaseNotes = _stringFrom(payload['body']);
-      latestPublishedAt =
-          DateTime.tryParse(_stringFrom(payload['published_at']));
-      final assets = payload['assets'];
-      if (assets is List) {
-        for (final asset in assets) {
-          if (asset is Map<String, dynamic>) {
-            final url = _uriFrom(asset['browser_download_url']);
-            if (url != null) {
-              latestDownloadUri = url;
-              break;
-            }
-          }
+      if (!loaded) {
+        try {
+          loaded = await _loadLatestReleaseFromAtom();
+        } catch (error) {
+          _logCheckFailure(error);
         }
       }
-    } catch (error) {
-      assert(() {
-        debugPrint('[Cineo][Update] phase=check_failed '
-            'errorType=${error.runtimeType} error=$error');
-        return true;
-      }());
-      // An unavailable update service must not affect the local app.
+      if (!loaded) {
+        checkError = '暂时无法连接版本服务，请稍后重试';
+      }
     } finally {
       isChecking = false;
       notifyListeners();
     }
+  }
+
+  Future<bool> _loadLatestReleaseFromApi() async {
+    final response = await _client.get(
+      _latestReleaseUri,
+      headers: const {
+        'Accept': 'application/vnd.github+json',
+        'X-GitHub-Api-Version': '2022-11-28',
+      },
+    );
+    if (response.statusCode != 200) return false;
+    final payload = jsonDecode(response.body);
+    if (payload is! Map<String, dynamic>) return false;
+    final tagName = payload['tag_name'];
+    if (tagName is! String || tagName.trim().isEmpty) return false;
+
+    _applyRelease(
+      tagName: tagName.trim(),
+      releaseUri: _uriFrom(payload['html_url']) ?? releasesUri,
+      notes: _stringFrom(payload['body']),
+      publishedAt: DateTime.tryParse(_stringFrom(payload['published_at'])),
+    );
+    final assets = payload['assets'];
+    if (assets is List) {
+      for (final asset in assets) {
+        if (asset is Map<String, dynamic>) {
+          final url = _uriFrom(asset['browser_download_url']);
+          if (url != null) {
+            latestDownloadUri = url;
+            break;
+          }
+        }
+      }
+    }
+    return true;
+  }
+
+  Future<bool> _loadLatestReleaseFromAtom() async {
+    final response = await _client.get(
+      _releasesAtomUri,
+      headers: const {'Accept': 'application/atom+xml'},
+    );
+    if (response.statusCode != 200) return false;
+
+    final entry = RegExp(
+      r'<entry\b[\s\S]*?</entry>',
+      caseSensitive: false,
+    ).firstMatch(response.body)?.group(0);
+    if (entry == null) return false;
+    final releaseMatch = RegExp(
+      r'href="([^" ]+/releases/tag/([^"/]+))"',
+      caseSensitive: false,
+    ).firstMatch(entry);
+    if (releaseMatch == null) return false;
+
+    final tagName = releaseMatch.group(2)!;
+    final notesResponse = await _client.get(_rawReleaseNotesUri(tagName));
+    final notes = notesResponse.statusCode == 200 ? notesResponse.body : '';
+    final updated = RegExp(
+      r'<updated>([^<]+)</updated>',
+      caseSensitive: false,
+    ).firstMatch(entry)?.group(1);
+    _applyRelease(
+      tagName: tagName,
+      releaseUri: Uri.parse(releaseMatch.group(1)!),
+      notes: notes,
+      publishedAt: DateTime.tryParse(updated ?? ''),
+    );
+    return true;
+  }
+
+  void _applyRelease({
+    required String tagName,
+    required Uri releaseUri,
+    required String notes,
+    required DateTime? publishedAt,
+  }) {
+    latestVersion = tagName;
+    latestReleaseUri = releaseUri;
+    releaseNotes = notes;
+    latestPublishedAt = publishedAt;
+  }
+
+  static Uri _rawReleaseNotesUri(String tagName) => Uri.parse(
+        'https://raw.githubusercontent.com/benson-singapore/cineo-flutter/'
+        '$tagName/docs/update/$tagName.md',
+      );
+
+  void _logCheckFailure(Object error) {
+    assert(() {
+      debugPrint('[Cineo][Update] phase=check_failed '
+          'errorType=${error.runtimeType} error=$error');
+      return true;
+    }());
   }
 
   @override

@@ -42,6 +42,55 @@ void main() {
     service.dispose();
   });
 
+  test('falls back to the public Atom feed when GitHub API is rate limited',
+      () async {
+    final requestedUris = <Uri>[];
+    final client = MockClient((request) async {
+      requestedUris.add(request.url);
+      if (request.url.host == 'api.github.com') {
+        return http.Response('rate limited', 403);
+      }
+      if (request.url.path == '/benson-singapore/cineo-flutter/releases.atom') {
+        return http.Response(
+          '''<?xml version="1.0"?>
+<feed>
+  <entry>
+    <updated>2026-08-29T05:38:29Z</updated>
+    <link rel="alternate" href="https://github.com/benson-singapore/cineo-flutter/releases/tag/v1.0.9" />
+    <title>Cineo v1.0.9</title>
+  </entry>
+</feed>''',
+          200,
+        );
+      }
+      expect(
+        request.url.toString(),
+        'https://raw.githubusercontent.com/benson-singapore/cineo-flutter/'
+        'v1.0.9/docs/update/v1.0.9.md',
+      );
+      return http.Response(
+        '# Cineo v1.0.9 更新说明',
+        200,
+        headers: const {'content-type': 'text/plain; charset=utf-8'},
+      );
+    });
+    final service = AppUpdateService(client: client)..currentVersion = '1.0.8';
+
+    await service.checkForUpdates();
+
+    expect(service.latestVersion, 'v1.0.9');
+    expect(service.hasUpdate, isTrue);
+    expect(service.releaseNotes, '# Cineo v1.0.9 更新说明');
+    expect(service.latestReleaseUri?.path, contains('releases/tag/v1.0.9'));
+    expect(service.checkError, isNull);
+    expect(requestedUris.map((uri) => uri.host), [
+      'api.github.com',
+      'github.com',
+      'raw.githubusercontent.com',
+    ]);
+    service.dispose();
+  });
+
   test('matches equal versions and supports historical build suffixes',
       () async {
     final client = MockClient(
@@ -64,6 +113,7 @@ void main() {
 
     expect(service.latestVersion, isNull);
     expect(service.hasUpdate, isFalse);
+    expect(service.checkError, isNotNull);
     service.dispose();
   });
 }
