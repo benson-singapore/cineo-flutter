@@ -1,8 +1,8 @@
 SHELL := /bin/bash
 
 # 公开版本号；内部构建号单独维护。
-VERSION := 1.0.8
-BUILD_NUMBER := 5
+VERSION := 1.0.9
+BUILD_NUMBER := 6
 BRANCH ?= main
 
 .PHONY: help publish version bump-patch bump-minor bump-major signing-setup android ios build release sync-build clean
