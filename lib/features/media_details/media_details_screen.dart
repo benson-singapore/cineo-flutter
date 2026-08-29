@@ -27,6 +27,8 @@ class MediaDetailsScreen extends StatefulWidget {
     this.onSelectTmdbMatch,
     this.repository,
     this.includeAdultHistory = false,
+    this.initialWatchHistory = const <WatchProgress>[],
+    this.onLoadWatchHistory,
   });
 
   final MediaItem media;
@@ -49,6 +51,10 @@ class MediaDetailsScreen extends StatefulWidget {
   final dynamic repository;
   final bool includeAdultHistory;
 
+  /// Local playback records used to render resume state on this page.
+  final List<WatchProgress> initialWatchHistory;
+  final Future<List<WatchProgress>> Function()? onLoadWatchHistory;
+
   @override
   State<MediaDetailsScreen> createState() => _MediaDetailsScreenState();
 }
@@ -64,6 +70,9 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   bool _tmdbEnrichmentLoading = false;
   int? _selectedSeason;
   bool _favoriteChangedByUser = false;
+  bool _episodeSelectionChanged = false;
+  late List<WatchProgress> _watchHistory =
+      List<WatchProgress>.of(widget.initialWatchHistory);
 
   List<PlaybackOption> get _options => _media.playbackOptions;
 
@@ -178,6 +187,52 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     return null;
   }
 
+  WatchProgress? get _latestWatchProgress {
+    final matching = _watchHistory
+        .where((entry) => entry.mediaId == _media.id && !entry.isComplete)
+        .toList()
+      ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+    return matching.firstOrNull;
+  }
+
+  PlaybackOption? get _resumeOption {
+    final episodeId = _latestWatchProgress?.episodeId;
+    if (episodeId == null) return null;
+    return _media.playbackOptions
+        .where((option) => option.id == episodeId)
+        .firstOrNull;
+  }
+
+  PlaybackOption? get _primaryPlaybackOption =>
+      _resumeOption ?? _activeOptions.firstOrNull ?? _options.firstOrNull;
+
+  WatchProgress? _progressForEpisode(Episode episode) {
+    final ids = <String>[
+      if (episode.playbackOption != null) episode.playbackOption!.id,
+      episode.id,
+    ];
+    final matching = _watchHistory
+        .where((entry) =>
+            entry.mediaId == _media.id &&
+            entry.episodeId != null &&
+            ids.contains(entry.episodeId))
+        .toList()
+      ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+    return matching.firstOrNull;
+  }
+
+  Map<String, WatchProgress> get _episodeProgress {
+    final result = <String, WatchProgress>{};
+    for (final episode in _activeEpisodes) {
+      final progress = _progressForEpisode(episode);
+      if (progress == null) continue;
+      result[episode.id] = progress;
+      final optionId = episode.playbackOption?.id;
+      if (optionId != null) result[optionId] = progress;
+    }
+    return result;
+  }
+
   @override
   void initState() {
     super.initState();
@@ -188,6 +243,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       for (final episode in _media.episodes) {
         final option = episode.playbackOption;
         if (episode.id == initialEpisodeId || option?.id == initialEpisodeId) {
+          _episodeSelectionChanged = true;
           _selectedSeason = episode.season > 0 ? episode.season : null;
           if (option != null) _selectedSourceName = _lineName(option);
           break;
@@ -201,8 +257,40 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       _selectedSeason = _availableSeasons.first;
     }
     _loadFavoriteAsync();
+    _loadWatchHistoryAsync();
     _loadMediaDataAsync();
     _loadTmdbDataAsync();
+  }
+
+  Future<void> _loadWatchHistoryAsync() async {
+    final loader = widget.onLoadWatchHistory;
+    if (loader == null) {
+      _applyResumeSelection();
+      return;
+    }
+    try {
+      final history = await loader();
+      if (!mounted) return;
+      setState(() {
+        _watchHistory = history;
+        _applyResumeSelection();
+      });
+    } catch (_) {
+      // Playback history is optional; the first available item remains usable.
+    }
+  }
+
+  void _applyResumeSelection() {
+    if (_episodeSelectionChanged) return;
+    final option = _resumeOption;
+    if (option == null) return;
+    _selectedSourceName = _lineName(option);
+    for (final episode in _media.episodes) {
+      if (episode.playbackOption?.id == option.id) {
+        _selectedSeason = episode.season > 0 ? episode.season : null;
+        break;
+      }
+    }
   }
 
   Future<void> _loadFavoriteAsync() async {
@@ -230,6 +318,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
 
       setState(() {
         _media = resolvedMedia;
+        _applyResumeSelection();
         if (_selectedSourceName == null && _sourceOptions.isNotEmpty) {
           _selectedSourceName = _lineName(_sourceOptions.first);
         }
@@ -465,6 +554,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           children:
               media.genres.map((genre) => Chip(label: Text(genre))).toList(),
         ),
+        if (_primaryPlaybackOption != null) ...[
+          const SizedBox(height: 18),
+          _buildPrimaryPlayButton(context),
+        ],
         const SizedBox(height: 18),
         if (_tmdbLoading || _tmdbEnrichmentLoading)
           const Padding(
@@ -497,6 +590,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             sourceNames: _sourceOptions.map(_lineName).toList(),
             selectedSourceName: _activeSourceName,
             onChanged: (value) => setState(() {
+              _episodeSelectionChanged = true;
               _selectedSourceName = value;
               final seasons = _sourceSeasons;
               _selectedSeason = seasons.isEmpty ? null : seasons.first;
@@ -517,6 +611,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
               seasons: _availableSeasons,
               selectedSeason: _selectedSeason,
               onChanged: (season) => setState(() {
+                _episodeSelectionChanged = true;
                 _selectedSeason = season;
               }),
             ),
@@ -619,6 +714,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                               borderRadius: BorderRadius.circular(8),
                               placeholderIcon: Icons.live_tv_outlined,
                             ),
+                            _EpisodeProgressOverlay(
+                              key: ValueKey('episode-progress-${episode.id}'),
+                              progress: _progressForEpisode(episode),
+                            ),
                             Positioned(
                               left: 8,
                               bottom: 8,
@@ -667,7 +766,38 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           episodes: _activeEpisodes,
           tmdbSeason: _selectedTmdbSeason,
           fallbackPosterUrl: _media.posterUrl,
+          progressByEpisodeId: _episodeProgress,
           onPlay: (option) => widget.onPlay(_media, option),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPrimaryPlayButton(BuildContext context) {
+    final hasResume = _latestWatchProgress != null;
+    return SizedBox(
+      key: const ValueKey('primary-play-button'),
+      width: double.infinity,
+      height: 52,
+      child: FilledButton.icon(
+        onPressed: () {
+          final option = _primaryPlaybackOption;
+          if (option != null) widget.onPlay(_media, option);
+        },
+        icon: Icon(
+          hasResume ? Icons.play_arrow_rounded : Icons.play_circle_fill_rounded,
+        ),
+        label: Text(hasResume ? '继续播放' : '播放'),
+        style: FilledButton.styleFrom(
+          backgroundColor: CineoColors.primary,
+          foregroundColor: const Color(0xff251300),
+          textStyle: const TextStyle(
+            fontSize: 16,
+            fontWeight: FontWeight.w800,
+          ),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(28),
+          ),
         ),
       ),
     );
@@ -1210,6 +1340,29 @@ class _InlineEmpty extends StatelessWidget {
       ),
       child: Text(message,
           style: const TextStyle(color: CineoColors.textSecondary)),
+    );
+  }
+}
+
+class _EpisodeProgressOverlay extends StatelessWidget {
+  const _EpisodeProgressOverlay({super.key, this.progress});
+
+  final WatchProgress? progress;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = progress?.fraction;
+    if (value == null || value <= 0) return const SizedBox.shrink();
+    return Positioned(
+      left: 0,
+      right: 0,
+      bottom: 0,
+      child: LinearProgressIndicator(
+        value: value,
+        minHeight: 4,
+        backgroundColor: Colors.white24,
+        color: CineoColors.primary,
+      ),
     );
   }
 }

@@ -89,18 +89,70 @@ void main() {
   Widget buildScreen({
     ValueChanged<PlaybackOption>? onPlay,
     String description = '测试简介',
+    List<WatchProgress> watchHistory = const [],
   }) {
     return MaterialApp(
       theme: buildCineoTheme(),
       home: MediaDetailsScreen(
         media: buildSeries(description: description),
         favorite: false,
+        initialWatchHistory: watchHistory,
         onFavoriteChanged: (_, __) {},
         onPlay: (_, option) => (onPlay ?? (_) {})(option),
       ),
     );
   }
 
+  testWidgets('shows play and resumes the latest unfinished episode',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    PlaybackOption? played;
+    final history = [
+      WatchProgress(
+        mediaId: 'series',
+        episodeId: lineAEpisodeTwo.id,
+        episodeLabel: '第2集',
+        episodeNumber: 2,
+        episodeCount: 2,
+        position: const Duration(minutes: 12),
+        duration: const Duration(minutes: 40),
+        updatedAt: DateTime(2026, 1, 2),
+      ),
+    ];
+
+    await tester.pumpWidget(buildScreen(
+      watchHistory: history,
+      onPlay: (option) => played = option,
+    ));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('primary-play-button')), findsOneWidget);
+    expect(find.text('继续播放'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('episode-progress-episode-a-2')),
+      findsOneWidget,
+    );
+
+    await _scrollDetailPage(tester);
+    await tester.tap(find.byKey(const ValueKey('primary-play-button')));
+    expect(played?.id, lineAEpisodeTwo.id);
+  });
+
+  testWidgets('defaults the primary button to the first available episode',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    PlaybackOption? played;
+
+    await tester.pumpWidget(buildScreen(onPlay: (option) => played = option));
+    await tester.pumpAndSettle();
+
+    expect(find.text('播放'), findsOneWidget);
+    await _scrollDetailPage(tester);
+    await tester.tap(find.byKey(const ValueKey('primary-play-button')));
+    expect(played?.id, lineAEpisode.id);
+  });
   testWidgets('renders formatted HTML description with a collapsible section',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));

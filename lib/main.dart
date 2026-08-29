@@ -369,6 +369,9 @@ class _CineoShellState extends State<CineoShell> {
           favorite: false,
           repository: widget.repository,
           includeAdultHistory: _includeAdultHistory,
+          onLoadWatchHistory: () => widget.repository.watchHistory(
+            includeAdult: _includeAdultHistory,
+          ),
           onLoadMediaDetails: (item) async {
             if (!skipPreferredSource) {
               final preferred = await widget.repository.preferredSourceFor(
@@ -575,11 +578,17 @@ class _CineoShellState extends State<CineoShell> {
     final history = await widget.repository.watchHistory(
       includeAdult: _includeAdultHistory,
     );
+    final mediaHistory = history
+        .where((entry) => entry.mediaId == media.id)
+        .toList(growable: false);
     final episodePositions = <String, Duration>{
-      for (final entry in history)
-        if (entry.mediaId == media.id && entry.episodeId != null)
-          entry.episodeId!: entry.position,
+      for (final entry in mediaHistory)
+        if (entry.episodeId != null) entry.episodeId!: entry.position,
     };
+    final moviePosition = mediaHistory
+        .where((entry) => entry.episodeId == null)
+        .firstOrNull
+        ?.position;
     final lineName = option.quality.trim();
     final lineEpisodes = media.playbackOptions
         .where((candidate) => candidate.quality.trim() == lineName)
@@ -593,7 +602,8 @@ class _CineoShellState extends State<CineoShell> {
           option: option,
           m3u8FilterSettings: widget.m3u8FilterSettings,
           episodes: lineEpisodes,
-          initialPosition: episodePositions[option.id] ?? Duration.zero,
+          initialPosition:
+              episodePositions[option.id] ?? moviePosition ?? Duration.zero,
           initialPositions: episodePositions,
           episodeId: option.id,
           pictureInPictureAvailable: _pictureInPictureAvailable,

@@ -12,6 +12,7 @@ class EpisodeLibraryScreen extends StatelessWidget {
     required this.episodes,
     required this.tmdbSeason,
     required this.fallbackPosterUrl,
+    this.progressByEpisodeId = const <String, WatchProgress>{},
     required this.onPlay,
   });
 
@@ -19,6 +20,7 @@ class EpisodeLibraryScreen extends StatelessWidget {
   final List<Episode> episodes;
   final TmdbSeasonMetadata? tmdbSeason;
   final String fallbackPosterUrl;
+  final Map<String, WatchProgress> progressByEpisodeId;
   final ValueChanged<PlaybackOption> onPlay;
 
   TmdbEpisodeMetadata? _metadataFor(Episode episode) {
@@ -106,6 +108,11 @@ class EpisodeLibraryScreen extends StatelessWidget {
                               title: title,
                               imageUrl: _imageFor(metadata),
                               rating: metadata?.rating ?? 0,
+                              progress: progressByEpisodeId[episode.id] ??
+                                  (episode.playbackOption == null
+                                      ? null
+                                      : progressByEpisodeId[
+                                          episode.playbackOption!.id]),
                               onPlay: episode.playbackOption == null
                                   ? null
                                   : () => onPlay(episode.playbackOption!),
@@ -135,6 +142,7 @@ class _EpisodeTile extends StatelessWidget {
     required this.title,
     required this.imageUrl,
     required this.rating,
+    required this.progress,
     required this.onPlay,
   });
 
@@ -142,6 +150,7 @@ class _EpisodeTile extends StatelessWidget {
   final String title;
   final String imageUrl;
   final double rating;
+  final WatchProgress? progress;
   final VoidCallback? onPlay;
 
   @override
@@ -172,6 +181,19 @@ class _EpisodeTile extends StatelessWidget {
                         borderRadius: BorderRadius.circular(6),
                         placeholderIcon: Icons.live_tv_outlined,
                       ),
+                      if (progress != null)
+                        Positioned(
+                          key: ValueKey('library-progress-${episode.id}'),
+                          left: 0,
+                          right: 0,
+                          bottom: 0,
+                          child: LinearProgressIndicator(
+                            value: progress!.fraction,
+                            minHeight: 4,
+                            backgroundColor: Colors.white24,
+                            color: CineoColors.primary,
+                          ),
+                        ),
                       Positioned(
                         left: 7,
                         top: 7,
