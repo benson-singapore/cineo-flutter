@@ -31,10 +31,10 @@ The product direction and interaction concepts are primarily inspired by [Kately
 The README intentionally shows four representative screenshots:
 
 <div align="center">
-  <img src="docs/pic/IMG_3493.jpg" width="180" alt="Cineo home screen">
-  <img src="docs/pic/IMG_3495.jpg" width="180" alt="Cineo details screen">
-  <img src="docs/pic/IMG_3507.jpg" width="180" alt="Cineo search screen">
-  <img src="docs/pic/IMG_3496.jpg" width="180" alt="Cineo player screen">
+  <img src="docs/pic/app/IMG_3493.jpg" width="180" alt="Cineo home screen">
+  <img src="docs/pic/app/IMG_3495.jpg" width="180" alt="Cineo details screen">
+  <img src="docs/pic/app/IMG_3507.jpg" width="180" alt="Cineo search screen">
+  <img src="docs/pic/app/IMG_3496.jpg" width="180" alt="Cineo player screen">
 </div>
 
 ## Tech stack
