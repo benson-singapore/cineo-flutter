@@ -140,6 +140,7 @@ class _CineoShellState extends State<CineoShell> {
   String? _errorMessage;
   int _selectedIndex = 0;
   int _refreshRevision = 0;
+  int _sourceRevision = 0;
   bool _pictureInPictureAvailable = false;
   bool _showHomeScrollToTop = false;
   bool _showLibraryScrollToTop = false;
@@ -699,17 +700,24 @@ class _CineoShellState extends State<CineoShell> {
   }
 
   Future<void> _openSources() async {
+    var sourceChanged = false;
     await Navigator.of(context).push<void>(
       adaptivePageRoute(
         context,
         builder: (_) => SourceListScreen(
           repository: widget.repository,
           adultSourceSettings: widget.adultSourceSettings,
-          onDefaultSourceChanged: () => _sourceChangedController.add(null),
+          onDefaultSourceChanged: () {
+            sourceChanged = true;
+            _sourceChangedController.add(null);
+          },
         ),
       ),
     );
     await _refresh();
+    if (sourceChanged && mounted) {
+      setState(() => _sourceRevision++);
+    }
   }
 
   Future<void> _openAppLockSettings() async {
@@ -794,6 +802,7 @@ class _CineoShellState extends State<CineoShell> {
         onOpenMediaWithImageAspectRatio: _openLibraryMedia,
         onOpenSearch: () => unawaited(_openSearch()),
         scrollController: _libraryScrollController,
+        sourceRevision: _sourceRevision,
         onScrollToTopVisibilityChanged: (visible) {
           if (mounted && visible != _showLibraryScrollToTop) {
             setState(() => _showLibraryScrollToTop = visible);

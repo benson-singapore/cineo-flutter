@@ -39,6 +39,7 @@ void main() {
     bool libraryMode = false,
     VoidCallback? onOpenSearch,
     List<UnifiedCategory>? categories,
+    int sourceRevision = 0,
   }) {
     return MaterialApp(
       theme: buildCineoTheme(),
@@ -60,6 +61,7 @@ void main() {
         onRemoteSearch: onSearch,
         libraryMode: libraryMode,
         onOpenSearch: onOpenSearch,
+        sourceRevision: sourceRevision,
       ),
     );
   }
@@ -401,6 +403,74 @@ void main() {
 
     expect(find.byTooltip('图片尺寸：1:1'), findsOneWidget);
     expect(find.byTooltip('图片尺寸：3:4'), findsNothing);
+  });
+
+  testWidgets(
+      'reloads the default resource library when the source revision changes',
+      (tester) async {
+    var calls = 0;
+    Widget subject(int revision) => buildSubject(
+          items: const [],
+          libraryMode: true,
+          sourceRevision: revision,
+          onBrowse: (_, page) async {
+            calls++;
+            return PagedMedia(
+              items: [media('刷新资源$calls')],
+              page: page,
+              pageCount: 1,
+              total: 1,
+              limit: 1,
+              hasMore: false,
+            );
+          },
+        );
+
+    await tester.pumpWidget(subject(0));
+    await tester.pumpAndSettle();
+    expect(calls, 1);
+    expect(find.text('刷新资源1'), findsOneWidget);
+
+    await tester.pumpWidget(subject(1));
+    await tester.pumpAndSettle();
+
+    expect(calls, 2);
+    expect(find.text('刷新资源2'), findsOneWidget);
+  });
+
+  testWidgets('resets to the all category when the source revision changes',
+      (tester) async {
+    final browseCalls = <List<String>>[];
+    Widget subject(int revision) => buildSubject(
+          items: const [],
+          libraryMode: true,
+          sourceRevision: revision,
+          onBrowse: (categoryIds, page) async {
+            browseCalls.add(categoryIds);
+            return PagedMedia(
+              items: [media('站点资源${browseCalls.length}')],
+              page: page,
+              pageCount: 1,
+              total: 1,
+              limit: 1,
+              hasMore: false,
+            );
+          },
+        );
+
+    await tester.pumpWidget(subject(0));
+    await tester.pumpAndSettle();
+    expect(browseCalls, [<String>[]]);
+
+    await tester.tap(find.widgetWithText(ChoiceChip, '电影'));
+    await tester.pumpAndSettle();
+    expect(browseCalls.last, ['movie-id']);
+
+    await tester.pumpWidget(subject(1));
+    await tester.pumpAndSettle();
+
+    expect(browseCalls.last, isEmpty);
+    expect(find.text('全部资源库'), findsOneWidget);
   });
 
   testWidgets('shows leaf categories as independently loaded library rails',

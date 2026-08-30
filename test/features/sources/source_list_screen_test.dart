@@ -10,6 +10,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeMediaRepository implements MediaRepository {
+  int setDefaultCalls = 0;
+
   @override
   Future<List<MediaItem>> featured() async => const [];
 
@@ -83,7 +85,9 @@ class _FakeMediaRepository implements MediaRepository {
   Future<MediaSource?> defaultSource() async => null;
 
   @override
-  Future<void> setDefaultSource(String id) async {}
+  Future<void> setDefaultSource(String id) async {
+    setDefaultCalls++;
+  }
 
   @override
   Future<List<SourceGroupConfig>> getSourceGroupConfigs(
@@ -117,6 +121,33 @@ class _FakeMediaRepository implements MediaRepository {
 }
 
 void main() {
+  testWidgets('notifies when a default source is set successfully',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final adultSettings = AdultSourceSettings();
+    await adultSettings.initialize();
+    final repository = _FakeMediaRepository();
+    var notifications = 0;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceListScreen(
+          repository: repository,
+          adultSourceSettings: adultSettings,
+          onDefaultSourceChanged: () => notifications++,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('普通源 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('设为默认'));
+    await tester.pumpAndSettle();
+
+    expect(repository.setDefaultCalls, 1);
+    expect(notifications, 1);
+  });
+
   testWidgets('hides adult sources from every tab when disabled',
       (tester) async {
     SharedPreferences.setMockInitialValues({});

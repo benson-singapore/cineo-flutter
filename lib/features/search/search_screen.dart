@@ -25,6 +25,7 @@ class SearchScreen extends StatefulWidget {
     this.onOpenMediaWithImageAspectRatio,
     this.scrollController,
     this.onScrollToTopVisibilityChanged,
+    this.sourceRevision = 0,
   });
 
   final List<MediaItem> items;
@@ -43,6 +44,7 @@ class SearchScreen extends StatefulWidget {
       onOpenMediaWithImageAspectRatio;
   final ScrollController? scrollController;
   final ValueChanged<bool>? onScrollToTopVisibilityChanged;
+  final int sourceRevision;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -84,6 +86,37 @@ class _SearchScreenState extends State<SearchScreen>
       ..addListener(_updateScrollToTopVisibility);
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (mounted) _loadCurrentBrowse();
+    });
+  }
+
+  @override
+  void didUpdateWidget(covariant SearchScreen oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.libraryMode ||
+        oldWidget.sourceRevision == widget.sourceRevision) {
+      return;
+    }
+    setState(() {
+      _selectedType = UnifiedMediaType.all;
+      _remoteResults = const [];
+      _browseResults = const [];
+      _subcategoryBrowse.clear();
+      _browsePage = 0;
+      _hasMoreBrowse = false;
+      _isBrowsing = false;
+      _isLoadingMore = false;
+      _errorMessage = null;
+      _paginationError = null;
+      _revision++;
+    });
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      final query = _query.trim();
+      if (query.isEmpty) {
+        _loadCurrentBrowse(force: true);
+      } else {
+        _loadSearchPage(1, query, revision: _revision);
+      }
     });
   }
 

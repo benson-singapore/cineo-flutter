@@ -124,6 +124,7 @@ class _SourceListScreenState extends State<SourceListScreen> {
 
     try {
       await widget.repository.setDefaultSource(source.id);
+      widget.onDefaultSourceChanged?.call();
       await _load();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
