@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
@@ -7,9 +8,11 @@ import 'package:sqflite/sqflite.dart';
 import '../../core/demo/demo_content.dart';
 import '../../core/models/home_category_rail.dart';
 import '../../core/models/media.dart';
+import '../../core/models/download_models.dart';
 import '../../core/models/media_source.dart';
 import '../../core/models/paged_media.dart';
 import '../../core/models/source_group_config.dart';
+import '../download/download_directory.dart';
 import '../remote/mac_cms_client.dart';
 import '../remote/media_category_adapter.dart';
 import 'media_repository.dart';
@@ -23,11 +26,15 @@ class LocalMediaRepository implements MediaRepository {
     this.catalog = const <MediaItem>[],
     this.databasePath,
     MacCmsClient? macCmsClient,
-  }) : _macCmsClient = macCmsClient ?? MacCmsClient();
+    DownloadDirectoryProvider? downloadDirectoryProvider,
+  })  : _macCmsClient = macCmsClient ?? MacCmsClient(),
+        _downloadDirectoryProvider =
+            downloadDirectoryProvider ?? DownloadDirectoryProvider();
 
   final List<MediaItem> catalog;
   final String? databasePath;
   final MacCmsClient _macCmsClient;
+  final DownloadDirectoryProvider _downloadDirectoryProvider;
   late final Future<Database> _database = _openDatabase();
 
   static const _builtInRuyiSource = MediaSource(
@@ -44,7 +51,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     final database = await openDatabase(
       resolvedPath,
-      version: 9,
+      version: 11,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -100,6 +107,7 @@ class LocalMediaRepository implements MediaRepository {
         await _createMediaSnapshotsTable(database);
         await _createHomeCategoryCacheTable(database);
         await _createSourceGroupConfigTable(database);
+        await _createDownloadTables(database);
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -152,11 +160,14 @@ class LocalMediaRepository implements MediaRepository {
         if (oldVersion < 9) {
           await _createSourceGroupConfigTable(database);
         }
+        if (oldVersion < 10) await _createDownloadTables(database);
+        if (oldVersion < 11) await _addDownloadPresentationColumns(database);
       },
     );
     // A previous build may have recorded version 9 without creating the
     // table. Re-checking it here repairs that state without touching data.
     await _ensureSourceGroupConfigTable(database);
+    await _ensureDownloadTables(database);
     await _ensureBuiltInSource(database);
     return database;
   }
@@ -1201,6 +1212,226 @@ class LocalMediaRepository implements MediaRepository {
     return results.expand((items) => items).toList(growable: false);
   }
 
+  /// Loads persisted download tasks in queue order.
+  ///
+  /// Passing [mediaId] limits the result to one movie or series. The task key
+  /// is unique in SQLite, so repeated enqueue requests can safely reuse this
+  /// method without creating duplicate rows.
+  Future<List<DownloadTask>> loadDownloadTasks({String? mediaId}) async {
+    final database = await _db;
+    final normalizedMediaId = mediaId?.trim();
+    final rows = await database.query(
+      'download_tasks',
+      where: normalizedMediaId == null || normalizedMediaId.isEmpty
+          ? null
+          : 'media_id = ?',
+      whereArgs: normalizedMediaId == null || normalizedMediaId.isEmpty
+          ? null
+          : [normalizedMediaId],
+      orderBy: 'created_at ASC, task_id ASC',
+    );
+    return rows.map(_downloadTaskFromRow).toList(growable: false);
+  }
+
+  Future<DownloadTask?> loadDownloadTask(String taskId) async {
+    final rows = await (await _db).query(
+      'download_tasks',
+      where: 'task_id = ?',
+      whereArgs: [taskId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : _downloadTaskFromRow(rows.single);
+  }
+
+  /// Saves a task and returns the row that owns its unique task key.
+  ///
+  /// If another task already owns [task.taskKey], that existing task is
+  /// returned and no duplicate row is inserted. Updates to an existing task
+  /// continue to work by using its original [taskId].
+  Future<DownloadTask> saveDownloadTask(DownloadTask task) async {
+    final database = await _db;
+    final existingById = await database.query(
+      'download_tasks',
+      where: 'task_id = ?',
+      whereArgs: [task.taskId],
+      limit: 1,
+    );
+    final existingByKey = await database.query(
+      'download_tasks',
+      where: 'task_key = ?',
+      whereArgs: [task.taskKey],
+      limit: 1,
+    );
+    if (existingByKey.isNotEmpty &&
+        (existingById.isEmpty ||
+            existingByKey.single['task_id'] != task.taskId)) {
+      return _downloadTaskFromRow(existingByKey.single);
+    }
+
+    final row = _downloadTaskToRow(task);
+    if (existingById.isEmpty) {
+      await database.insert('download_tasks', row);
+    } else {
+      await database.update(
+        'download_tasks',
+        row,
+        where: 'task_id = ?',
+        whereArgs: [task.taskId],
+      );
+    }
+    return task;
+  }
+
+  Future<Map<String, List<DownloadTask>>> downloadTaskGroups() async {
+    final tasks = await loadDownloadTasks();
+    final groups = <String, List<DownloadTask>>{};
+    for (final task in tasks) {
+      groups.putIfAbsent(task.mediaId, () => <DownloadTask>[]).add(task);
+    }
+    return groups.map(
+      (mediaId, mediaTasks) => MapEntry(
+        mediaId,
+        List<DownloadTask>.unmodifiable(mediaTasks),
+      ),
+    );
+  }
+
+  /// Replaces the completed segment checkpoint for a task atomically.
+  Future<void> saveDownloadCheckpoint({
+    required String taskId,
+    required Set<int> completedSegments,
+    Map<int, int> segmentBytes = const <int, int>{},
+  }) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      await transaction.delete(
+        'download_segments',
+        where: 'task_id = ?',
+        whereArgs: [taskId],
+      );
+      for (final index in completedSegments.where((value) => value >= 0)) {
+        await transaction.insert('download_segments', {
+          'task_id': taskId,
+          'segment_index': index,
+          'byte_count': segmentBytes[index] ?? 0,
+          'completed_at': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+    });
+  }
+
+  Future<Set<int>> loadDownloadCheckpoint(String taskId) async {
+    final rows = await (await _db).query(
+      'download_segments',
+      columns: ['segment_index'],
+      where: 'task_id = ?',
+      whereArgs: [taskId],
+      orderBy: 'segment_index ASC',
+    );
+    return rows.map((row) => _safeParseInt(row['segment_index'])).toSet();
+  }
+
+  Future<Map<int, int>> loadDownloadSegmentBytes(String taskId) async {
+    final rows = await (await _db).query(
+      'download_segments',
+      columns: ['segment_index', 'byte_count'],
+      where: 'task_id = ?',
+      whereArgs: [taskId],
+    );
+    return {
+      for (final row in rows)
+        _safeParseInt(row['segment_index']): _safeParseInt(row['byte_count']),
+    };
+  }
+
+  Future<void> deleteDownloadCheckpoint(String taskId) async {
+    await (await _db).delete(
+      'download_segments',
+      where: 'task_id = ?',
+      whereArgs: [taskId],
+    );
+  }
+
+  Future<Directory> downloadTaskDirectory(String taskId) {
+    return _downloadDirectoryProvider.taskDirectory(taskId);
+  }
+
+  /// Deletes the persisted task and its private media files.
+  Future<void> deleteDownloadTask(
+    String taskId, {
+    bool deleteFiles = true,
+  }) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      await transaction.delete(
+        'download_segments',
+        where: 'task_id = ?',
+        whereArgs: [taskId],
+      );
+      await transaction.delete(
+        'download_tasks',
+        where: 'task_id = ?',
+        whereArgs: [taskId],
+      );
+    });
+    if (deleteFiles) await clearDownloadFiles(taskId: taskId);
+  }
+
+  Future<void> deleteAllDownloadTasks({bool deleteFiles = true}) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      await transaction.delete('download_segments');
+      await transaction.delete('download_tasks');
+    });
+    if (deleteFiles) await clearDownloadFiles();
+  }
+
+  /// Deletes files below one task directory, or all task directories when no
+  /// task id is supplied. The root itself is retained for future downloads.
+  Future<void> clearDownloadFiles({String? taskId}) async {
+    if (taskId != null) {
+      await _downloadDirectoryProvider.deleteTaskDirectory(taskId);
+      return;
+    }
+    final root = await _downloadDirectoryProvider.root;
+    if (!await root.exists()) return;
+    await for (final entity in root.list(followLinks: false)) {
+      if (entity is Directory) {
+        await entity.delete(recursive: true);
+      } else if (entity is File) {
+        await entity.delete();
+      }
+    }
+  }
+
+  Future<DownloadCacheStats> downloadCacheStats() async {
+    final root = await _downloadDirectoryProvider.root;
+    var totalBytes = 0;
+    var fileCount = 0;
+    if (await root.exists()) {
+      await for (final entity
+          in root.list(recursive: true, followLinks: false)) {
+        final name = path.basename(entity.path);
+        if (entity is File &&
+            !name.endsWith('.json') &&
+            !name.endsWith('.json.tmp') &&
+            !name.endsWith('.tmp')) {
+          totalBytes += await entity.length();
+          fileCount++;
+        }
+      }
+    }
+    final row = (await (await _db).rawQuery(
+      'SELECT COUNT(*) AS count FROM download_tasks',
+    ))
+        .single;
+    return DownloadCacheStats(
+      totalBytes: totalBytes,
+      fileCount: fileCount,
+      taskCount: _safeParseInt(row['count']),
+    );
+  }
+
   Future<void> close() async {
     if (_databaseInitialized) await (await _db).close();
   }
@@ -1255,6 +1486,78 @@ class LocalMediaRepository implements MediaRepository {
         PRIMARY KEY (source_id, category_id)
       )
     ''');
+  }
+
+  Future<void> _createDownloadTables(DatabaseExecutor database) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS download_tasks (
+        task_id TEXT PRIMARY KEY,
+        task_key TEXT NOT NULL UNIQUE,
+        media_id TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        title TEXT,
+        episode_id TEXT,
+        season_number INTEGER,
+        episode_number INTEGER,
+        episode_label TEXT,
+        poster_url TEXT,
+        backdrop_url TEXT,
+        status TEXT NOT NULL,
+        total_segments INTEGER NOT NULL DEFAULT 0,
+        completed_segments INTEGER NOT NULL DEFAULT 0,
+        total_bytes INTEGER NOT NULL DEFAULT 0,
+        downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+        output_path TEXT,
+        error_message TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS download_segments (
+        task_id TEXT NOT NULL,
+        segment_index INTEGER NOT NULL,
+        byte_count INTEGER NOT NULL DEFAULT 0,
+        completed_at INTEGER NOT NULL,
+        PRIMARY KEY (task_id, segment_index)
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX IF NOT EXISTS download_tasks_media_idx
+      ON download_tasks (media_id, created_at)
+    ''');
+    await database.execute('''
+      CREATE INDEX IF NOT EXISTS download_segments_task_idx
+      ON download_segments (task_id, segment_index)
+    ''');
+  }
+
+  Future<void> _ensureDownloadTables(Database database) async {
+    await _createDownloadTables(database);
+    await _addDownloadPresentationColumns(database);
+  }
+
+  Future<void> _addDownloadPresentationColumns(
+      DatabaseExecutor database) async {
+    final columns =
+        await database.rawQuery('PRAGMA table_info(download_tasks)');
+    final existing =
+        columns.map((row) => row['name']).whereType<String>().toSet();
+    if (!existing.contains('season_number')) {
+      await database.execute(
+        'ALTER TABLE download_tasks ADD COLUMN season_number INTEGER',
+      );
+    }
+    if (!existing.contains('poster_url')) {
+      await database.execute(
+        'ALTER TABLE download_tasks ADD COLUMN poster_url TEXT',
+      );
+    }
+    if (!existing.contains('backdrop_url')) {
+      await database.execute(
+        'ALTER TABLE download_tasks ADD COLUMN backdrop_url TEXT',
+      );
+    }
   }
 
   /// Repairs partially-created group tables left by older iOS migrations.
@@ -1367,6 +1670,64 @@ class LocalMediaRepository implements MediaRepository {
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Map<String, Object?> _downloadTaskToRow(DownloadTask task) {
+    return {
+      'task_id': task.taskId,
+      'task_key': task.taskKey,
+      'media_id': task.mediaId,
+      'source_url': task.sourceUrl,
+      'title': task.title,
+      'episode_id': task.episodeId,
+      'season_number': task.seasonNumber,
+      'episode_number': task.episodeNumber,
+      'episode_label': task.episodeLabel,
+      'poster_url': task.posterUrl,
+      'backdrop_url': task.backdropUrl,
+      'status': task.status.wireName,
+      'total_segments': task.totalSegments,
+      'completed_segments': task.completedSegments,
+      'total_bytes': task.totalBytes,
+      'downloaded_bytes': task.downloadedBytes,
+      'output_path': task.outputPath,
+      'error_message': task.errorMessage,
+      'created_at': task.createdAt.toUtc().millisecondsSinceEpoch,
+      'updated_at': task.updatedAt.toUtc().millisecondsSinceEpoch,
+    };
+  }
+
+  DownloadTask _downloadTaskFromRow(Map<String, Object?> row) {
+    return DownloadTask(
+      taskId: _stringValue(row['task_id']),
+      taskKey: _stringValue(row['task_key']),
+      mediaId: _stringValue(row['media_id']),
+      sourceUrl: _stringValue(row['source_url']),
+      title: row['title'] as String?,
+      episodeId: row['episode_id'] as String?,
+      seasonNumber: _safeParseIntNullable(row['season_number']),
+      episodeNumber: _safeParseIntNullable(row['episode_number']),
+      episodeLabel: row['episode_label'] as String?,
+      posterUrl: row['poster_url'] as String?,
+      backdropUrl: row['backdrop_url'] as String?,
+      status: DownloadTaskStatusCodec.fromWireName(
+        _stringValue(row['status']),
+      ),
+      totalSegments: _safeParseInt(row['total_segments']),
+      completedSegments: _safeParseInt(row['completed_segments']),
+      totalBytes: _safeParseInt(row['total_bytes']),
+      downloadedBytes: _safeParseInt(row['downloaded_bytes']),
+      outputPath: row['output_path'] as String?,
+      errorMessage: row['error_message'] as String?,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(
+        _safeParseInt(row['created_at']),
+        isUtc: true,
+      ),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(
+        _safeParseInt(row['updated_at']),
+        isUtc: true,
+      ),
     );
   }
 

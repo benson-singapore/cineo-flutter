@@ -8,6 +8,7 @@ class ProfileScreen extends StatelessWidget {
   const ProfileScreen({
     this.onOpenFavorites,
     this.onOpenHistory,
+    this.onOpenDownloads,
     this.onOpenSources,
     this.onOpenSettings,
     this.onOpenAppLock,
@@ -20,6 +21,7 @@ class ProfileScreen extends StatelessWidget {
 
   final VoidCallback? onOpenFavorites;
   final VoidCallback? onOpenHistory;
+  final VoidCallback? onOpenDownloads;
   final VoidCallback? onOpenSources;
   final VoidCallback? onOpenSettings;
   final VoidCallback? onOpenAppLock;
@@ -63,6 +65,12 @@ class ProfileScreen extends StatelessWidget {
                         color: const Color(0xFF5B82F5),
                         title: '播放历史',
                         onTap: onOpenHistory),
+                    _ProfileTile(
+                        icon: Icons.download_for_offline_outlined,
+                        color: const Color(0xFF2AA889),
+                        title: '缓存下载',
+                        subtitle: '管理已缓存的视频和下载任务',
+                        onTap: onOpenDownloads),
                   ],
                 ),
                 const SizedBox(height: 18),

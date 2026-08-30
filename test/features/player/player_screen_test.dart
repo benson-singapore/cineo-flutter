@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_player/video_player.dart';
 
@@ -117,6 +119,46 @@ void main() {
       expect(playbackFormatHintForOption(hls), VideoFormat.hls);
       expect(playbackFormatHintForOption(proxyResolvedHls), VideoFormat.hls);
       expect(playbackFormatHintForOption(mp4), isNull);
+    });
+
+    test('resolves an existing completed local file', () async {
+      final file =
+          await File('${Directory.systemTemp.path}/cineo-final.ts').create();
+      addTearDown(() async {
+        if (await file.exists()) await file.delete();
+      });
+
+      final resolved = await localPlaybackFileForOption(
+        option('cached', '第1集'),
+        (_) async => file.path,
+      );
+
+      expect(resolved?.path, file.path);
+    });
+
+    test('treats a missing local file as a remote cache miss', () async {
+      final resolved = await localPlaybackFileForOption(
+        option('missing', '第1集'),
+        (_) async => '${Directory.systemTemp.path}/does-not-exist.ts',
+      );
+
+      expect(resolved, isNull);
+    });
+
+    test('accepts a loopback HLS URL as a local playback source', () async {
+      final resolved = await localPlaybackSourceForOption(
+        option('cached', '第1集'),
+        (_) async => 'http://127.0.0.1:12345/task/index.m3u8',
+      );
+
+      expect(resolved, 'http://127.0.0.1:12345/task/index.m3u8');
+    });
+
+    test('does not query local storage when no resolver is supplied', () async {
+      final resolved =
+          await localPlaybackFileForOption(option('remote', '第1集'), null);
+
+      expect(resolved, isNull);
     });
   });
 }

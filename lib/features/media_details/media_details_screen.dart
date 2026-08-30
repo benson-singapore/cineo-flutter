@@ -5,8 +5,11 @@ import '../../core/models/media.dart';
 import '../../core/models/tmdb_media.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../core/text/media_description_formatter.dart';
+import '../../data/download/download_service.dart';
 import '../../shared/widgets/media_image.dart';
+import '../download/download_screen.dart';
 import 'episode_library_screen.dart';
+import '../settings/m3u8_filter_settings.dart';
 
 class MediaDetailsScreen extends StatefulWidget {
   const MediaDetailsScreen({
@@ -29,6 +32,8 @@ class MediaDetailsScreen extends StatefulWidget {
     this.includeAdultHistory = false,
     this.initialWatchHistory = const <WatchProgress>[],
     this.onLoadWatchHistory,
+    this.downloadService,
+    this.m3u8FilterSettings,
     this.imageAspectRatio = 2 / 3,
   });
 
@@ -55,6 +60,8 @@ class MediaDetailsScreen extends StatefulWidget {
   /// Local playback records used to render resume state on this page.
   final List<WatchProgress> initialWatchHistory;
   final Future<List<WatchProgress>> Function()? onLoadWatchHistory;
+  final DownloadService? downloadService;
+  final M3u8FilterSettings? m3u8FilterSettings;
   final double imageAspectRatio;
 
   @override
@@ -872,6 +879,14 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   }
 
   Widget _buildDescriptionActions() {
+    bool isHls(PlaybackOption option) =>
+        option.isHls || option.url.toLowerCase().contains('.m3u8');
+    final canDownload = widget.downloadService != null &&
+        (_media.kind == MediaKind.movie
+            ? _media.playbackOptions.any(isHls)
+            : _activeEpisodes.any((episode) =>
+                episode.playbackOption != null &&
+                isHls(episode.playbackOption!)));
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: [
@@ -881,6 +896,13 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             tooltip: '手动匹配',
             onPressed: _tmdbLoading ? null : _openManualTmdbMatch,
             icon: const Icon(Icons.manage_search_rounded),
+          ),
+        if (canDownload)
+          IconButton(
+            key: const ValueKey('download-button'),
+            tooltip: '缓存下载',
+            onPressed: _openDownloadSheet,
+            icon: const Icon(Icons.download_for_offline_outlined),
           ),
         IconButton(
           tooltip: _favorite ? '取消收藏' : '收藏',
@@ -896,6 +918,18 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
               : Icons.favorite_border_rounded),
         ),
       ],
+    );
+  }
+
+  Future<void> _openDownloadSheet() {
+    final service = widget.downloadService;
+    if (service == null) return Future<void>.value();
+    return showDownloadSheet(
+      context: context,
+      service: service,
+      media: _media,
+      episodes: _media.kind == MediaKind.series ? _activeEpisodes : const [],
+      m3u8FilterConfig: widget.m3u8FilterSettings?.activeConfig,
     );
   }
 }

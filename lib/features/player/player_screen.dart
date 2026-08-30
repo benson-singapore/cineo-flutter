@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart'
@@ -23,6 +24,7 @@ const List<double> supportedPlaybackSpeeds = <double>[
 
 const int _maxPlaybackInitializationAttempts = 3;
 const Duration _playbackRetryDelay = Duration(milliseconds: 500);
+const Duration _playbackInitializationTimeout = Duration(seconds: 12);
 const Duration _controlsHideDelay = Duration(seconds: 3);
 
 /// Formats the elapsed or total playback duration for the player controls.
@@ -69,6 +71,39 @@ List<String> playbackUrlCandidatesForOption(
   return <String>[filteredUrl, option.url];
 }
 
+/// Returns the local file candidate when it points at a usable regular file.
+///
+/// The callback is intentionally kept outside the player and returns a path
+/// rather than a [File], so callers can resolve completed download tasks
+/// without coupling the player to the download service.
+Future<File?> localPlaybackFileForOption(
+  PlaybackOption option,
+  Future<String?> Function(PlaybackOption option)? localSourceForOption,
+) async {
+  if (localSourceForOption == null) return null;
+  final path = (await localSourceForOption(option))?.trim();
+  if (path == null || path.isEmpty) return null;
+  final file = File(path);
+  return await file.exists() ? file : null;
+}
+
+/// Resolves a completed local source that can be either a file path or a
+/// loopback HTTP HLS URL.
+Future<String?> localPlaybackSourceForOption(
+  PlaybackOption option,
+  Future<String?> Function(PlaybackOption option)? localSourceForOption,
+) async {
+  if (localSourceForOption == null) return null;
+  final source = (await localSourceForOption(option))?.trim();
+  if (source == null || source.isEmpty) return null;
+  final uri = Uri.tryParse(source);
+  if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+    return source;
+  }
+  final file = File(source);
+  return await file.exists() ? file.path : null;
+}
+
 VideoFormat? playbackFormatHintForOption(PlaybackOption option) {
   final isM3u8 = option.isHls || option.url.toLowerCase().contains('.m3u8');
   return isM3u8 ? VideoFormat.hls : null;
@@ -92,6 +127,9 @@ class PlayerScreen extends StatefulWidget {
     this.pictureInPictureAvailable = false,
     this.onSearchOtherSources,
     this.onLoadAlternative,
+    this.localSourceForOption,
+    this.onLocalPlaybackError,
+    this.localOnly = false,
   });
 
   final MediaItem media;
@@ -120,6 +158,21 @@ class PlayerScreen extends StatefulWidget {
   final bool pictureInPictureAvailable;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
   final Future<MediaItem?> Function(MediaItem media)? onLoadAlternative;
+
+  /// Resolves a completed local download to its final media file path.
+  ///
+  /// A null/empty/nonexistent path is treated as a cache miss. The player
+  /// never deletes a path returned by this callback.
+  final Future<String?> Function(PlaybackOption option)? localSourceForOption;
+
+  /// Receives local-cache playback failures. Errors are advisory and must not
+  /// remove the completed cache file.
+  final void Function(PlaybackOption option, String path, Object error)?
+      onLocalPlaybackError;
+
+  /// When true, the player must use the resolved local source and never try a
+  /// remote playback URL. This is used by the cache manager's play action.
+  final bool localOnly;
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -224,6 +277,49 @@ class _PlayerScreenState extends State<PlayerScreen>
     _lastIsPlaying = null;
     _error = null;
 
+    final localSource = await _resolveLocalPlaybackSource(option, generation);
+    if (localSource != null) {
+      assert(() {
+        debugPrint('[Cineo][Player] local_source_selected source=$localSource');
+        return true;
+      }());
+      final localUri = Uri.tryParse(localSource);
+      final loadedLocally = localUri != null &&
+              (localUri.scheme == 'http' || localUri.scheme == 'https')
+          ? await _initializeLocalNetworkController(
+              option,
+              localUri,
+              initial: initial,
+              generation: generation,
+            )
+          : await _initializeLocalController(
+              option,
+              File(localSource),
+              initial: initial,
+              generation: generation,
+            );
+      if (loadedLocally) return;
+      if (widget.localOnly) {
+        if (mounted && generation == _loadGeneration) {
+          setState(() => _error = '本地缓存无法播放');
+        }
+        return;
+      }
+    } else {
+      assert(() {
+        debugPrint(widget.localOnly
+            ? '[Cineo][Player] local_source_miss; local-only playback stopped'
+            : '[Cineo][Player] local_source_miss; using remote candidates');
+        return true;
+      }());
+      if (widget.localOnly) {
+        if (mounted && generation == _loadGeneration) {
+          setState(() => _error = '本地缓存不存在');
+        }
+        return;
+      }
+    }
+
     for (var urlIndex = 0; urlIndex < playbackUrls.length; urlIndex++) {
       final playbackUrl = playbackUrls[urlIndex];
       final attempts = urlIndex == 0 && playbackUrls.length > 1
@@ -233,39 +329,24 @@ class _PlayerScreenState extends State<PlayerScreen>
       for (var attempt = 1; attempt <= attempts; attempt++) {
         if (!mounted || generation != _loadGeneration) return;
 
-        final controller = VideoPlayerController.networkUrl(
-          Uri.parse(playbackUrl),
-          formatHint: playbackFormatHintForOption(option),
-          videoPlayerOptions: VideoPlayerOptions(
-            allowBackgroundPlayback: true,
-          ),
-        );
+        final controller = _networkControllerFor(playbackUrl, option);
         _controller = controller;
         if (mounted) setState(() {});
         controller.addListener(_onControllerChanged);
 
         try {
-          await controller.initialize();
+          await controller.initialize().timeout(_playbackInitializationTimeout);
           if (!mounted || generation != _loadGeneration) {
             controller.removeListener(_onControllerChanged);
             await controller.dispose();
             return;
           }
 
-          final requestedPosition = _positionFor(option, initial: initial);
-          if (requestedPosition > Duration.zero) {
-            final maxPosition = controller.value.duration;
-            await controller.seekTo(
-              requestedPosition > maxPosition ? maxPosition : requestedPosition,
-            );
-          }
-          await controller.setPlaybackSpeed(_playbackSpeed);
-          await controller.play();
-          _saveTimer ??=
-              Timer.periodic(const Duration(seconds: 10), (_) => _save());
-          _scheduleControlsHide();
-          _updatePictureInPictureControls();
-          if (mounted) setState(() {});
+          await _finishControllerInitialization(
+            controller,
+            option,
+            initial: initial,
+          );
           return;
         } catch (error) {
           controller.removeListener(_onControllerChanged);
@@ -301,6 +382,155 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (mounted && generation == _loadGeneration) {
       setState(() => _error = '此播放地址暂时无法播放');
     }
+  }
+
+  Future<String?> _resolveLocalPlaybackSource(
+    PlaybackOption option,
+    int generation,
+  ) async {
+    try {
+      final source = await localPlaybackSourceForOption(
+        option,
+        widget.localSourceForOption,
+      );
+      if (!mounted || generation != _loadGeneration) return null;
+      return source;
+    } catch (error) {
+      assert(() {
+        debugPrint('[Cineo][Player] local_source_lookup_failed error=$error');
+        return true;
+      }());
+      return null;
+    }
+  }
+
+  VideoPlayerController _networkControllerFor(
+    String playbackUrl,
+    PlaybackOption option,
+  ) {
+    return VideoPlayerController.networkUrl(
+      Uri.parse(playbackUrl),
+      formatHint: playbackFormatHintForOption(option),
+      videoPlayerOptions: VideoPlayerOptions(
+        allowBackgroundPlayback: true,
+      ),
+    );
+  }
+
+  Future<bool> _initializeLocalController(
+    PlaybackOption option,
+    File file, {
+    required bool initial,
+    required int generation,
+  }) async {
+    final controller = VideoPlayerController.file(
+      file,
+      videoPlayerOptions: VideoPlayerOptions(
+        allowBackgroundPlayback: true,
+      ),
+    );
+    _controller = controller;
+    if (mounted) setState(() {});
+    controller.addListener(_onControllerChanged);
+
+    try {
+      await controller.initialize().timeout(_playbackInitializationTimeout);
+      if (!mounted || generation != _loadGeneration) {
+        controller.removeListener(_onControllerChanged);
+        await controller.dispose();
+        return false;
+      }
+      await _finishControllerInitialization(
+        controller,
+        option,
+        initial: initial,
+      );
+      return true;
+    } catch (error) {
+      controller.removeListener(_onControllerChanged);
+      if (identical(_controller, controller)) _controller = null;
+      await controller.dispose();
+      try {
+        widget.onLocalPlaybackError?.call(option, file.path, error);
+      } catch (_) {
+        // An observer must not prevent remote playback fallback.
+      }
+      assert(() {
+        debugPrint(
+          '[Cineo][Player] local_initialize_failed path=${file.path} '
+          'error=$error',
+        );
+        return true;
+      }());
+      if (mounted && generation == _loadGeneration) setState(() {});
+      return false;
+    }
+  }
+
+  Future<bool> _initializeLocalNetworkController(
+    PlaybackOption option,
+    Uri uri, {
+    required bool initial,
+    required int generation,
+  }) async {
+    final controller = VideoPlayerController.networkUrl(
+      uri,
+      formatHint: VideoFormat.hls,
+      videoPlayerOptions: VideoPlayerOptions(
+        allowBackgroundPlayback: true,
+      ),
+    );
+    _controller = controller;
+    if (mounted) setState(() {});
+    controller.addListener(_onControllerChanged);
+
+    try {
+      await controller.initialize().timeout(_playbackInitializationTimeout);
+      if (!mounted || generation != _loadGeneration) {
+        controller.removeListener(_onControllerChanged);
+        await controller.dispose();
+        return false;
+      }
+      await _finishControllerInitialization(
+        controller,
+        option,
+        initial: initial,
+      );
+      return true;
+    } catch (error) {
+      controller.removeListener(_onControllerChanged);
+      if (identical(_controller, controller)) _controller = null;
+      await controller.dispose();
+      assert(() {
+        debugPrint(
+          '[Cineo][Player] local_hls_initialize_failed url=$uri '
+          'error=$error; falling back to remote',
+        );
+        return true;
+      }());
+      if (mounted && generation == _loadGeneration) setState(() {});
+      return false;
+    }
+  }
+
+  Future<void> _finishControllerInitialization(
+    VideoPlayerController controller,
+    PlaybackOption option, {
+    required bool initial,
+  }) async {
+    final requestedPosition = _positionFor(option, initial: initial);
+    if (requestedPosition > Duration.zero) {
+      final maxPosition = controller.value.duration;
+      await controller.seekTo(
+        requestedPosition > maxPosition ? maxPosition : requestedPosition,
+      );
+    }
+    await controller.setPlaybackSpeed(_playbackSpeed);
+    await controller.play();
+    _saveTimer ??= Timer.periodic(const Duration(seconds: 10), (_) => _save());
+    _scheduleControlsHide();
+    _updatePictureInPictureControls();
+    if (mounted) setState(() {});
   }
 
   void _onControllerChanged() {
