@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cineo_flutter/core/models/media.dart';
 import 'package:cineo_flutter/core/models/tmdb_media.dart';
 import 'package:cineo_flutter/core/theme/cineo_theme.dart';
+import 'package:cineo_flutter/features/media_details/episode_library_screen.dart';
 import 'package:cineo_flutter/features/media_details/media_details_screen.dart';
 
 class _DelayedDetailsRepository {
@@ -367,8 +368,6 @@ void main() {
     await tester.pumpWidget(buildScreen());
     await tester.pumpAndSettle();
 
-    expect(find.text('正序'), findsNothing);
-    expect(find.text('倒序'), findsNothing);
     expect(find.byType(ChoiceChip), findsNothing);
     expect(find.text('查看全部'), findsOneWidget);
   });
@@ -571,6 +570,73 @@ void main() {
     expect(find.text('第1季 · 全部剧集'), findsOneWidget);
     expect(find.byKey(const ValueKey('library-episode-a-1')), findsOneWidget);
     expect(find.textContaining('开端'), findsOneWidget);
+    expect(find.byKey(const ValueKey('episode-sort-toggle')), findsOneWidget);
+    expect(find.text('正序'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('episode-sort-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.text('倒序'), findsOneWidget);
+  });
+
+  testWidgets('can return to the top of the episode library', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final episodes = List<Episode>.generate(
+      10,
+      (index) => Episode(
+        id: 'library-episode-${index + 1}',
+        title: '第${index + 1}集',
+        season: 1,
+        number: index + 1,
+        playbackOption: PlaybackOption(
+          id: 'library-option-${index + 1}',
+          sourceId: 'site-1',
+          label: '第${index + 1}集',
+          url: 'https://example.test/${index + 1}.m3u8',
+          quality: '线路 A',
+          isHls: true,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: EpisodeLibraryScreen(
+        media: buildSeries(),
+        episodes: episodes,
+        tmdbSeason: null,
+        fallbackPosterUrl: '',
+        onPlay: (_) {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final firstEpisodeBefore = tester.getTopLeft(
+      find.byKey(const ValueKey('library-library-episode-1')),
+    );
+    expect(firstEpisodeBefore.dy, greaterThan(0));
+
+    await tester.tap(find.byKey(const ValueKey('episode-sort-toggle')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('library-library-episode-10')),
+      findsOneWidget,
+    );
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('library-library-episode-10')),
+      400,
+      scrollable: find.descendant(
+        of: find.byType(CustomScrollView),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('episode-back-to-top')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('episode-back-to-top')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('episode-back-to-top')), findsNothing);
   });
 
   testWidgets('uses supplied TMDB details without loading them again',

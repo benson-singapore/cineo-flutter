@@ -5,7 +5,7 @@ import '../../core/models/tmdb_media.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../shared/widgets/media_image.dart';
 
-class EpisodeLibraryScreen extends StatelessWidget {
+class EpisodeLibraryScreen extends StatefulWidget {
   const EpisodeLibraryScreen({
     super.key,
     required this.media,
@@ -13,6 +13,7 @@ class EpisodeLibraryScreen extends StatelessWidget {
     required this.tmdbSeason,
     required this.fallbackPosterUrl,
     this.progressByEpisodeId = const <String, WatchProgress>{},
+    this.initialAscending = true,
     required this.onPlay,
   });
 
@@ -21,6 +22,7 @@ class EpisodeLibraryScreen extends StatelessWidget {
   final TmdbSeasonMetadata? tmdbSeason;
   final String fallbackPosterUrl;
   final Map<String, WatchProgress> progressByEpisodeId;
+  final bool initialAscending;
   final ValueChanged<PlaybackOption> onPlay;
 
   TmdbEpisodeMetadata? _metadataFor(Episode episode) {
@@ -41,15 +43,71 @@ class EpisodeLibraryScreen extends StatelessWidget {
   }
 
   @override
+  State<EpisodeLibraryScreen> createState() => _EpisodeLibraryScreenState();
+}
+
+class _EpisodeLibraryScreenState extends State<EpisodeLibraryScreen> {
+  final ScrollController _scrollController = ScrollController();
+  late bool _ascending;
+  bool _showBackToTop = false;
+
+  MediaItem get media => widget.media;
+  List<Episode> get episodes => widget.episodes;
+  TmdbSeasonMetadata? get tmdbSeason => widget.tmdbSeason;
+  String get fallbackPosterUrl => widget.fallbackPosterUrl;
+  Map<String, WatchProgress> get progressByEpisodeId =>
+      widget.progressByEpisodeId;
+  ValueChanged<PlaybackOption> get onPlay => widget.onPlay;
+
+  @override
+  void initState() {
+    super.initState();
+    _ascending = widget.initialAscending;
+    _scrollController.addListener(_handleScroll);
+  }
+
+  @override
+  void dispose() {
+    _scrollController
+      ..removeListener(_handleScroll)
+      ..dispose();
+    super.dispose();
+  }
+
+  void _handleScroll() {
+    final shouldShow =
+        _scrollController.hasClients && _scrollController.offset > 40;
+    if (shouldShow == _showBackToTop || !mounted) return;
+    setState(() => _showBackToTop = shouldShow);
+  }
+
+  void _scrollToTop() {
+    _scrollController.animateTo(
+      0,
+      duration: const Duration(milliseconds: 350),
+      curve: Curves.easeOutCubic,
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final sortedEpisodes = [...episodes]
-      ..sort((left, right) => left.number.compareTo(right.number));
+    final sortedEpisodes = [...episodes]..sort((left, right) => _ascending
+        ? left.number.compareTo(right.number)
+        : right.number.compareTo(left.number));
     final seasonName = tmdbSeason?.seasonNumber == null
         ? '剧集列表'
         : '第${tmdbSeason!.seasonNumber}季 · 全部剧集';
     return Scaffold(
       backgroundColor: CineoColors.background,
       appBar: AppBar(title: Text(seasonName)),
+      floatingActionButton: _showBackToTop
+          ? FloatingActionButton.small(
+              key: const ValueKey('episode-back-to-top'),
+              tooltip: '返回顶部',
+              onPressed: _scrollToTop,
+              child: const Icon(Icons.keyboard_arrow_up_rounded),
+            )
+          : null,
       body: sortedEpisodes.isEmpty
           ? const Center(
               child: Text('当前来源暂无剧集',
@@ -63,6 +121,7 @@ class EpisodeLibraryScreen extends StatelessWidget {
                         ? 3
                         : 2;
                 return CustomScrollView(
+                  controller: _scrollController,
                   slivers: [
                     SliverToBoxAdapter(
                       child: Padding(
@@ -86,8 +145,21 @@ class EpisodeLibraryScreen extends StatelessWidget {
                               ),
                             ),
                             const Spacer(),
-                            const Icon(Icons.swipe_rounded,
-                                size: 16, color: CineoColors.textSecondary),
+                            Tooltip(
+                              message: _ascending ? '切换为倒序' : '切换为正序',
+                              child: TextButton.icon(
+                                key: const ValueKey('episode-sort-toggle'),
+                                onPressed: () =>
+                                    setState(() => _ascending = !_ascending),
+                                icon: Icon(
+                                  _ascending
+                                      ? Icons.south_rounded
+                                      : Icons.north_rounded,
+                                  size: 18,
+                                ),
+                                label: Text(_ascending ? '正序' : '倒序'),
+                              ),
+                            ),
                           ],
                         ),
                       ),
@@ -98,7 +170,7 @@ class EpisodeLibraryScreen extends StatelessWidget {
                         delegate: SliverChildBuilderDelegate(
                           (context, index) {
                             final episode = sortedEpisodes[index];
-                            final metadata = _metadataFor(episode);
+                            final metadata = widget._metadataFor(episode);
                             final title =
                                 metadata?.name.trim().isNotEmpty == true
                                     ? metadata!.name
@@ -106,7 +178,7 @@ class EpisodeLibraryScreen extends StatelessWidget {
                             return _EpisodeTile(
                               episode: episode,
                               title: title,
-                              imageUrl: _imageFor(metadata),
+                              imageUrl: widget._imageFor(metadata),
                               rating: metadata?.rating ?? 0,
                               progress: progressByEpisodeId[episode.id] ??
                                   (episode.playbackOption == null
