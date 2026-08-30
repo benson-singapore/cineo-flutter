@@ -90,6 +90,7 @@ void main() {
     ValueChanged<PlaybackOption>? onPlay,
     String description = '测试简介',
     List<WatchProgress> watchHistory = const [],
+    double imageAspectRatio = 2 / 3,
   }) {
     return MaterialApp(
       theme: buildCineoTheme(),
@@ -99,6 +100,7 @@ void main() {
         initialWatchHistory: watchHistory,
         onFavoriteChanged: (_, __) {},
         onPlay: (_, option) => (onPlay ?? (_) {})(option),
+        imageAspectRatio: imageAspectRatio,
       ),
     );
   }
@@ -139,6 +141,21 @@ void main() {
     expect(played?.id, lineAEpisodeTwo.id);
   });
 
+  testWidgets('uses the configured image aspect ratio for the hero poster',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(buildScreen(imageAspectRatio: 16 / 9));
+    await tester.pumpAndSettle();
+
+    final posterSize = tester.getSize(
+      find.byKey(const ValueKey('detail-poster')),
+    );
+    expect(posterSize.width, 800);
+    expect(posterSize.height, closeTo(450, 0.1));
+  });
+
   testWidgets('defaults the primary button to the first available episode',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
@@ -153,6 +170,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('primary-play-button')));
     expect(played?.id, lineAEpisode.id);
   });
+
   testWidgets('renders formatted HTML description with a collapsible section',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));

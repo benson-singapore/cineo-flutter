@@ -29,6 +29,7 @@ class MediaDetailsScreen extends StatefulWidget {
     this.includeAdultHistory = false,
     this.initialWatchHistory = const <WatchProgress>[],
     this.onLoadWatchHistory,
+    this.imageAspectRatio = 2 / 3,
   });
 
   final MediaItem media;
@@ -54,6 +55,7 @@ class MediaDetailsScreen extends StatefulWidget {
   /// Local playback records used to render resume state on this page.
   final List<WatchProgress> initialWatchHistory;
   final Future<List<WatchProgress>> Function()? onLoadWatchHistory;
+  final double imageAspectRatio;
 
   @override
   State<MediaDetailsScreen> createState() => _MediaDetailsScreenState();
@@ -467,7 +469,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           children: [
             AspectRatio(
               key: const ValueKey('detail-poster'),
-              aspectRatio: 2 / 3,
+              aspectRatio: widget.imageAspectRatio,
               child: MediaImage(
                 url: _displayPoster,
                 fit: BoxFit.cover,
