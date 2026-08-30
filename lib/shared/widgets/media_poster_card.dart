@@ -12,6 +12,7 @@ class MediaPosterCard extends StatefulWidget {
     this.progress,
     this.width = 142,
     this.showDescription = false,
+    this.imageAspectRatio = .69,
   });
 
   final MediaItem media;
@@ -19,6 +20,7 @@ class MediaPosterCard extends StatefulWidget {
   final double width;
   final double? progress;
   final bool showDescription;
+  final double imageAspectRatio;
 
   @override
   State<MediaPosterCard> createState() => _MediaPosterCardState();
@@ -57,7 +59,7 @@ class _MediaPosterCardState extends State<MediaPosterCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 AspectRatio(
-                  aspectRatio: .69,
+                  aspectRatio: widget.imageAspectRatio,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [

@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../core/models/media.dart';
 import '../../core/models/paged_media.dart';
@@ -13,12 +14,14 @@ class CategoryBrowseScreen extends StatefulWidget {
     required this.initialItems,
     required this.onOpenMedia,
     this.onLoad,
+    this.imageAspectRatio,
   });
 
   final String title;
   final List<MediaItem> initialItems;
   final Future<void> Function(MediaItem) onOpenMedia;
   final Future<PagedMedia> Function(int page)? onLoad;
+  final double? imageAspectRatio;
 
   @override
   State<CategoryBrowseScreen> createState() => _CategoryBrowseScreenState();
@@ -198,16 +201,22 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
                                   media: _items[index],
                                   onTap: () =>
                                       widget.onOpenMedia(_items[index]),
+                                  imageAspectRatio:
+                                      widget.imageAspectRatio ?? .69,
                                 ),
                                 childCount: _items.length,
                               ),
-                              gridDelegate:
-                                  const SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 176,
-                                mainAxisSpacing: 18,
-                                crossAxisSpacing: 12,
-                                childAspectRatio: .62,
-                              ),
+                              gridDelegate: widget.imageAspectRatio == null
+                                  ? const SliverGridDelegateWithMaxCrossAxisExtent(
+                                      maxCrossAxisExtent: 176,
+                                      mainAxisSpacing: 18,
+                                      crossAxisSpacing: 12,
+                                      childAspectRatio: .62,
+                                    )
+                                  : BrowseMediaGridDelegate(
+                                      imageAspectRatio:
+                                          widget.imageAspectRatio!,
+                                    ),
                             ),
                           ),
                         if (_loadingMore || _paginationError != null)
@@ -264,6 +273,41 @@ class _CategoryPaginationFooter extends StatelessWidget {
   }
 }
 
+class BrowseMediaGridDelegate extends SliverGridDelegate {
+  const BrowseMediaGridDelegate({required this.imageAspectRatio});
+
+  final double imageAspectRatio;
+
+  @override
+  SliverGridLayout getLayout(SliverConstraints constraints) {
+    const maxCrossAxisExtent = 176.0;
+    const crossAxisSpacing = 12.0;
+    const mainAxisSpacing = 18.0;
+    final crossAxisCount = ((constraints.crossAxisExtent + crossAxisSpacing) /
+            (maxCrossAxisExtent + crossAxisSpacing))
+        .ceil()
+        .clamp(1, 100);
+    final tileWidth = (constraints.crossAxisExtent -
+            crossAxisSpacing * (crossAxisCount - 1)) /
+        crossAxisCount;
+    final imageHeight = tileWidth / imageAspectRatio;
+    final tileHeight = imageHeight + 8 + 20 + 3 + 18;
+    return SliverGridRegularTileLayout(
+      crossAxisCount: crossAxisCount,
+      mainAxisStride: tileHeight + mainAxisSpacing,
+      crossAxisStride: tileWidth + crossAxisSpacing,
+      childMainAxisExtent: tileHeight,
+      childCrossAxisExtent: tileWidth,
+      reverseCrossAxis: axisDirectionIsReversed(constraints.crossAxisDirection),
+    );
+  }
+
+  @override
+  bool shouldRelayout(covariant BrowseMediaGridDelegate oldDelegate) {
+    return oldDelegate.imageAspectRatio != imageAspectRatio;
+  }
+}
+
 class BrowseMediaGrid extends StatelessWidget {
   const BrowseMediaGrid({
     super.key,
@@ -271,12 +315,14 @@ class BrowseMediaGrid extends StatelessWidget {
     required this.onOpenMedia,
     this.emptyTitle = '没有内容',
     this.emptyMessage = '暂时没有可展示的资源',
+    this.imageAspectRatio,
   });
 
   final List<MediaItem> items;
   final Future<void> Function(MediaItem) onOpenMedia;
   final String emptyTitle;
   final String emptyMessage;
+  final double? imageAspectRatio;
 
   @override
   Widget build(BuildContext context) {
@@ -289,16 +335,19 @@ class BrowseMediaGrid extends StatelessWidget {
     }
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 176,
-        mainAxisSpacing: 18,
-        crossAxisSpacing: 12,
-        childAspectRatio: .62,
-      ),
+      gridDelegate: imageAspectRatio == null
+          ? const SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 176,
+              mainAxisSpacing: 18,
+              crossAxisSpacing: 12,
+              childAspectRatio: .62,
+            )
+          : BrowseMediaGridDelegate(imageAspectRatio: imageAspectRatio!),
       itemCount: items.length,
       itemBuilder: (context, index) => BrowseMediaCard(
         media: items[index],
         onTap: () => onOpenMedia(items[index]),
+        imageAspectRatio: imageAspectRatio ?? .69,
       ),
     );
   }
@@ -309,10 +358,12 @@ class BrowseMediaCard extends StatefulWidget {
     super.key,
     required this.media,
     required this.onTap,
+    this.imageAspectRatio = .69,
   });
 
   final MediaItem media;
   final Future<void> Function() onTap;
+  final double imageAspectRatio;
 
   @override
   State<BrowseMediaCard> createState() => _BrowseMediaCardState();

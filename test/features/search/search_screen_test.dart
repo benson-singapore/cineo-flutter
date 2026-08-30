@@ -369,6 +369,40 @@ void main() {
     expect(opened, isTrue);
   });
 
+  testWidgets('library image ratio picker updates the selected size',
+      (tester) async {
+    await tester.pumpWidget(
+      buildSubject(
+        items: const [],
+        libraryMode: true,
+        onBrowse: (_, page) async => PagedMedia(
+          items: [media('比例测试')],
+          page: page,
+          pageCount: 1,
+          total: 1,
+          limit: 1,
+          hasMore: false,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('图片尺寸：3:4'), findsOneWidget);
+    await tester.tap(find.byTooltip('图片尺寸：3:4'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('图片尺寸'), findsOneWidget);
+    for (final label in ['9:16', '3:4', '1:1', '4:3', '16:9']) {
+      expect(find.text(label), findsOneWidget);
+    }
+
+    await tester.tap(find.text('1:1'));
+    await tester.pumpAndSettle();
+
+    expect(find.byTooltip('图片尺寸：1:1'), findsOneWidget);
+    expect(find.byTooltip('图片尺寸：3:4'), findsNothing);
+  });
+
   testWidgets('shows leaf categories as independently loaded library rails',
       (tester) async {
     final calls = <List<String>>[];

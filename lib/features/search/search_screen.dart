@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../core/platform/adaptive_navigation.dart';
 import '../../core/models/media.dart';
@@ -67,6 +68,7 @@ class _SearchScreenState extends State<SearchScreen>
   bool _showScrollToTop = false;
   final Map<String, _SubcategoryBrowseState> _subcategoryBrowse = {};
   late UnifiedMediaType _selectedType;
+  var _libraryImageRatio = _LibraryImageRatio.threeByFour;
 
   @override
   void initState() {
@@ -474,6 +476,45 @@ class _SearchScreenState extends State<SearchScreen>
     _focusNode.requestFocus();
   }
 
+  Future<void> _selectLibraryImageRatio() async {
+    final selected = await showModalBottomSheet<_LibraryImageRatio>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '图片尺寸',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+              ),
+              for (final ratio in _LibraryImageRatio.values)
+                RadioListTile<_LibraryImageRatio>(
+                  title: Text(ratio.label),
+                  value: ratio,
+                  groupValue: _libraryImageRatio,
+                  onChanged: (value) => Navigator.pop(context, value),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null && mounted) {
+      setState(() => _libraryImageRatio = selected);
+    }
+  }
+
   Future<void> _refreshCurrent() {
     final query = _query.trim();
     if (query.isNotEmpty) {
@@ -497,6 +538,11 @@ class _SearchScreenState extends State<SearchScreen>
         title: Text(widget.libraryMode ? '片库' : '搜索'),
         actions: widget.libraryMode
             ? [
+                IconButton(
+                  onPressed: _selectLibraryImageRatio,
+                  tooltip: '图片尺寸：${_libraryImageRatio.label}',
+                  icon: const Icon(Icons.aspect_ratio_rounded),
+                ),
                 IconButton(
                   onPressed: widget.onOpenSearch,
                   tooltip: '搜索',
@@ -676,12 +722,7 @@ class _SearchScreenState extends State<SearchScreen>
               ),
               childCount: browse.length,
             ),
-            gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 176,
-              mainAxisSpacing: 18,
-              crossAxisSpacing: 12,
-              childAspectRatio: .62,
-            ),
+            gridDelegate: _browseGridDelegate,
           ),
         ),
       if (_isLoadingMore || _paginationError != null)
@@ -692,6 +733,20 @@ class _SearchScreenState extends State<SearchScreen>
           onRetry: () => _loadBrowsePage(_browsePage + 1),
         )),
     ];
+  }
+
+  SliverGridDelegate get _browseGridDelegate {
+    if (widget.libraryMode) {
+      return _LibraryGridDelegate(
+        imageAspectRatio: _libraryImageRatio.aspectRatio,
+      );
+    }
+    return const SliverGridDelegateWithMaxCrossAxisExtent(
+      maxCrossAxisExtent: 176,
+      mainAxisSpacing: 18,
+      crossAxisSpacing: 12,
+      childAspectRatio: .62,
+    );
   }
 
   List<Widget> _buildResults(String query) {
@@ -778,6 +833,7 @@ class _SearchScreenState extends State<SearchScreen>
             state: _subcategoryBrowse[_subcategoryKey(subcategory)] ??
                 const _SubcategoryBrowseState(loading: true),
             onOpenMedia: widget.onOpenMedia,
+            imageAspectRatio: _libraryImageRatio.aspectRatio,
             onSeeAll: () => _openSubcategory(subcategory),
             onRetry: () => _loadSubcategoryBrowse(force: true),
           ),
@@ -797,9 +853,59 @@ class _SearchScreenState extends State<SearchScreen>
           onOpenMedia: widget.onOpenMedia,
           onLoad: (page) =>
               _browsePageRequest(category.sourceCategoryIds, page),
+          imageAspectRatio: _libraryImageRatio.aspectRatio,
         ),
       ),
     );
+  }
+}
+
+enum _LibraryImageRatio {
+  nineBySixteen('9:16', 9 / 16),
+  threeByFour('3:4', 3 / 4),
+  oneByOne('1:1', 1),
+  fourByThree('4:3', 4 / 3),
+  sixteenByNine('16:9', 16 / 9);
+
+  const _LibraryImageRatio(this.label, this.aspectRatio);
+
+  final String label;
+  final double aspectRatio;
+}
+
+class _LibraryGridDelegate extends SliverGridDelegate {
+  const _LibraryGridDelegate({required this.imageAspectRatio});
+
+  final double imageAspectRatio;
+
+  @override
+  SliverGridLayout getLayout(SliverConstraints constraints) {
+    const maxCrossAxisExtent = 176.0;
+    const crossAxisSpacing = 12.0;
+    const mainAxisSpacing = 18.0;
+    final crossAxisCount = ((constraints.crossAxisExtent + crossAxisSpacing) /
+            (maxCrossAxisExtent + crossAxisSpacing))
+        .ceil()
+        .clamp(1, 100);
+    final tileWidth = (constraints.crossAxisExtent -
+            crossAxisSpacing * (crossAxisCount - 1)) /
+        crossAxisCount;
+    final imageHeight = tileWidth / imageAspectRatio;
+    // Image plus title, metadata, and their vertical spacing.
+    final tileHeight = imageHeight + 8 + 20 + 3 + 18;
+    return SliverGridRegularTileLayout(
+      crossAxisCount: crossAxisCount,
+      mainAxisStride: tileHeight + mainAxisSpacing,
+      crossAxisStride: tileWidth + crossAxisSpacing,
+      childMainAxisExtent: tileHeight,
+      childCrossAxisExtent: tileWidth,
+      reverseCrossAxis: axisDirectionIsReversed(constraints.crossAxisDirection),
+    );
+  }
+
+  @override
+  bool shouldRelayout(covariant _LibraryGridDelegate oldDelegate) {
+    return oldDelegate.imageAspectRatio != imageAspectRatio;
   }
 }
 
@@ -820,6 +926,7 @@ class _SubcategoryRail extends StatelessWidget {
     required this.category,
     required this.state,
     required this.onOpenMedia,
+    required this.imageAspectRatio,
     required this.onSeeAll,
     required this.onRetry,
   });
@@ -827,12 +934,14 @@ class _SubcategoryRail extends StatelessWidget {
   final UnifiedSubcategory category;
   final _SubcategoryBrowseState state;
   final Future<void> Function(MediaItem) onOpenMedia;
+  final double imageAspectRatio;
   final VoidCallback onSeeAll;
   final VoidCallback onRetry;
 
   @override
   Widget build(BuildContext context) {
     final items = state.items;
+    final railImageHeight = 142 / imageAspectRatio;
     return Padding(
       padding: const EdgeInsets.only(top: 18),
       child: Column(
@@ -888,7 +997,7 @@ class _SubcategoryRail extends StatelessWidget {
             )
           else
             SizedBox(
-              height: 268,
+              height: railImageHeight + 10 + 24 + 4 + 18 + 2,
               child: Stack(
                 children: [
                   ListView.separated(
@@ -899,6 +1008,7 @@ class _SubcategoryRail extends StatelessWidget {
                     itemBuilder: (_, index) => MediaPosterCard(
                       media: items[index],
                       onTap: () => onOpenMedia(items[index]),
+                      imageAspectRatio: imageAspectRatio,
                     ),
                   ),
                   if (state.loading)
