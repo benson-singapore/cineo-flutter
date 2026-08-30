@@ -346,10 +346,15 @@ class _CineoShellState extends State<CineoShell> {
     await _refresh();
   }
 
+  Future<void> _openLibraryMedia(MediaItem media, double imageAspectRatio) {
+    return _openMedia(media, imageAspectRatio: imageAspectRatio);
+  }
+
   Future<void> _openMedia(
     MediaItem media, {
     MediaItem? preferenceAnchor,
     bool skipPreferredSource = false,
+    double? imageAspectRatio,
   }) async {
     final anchor = preferenceAnchor ?? media;
 
@@ -369,6 +374,7 @@ class _CineoShellState extends State<CineoShell> {
           favorite: false,
           repository: widget.repository,
           includeAdultHistory: _includeAdultHistory,
+          imageAspectRatio: imageAspectRatio ?? 2 / 3,
           onLoadWatchHistory: () => widget.repository.watchHistory(
             includeAdult: _includeAdultHistory,
           ),
@@ -785,6 +791,7 @@ class _CineoShellState extends State<CineoShell> {
           page: page,
         ),
         libraryMode: true,
+        onOpenMediaWithImageAspectRatio: _openLibraryMedia,
         onOpenSearch: () => unawaited(_openSearch()),
         scrollController: _libraryScrollController,
         onScrollToTopVisibilityChanged: (visible) {

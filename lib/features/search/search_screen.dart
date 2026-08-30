@@ -22,6 +22,7 @@ class SearchScreen extends StatefulWidget {
     this.initialCategory,
     this.libraryMode = false,
     this.onOpenSearch,
+    this.onOpenMediaWithImageAspectRatio,
     this.scrollController,
     this.onScrollToTopVisibilityChanged,
   });
@@ -38,6 +39,8 @@ class SearchScreen extends StatefulWidget {
   final UnifiedCategory? initialCategory;
   final bool libraryMode;
   final VoidCallback? onOpenSearch;
+  final Future<void> Function(MediaItem media, double imageAspectRatio)?
+      onOpenMediaWithImageAspectRatio;
   final ScrollController? scrollController;
   final ValueChanged<bool>? onScrollToTopVisibilityChanged;
 
@@ -190,6 +193,14 @@ class _SearchScreenState extends State<SearchScreen>
     }
     return !RegExp(r'综艺|真人秀|variety|show|动漫|动画|番剧|cartoon|anime')
         .hasMatch(text);
+  }
+
+  Future<void> _openMedia(MediaItem media) {
+    final callback = widget.onOpenMediaWithImageAspectRatio;
+    if (widget.libraryMode && callback != null) {
+      return callback(media, _libraryImageRatio.aspectRatio);
+    }
+    return widget.onOpenMedia(media);
   }
 
   Future<PagedMedia> _browsePageRequest(
@@ -718,7 +729,7 @@ class _SearchScreenState extends State<SearchScreen>
             delegate: SliverChildBuilderDelegate(
               (context, index) => BrowseMediaCard(
                 media: browse[index],
-                onTap: () => widget.onOpenMedia(browse[index]),
+                onTap: () => _openMedia(browse[index]),
               ),
               childCount: browse.length,
             ),
@@ -798,7 +809,7 @@ class _SearchScreenState extends State<SearchScreen>
           separatorBuilder: (_, __) => const SizedBox(height: 12),
           itemBuilder: (_, index) => _SearchResultTile(
             media: results[index],
-            onTap: () => widget.onOpenMedia(results[index]),
+            onTap: () => _openMedia(results[index]),
           ),
         ),
       ),
@@ -832,7 +843,7 @@ class _SearchScreenState extends State<SearchScreen>
             category: subcategory,
             state: _subcategoryBrowse[_subcategoryKey(subcategory)] ??
                 const _SubcategoryBrowseState(loading: true),
-            onOpenMedia: widget.onOpenMedia,
+            onOpenMedia: _openMedia,
             imageAspectRatio: _libraryImageRatio.aspectRatio,
             onSeeAll: () => _openSubcategory(subcategory),
             onRetry: () => _loadSubcategoryBrowse(force: true),
