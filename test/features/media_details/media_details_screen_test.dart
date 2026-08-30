@@ -6,6 +6,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:cineo_flutter/core/models/media.dart';
 import 'package:cineo_flutter/core/models/tmdb_media.dart';
 import 'package:cineo_flutter/core/theme/cineo_theme.dart';
+import 'package:cineo_flutter/data/download/download_service.dart';
 import 'package:cineo_flutter/features/media_details/episode_library_screen.dart';
 import 'package:cineo_flutter/features/media_details/media_details_screen.dart';
 
@@ -92,6 +93,7 @@ void main() {
     String description = '测试简介',
     List<WatchProgress> watchHistory = const [],
     double imageAspectRatio = 2 / 3,
+    DownloadService? downloadService,
   }) {
     return MaterialApp(
       theme: buildCineoTheme(),
@@ -102,6 +104,7 @@ void main() {
         onFavoriteChanged: (_, __) {},
         onPlay: (_, option) => (onPlay ?? (_) {})(option),
         imageAspectRatio: imageAspectRatio,
+        downloadService: downloadService,
       ),
     );
   }
@@ -140,6 +143,69 @@ void main() {
     await _scrollDetailPage(tester);
     await tester.tap(find.byKey(const ValueKey('primary-play-button')));
     expect(played?.id, lineAEpisodeTwo.id);
+  });
+
+  testWidgets('shows the download button for HLS episodes and opens the sheet',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final service = DownloadService();
+
+    await tester.pumpWidget(buildScreen(downloadService: service));
+    await tester.pump(const Duration(milliseconds: 100));
+    await _scrollDetailPageWithPump(tester);
+
+    expect(find.byKey(const ValueKey('download-button')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('download-button'))).dx,
+      lessThan(tester.getTopLeft(find.byTooltip('收藏')).dx),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('download-button')));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('缓存下载'), findsOneWidget);
+    expect(find.text('全部加入'), findsOneWidget);
+    expect(find.textContaining('第 1 集'), findsWidgets);
+  });
+
+  testWidgets('hides the download button when all playback options are MP4',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    const mp4Episode = Episode(
+      id: 'episode-mp4',
+      title: '正片',
+      season: 1,
+      number: 1,
+      playbackOption: lineBEpisode,
+    );
+    final mp4Media = buildSeries().copyWith(
+      playbackOptions: const [lineBEpisode],
+      episodes: [mp4Episode],
+    );
+
+    final service = DownloadService();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildCineoTheme(),
+        home: MediaDetailsScreen(
+          media: mp4Media,
+          favorite: false,
+          onFavoriteChanged: (_, __) {},
+          onPlay: (_, __) {},
+          downloadService: service,
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await _scrollDetailPageWithPump(tester);
+
+    expect(find.byKey(const ValueKey('download-button')), findsNothing);
+    expect(find.byTooltip('收藏'), findsOneWidget);
   });
 
   testWidgets('uses the configured image aspect ratio for the hero poster',
@@ -873,4 +939,12 @@ Future<void> _scrollDetailPage(WidgetTester tester) async {
     const Offset(0, -900),
   );
   await tester.pumpAndSettle();
+}
+
+Future<void> _scrollDetailPageWithPump(WidgetTester tester) async {
+  await tester.drag(
+    find.byType(CustomScrollView),
+    const Offset(0, -900),
+  );
+  await tester.pump(const Duration(milliseconds: 100));
 }

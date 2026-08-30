@@ -39,6 +39,18 @@ String formatPlaybackDuration(Duration duration) {
   return '$minutes:${seconds.toString().padLeft(2, '0')}';
 }
 
+/// Applies a relative seek while keeping the target inside the video range.
+Duration seekPositionBy({
+  required Duration position,
+  required Duration offset,
+  required Duration duration,
+}) {
+  final target = position + offset;
+  if (target < Duration.zero) return Duration.zero;
+  if (duration > Duration.zero && target > duration) return duration;
+  return target;
+}
+
 String episodeDisplayLabel(PlaybackOption option) {
   final match = RegExp(r'第\s*(\d+)\s*集').firstMatch(option.label);
   final episodeNumber = int.tryParse(match?.group(1) ?? '');
@@ -710,6 +722,20 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  Future<void> _seekBy(Duration offset) async {
+    final controller = _initializedController;
+    if (controller == null) return;
+    final value = controller.value;
+    await controller.seekTo(
+      seekPositionBy(
+        position: value.position,
+        offset: offset,
+        duration: value.duration,
+      ),
+    );
+    _showControls();
+  }
+
   Future<void> _setPlaybackSpeed(double speed) async {
     _playbackSpeed = speed;
     final controller = _initializedController;
@@ -1002,6 +1028,12 @@ class _PlayerScreenState extends State<PlayerScreen>
                             widget.onPictureInPicture != null,
                     onClose: () => Navigator.pop(context),
                     onPlayPause: _togglePlayPause,
+                    onRewind: () => unawaited(
+                      _seekBy(const Duration(seconds: -10)),
+                    ),
+                    onForward: () => unawaited(
+                      _seekBy(const Duration(seconds: 10)),
+                    ),
                     onPrevious: () => _selectRelativeEpisode(-1),
                     onNext: () => _selectRelativeEpisode(1),
                     onSpeedChanged: _setPlaybackSpeed,
@@ -1396,6 +1428,8 @@ class _PlayerControls extends StatelessWidget {
     required this.pictureInPictureAvailable,
     required this.onClose,
     required this.onPlayPause,
+    required this.onRewind,
+    required this.onForward,
     required this.onPrevious,
     required this.onNext,
     required this.onSpeedChanged,
@@ -1421,6 +1455,8 @@ class _PlayerControls extends StatelessWidget {
   final bool pictureInPictureAvailable;
   final VoidCallback onClose;
   final VoidCallback onPlayPause;
+  final VoidCallback onRewind;
+  final VoidCallback onForward;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final ValueChanged<double> onSpeedChanged;
@@ -1515,6 +1551,11 @@ class _PlayerControls extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            _PlayerSeekButton(
+                              tooltip: '快退 10 秒',
+                              icon: Icons.replay_10_rounded,
+                              onPressed: onRewind,
+                            ),
                             IconButton(
                               tooltip: '上一集',
                               onPressed: canGoPrevious ? onPrevious : null,
@@ -1535,6 +1576,11 @@ class _PlayerControls extends StatelessWidget {
                               tooltip: '下一集',
                               onPressed: canGoNext ? onNext : null,
                               icon: const Icon(Icons.skip_next_rounded),
+                            ),
+                            _PlayerSeekButton(
+                              tooltip: '快进 10 秒',
+                              icon: Icons.forward_10_rounded,
+                              onPressed: onForward,
                             ),
                           ],
                         ),
@@ -1613,6 +1659,38 @@ class _PlayerControls extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerSeekButton extends StatelessWidget {
+  const _PlayerSeekButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.white.withOpacity(.1),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Icon(icon, size: 24),
           ),
         ),
       ),

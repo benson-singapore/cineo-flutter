@@ -49,6 +49,36 @@ void main() {
         '1:02:03',
       );
     });
+
+    test('keeps ten-second seeks inside the video duration', () {
+      const duration = Duration(minutes: 2);
+
+      expect(
+        seekPositionBy(
+          position: const Duration(seconds: 5),
+          offset: const Duration(seconds: -10),
+          duration: duration,
+        ),
+        Duration.zero,
+      );
+      expect(
+        seekPositionBy(
+          position: const Duration(seconds: 20),
+          offset: const Duration(seconds: -10),
+          duration: duration,
+        ),
+        const Duration(seconds: 10),
+      );
+      expect(
+        seekPositionBy(
+          position: const Duration(seconds: 115),
+          offset: const Duration(seconds: 10),
+          duration: duration,
+        ),
+        duration,
+      );
+    });
+
     test('normalizes source-prefixed episode labels', () {
       expect(episodeDisplayLabel(option('1', 'rym3u8 · 第01集')), '第1集');
       expect(episodeDisplayLabel(option('2', '特别篇')), '特别篇');
