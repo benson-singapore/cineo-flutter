@@ -727,6 +727,8 @@ void main() {
     expect(find.text('测试剧集'), findsOneWidget);
     expect(find.text('测试简介'), findsOneWidget);
     expect(find.text('查看全部'), findsOneWidget);
+    expect(find.text('8.0 分'), findsNothing);
+    expect(find.text('40 分钟'), findsNothing);
   });
 
   testWidgets('manually searches and applies a TMDB match', (tester) async {

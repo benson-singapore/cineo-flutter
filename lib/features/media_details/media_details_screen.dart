@@ -147,19 +147,12 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     return source.isNotEmpty ? source : _displayBackdrop;
   }
 
-  double get _displayRating =>
-      (_tmdbDetails?.rating ?? 0) > 0 ? _tmdbDetails!.rating : _media.rating;
+  double? get _displayRating {
+    final rating = _tmdbDetails?.rating;
+    return rating != null && rating > 0 ? rating : null;
+  }
 
   int get _displayYear => _tmdbDetails?.year ?? _media.year;
-
-  String? get _displayRuntime {
-    final minutes = _tmdbDetails?.runtime;
-    if ((minutes ?? 0) > 0) return '$minutes 分钟';
-    if (_media.duration.inMinutes > 0) {
-      return '${_media.duration.inMinutes} 分钟';
-    }
-    return null;
-  }
 
   List<int> get _availableSeasons {
     final values = <int>{..._sourceSeasons};
@@ -482,7 +475,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                 child: Align(
                   alignment: Alignment.topLeft,
                   child: Padding(
-                    padding: const EdgeInsets.only(left: 12, top: 12),
+                    padding: const EdgeInsets.only(left: 12, top: 4),
                     child: IconButton(
                       tooltip: '返回',
                       color: Colors.white,
@@ -524,10 +517,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             runSpacing: 8,
             crossAxisAlignment: WrapCrossAlignment.center,
             children: [
-              if (_displayRating > 0)
+              if (_displayRating != null)
                 _InfoBadge(
                   icon: Icons.star_rounded,
-                  label: '${_displayRating.toStringAsFixed(1)} 分',
+                  label: '${_displayRating!.toStringAsFixed(1)} 分',
                   color: CineoColors.primary,
                 ),
               if (_displayYear > 0)
@@ -541,20 +534,13 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                     : Icons.movie_outlined,
                 label: media.kind == MediaKind.series ? '剧集' : '电影',
               ),
-              if (_displayRuntime != null)
+              if (media.category?.trim().isNotEmpty == true)
                 _InfoBadge(
-                  icon: Icons.schedule_rounded,
-                  label: _displayRuntime!,
+                  icon: Icons.category_outlined,
+                  label: media.category!.trim(),
                 ),
             ],
           ),
-        ),
-        const SizedBox(height: 14),
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children:
-              media.genres.map((genre) => Chip(label: Text(genre))).toList(),
         ),
         if (_primaryPlaybackOption != null) ...[
           const SizedBox(height: 18),
