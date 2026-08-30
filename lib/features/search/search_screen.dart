@@ -861,7 +861,7 @@ class _SearchScreenState extends State<SearchScreen>
         builder: (_) => CategoryBrowseScreen(
           title: category.name,
           initialItems: state?.items ?? const [],
-          onOpenMedia: widget.onOpenMedia,
+          onOpenMedia: _openMedia,
           onLoad: (page) =>
               _browsePageRequest(category.sourceCategoryIds, page),
           imageAspectRatio: _libraryImageRatio.aspectRatio,
