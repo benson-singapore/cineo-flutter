@@ -1278,137 +1278,136 @@ class _AppPictureInPictureSurface extends StatelessWidget {
           MediaQuery.paddingOf(context).top + 12,
         );
 
-    return Material(
-      color: Colors.transparent,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Positioned(
-            left: windowOffset.dx,
-            top: windowOffset.dy,
-            width: windowSize.width,
-            height: windowSize.height,
-            child: Material(
-              color: Colors.black,
-              elevation: 14,
-              borderRadius: BorderRadius.circular(12),
-              clipBehavior: Clip.antiAlias,
-              child: GestureDetector(
-                behavior: HitTestBehavior.opaque,
-                onTap: onToggleControls,
-                onDoubleTap: onDoubleTap,
-                onScaleStart: onScaleStart,
-                onScaleUpdate: onScaleUpdate,
-                child: Stack(
-                  fit: StackFit.expand,
-                  children: [
-                    Center(
-                      child: AspectRatio(
-                        aspectRatio: aspectRatio,
-                        child: VideoPlayer(controller),
-                      ),
+    // Keep the route's transparent area out of hit testing so taps can reach
+    // the page underneath the in-app picture-in-picture window.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned(
+          left: windowOffset.dx,
+          top: windowOffset.dy,
+          width: windowSize.width,
+          height: windowSize.height,
+          child: Material(
+            color: Colors.black,
+            elevation: 14,
+            borderRadius: BorderRadius.circular(12),
+            clipBehavior: Clip.antiAlias,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onToggleControls,
+              onDoubleTap: onDoubleTap,
+              onScaleStart: onScaleStart,
+              onScaleUpdate: onScaleUpdate,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Center(
+                    child: AspectRatio(
+                      aspectRatio: aspectRatio,
+                      child: VideoPlayer(controller),
                     ),
-                    AnimatedOpacity(
-                      duration: const Duration(milliseconds: 160),
-                      opacity: controlsVisible ? 1 : 0,
-                      child: IgnorePointer(
-                        ignoring: !controlsVisible,
-                        child: DecoratedBox(
-                          decoration: const BoxDecoration(
-                            gradient: LinearGradient(
-                              begin: Alignment.topCenter,
-                              end: Alignment.bottomCenter,
-                              colors: [
-                                Colors.black87,
-                                Colors.transparent,
-                                Colors.black87,
-                              ],
-                              stops: [0, .45, 1],
-                            ),
+                  ),
+                  AnimatedOpacity(
+                    duration: const Duration(milliseconds: 160),
+                    opacity: controlsVisible ? 1 : 0,
+                    child: IgnorePointer(
+                      ignoring: !controlsVisible,
+                      child: DecoratedBox(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black87,
+                              Colors.transparent,
+                              Colors.black87,
+                            ],
+                            stops: [0, .45, 1],
                           ),
-                          child: Column(
-                            children: [
-                              Padding(
-                                padding: const EdgeInsets.fromLTRB(4, 2, 2, 0),
-                                child: Row(
-                                  children: [
-                                    Expanded(
-                                      child: Text(
-                                        title,
-                                        maxLines: 1,
-                                        overflow: TextOverflow.ellipsis,
-                                        style: const TextStyle(
-                                          color: Colors.white,
-                                          fontSize: 12,
-                                          fontWeight: FontWeight.w700,
-                                        ),
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip: '回到播放页面',
-                                      visualDensity: VisualDensity.compact,
-                                      color: Colors.white,
-                                      onPressed: onReturnToPlayer,
-                                      icon: const Icon(
-                                        Icons.open_in_full_rounded,
-                                        size: 18,
-                                      ),
-                                    ),
-                                    IconButton(
-                                      tooltip: '关闭悬浮播放',
-                                      visualDensity: VisualDensity.compact,
-                                      color: Colors.white,
-                                      onPressed: onClose,
-                                      icon: const Icon(
-                                        Icons.close_rounded,
-                                        size: 19,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                              ),
-                              const Spacer(),
-                              Row(
-                                mainAxisAlignment: MainAxisAlignment.center,
+                        ),
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(4, 2, 2, 0),
+                              child: Row(
                                 children: [
-                                  IconButton(
-                                    tooltip: '快退 10 秒',
-                                    color: Colors.white,
-                                    onPressed: onRewind,
-                                    icon: const Icon(Icons.replay_10_rounded),
-                                  ),
-                                  IconButton(
-                                    tooltip: value.isPlaying ? '暂停' : '播放',
-                                    color: CineoColors.primary,
-                                    iconSize: 34,
-                                    onPressed: onPlayPause,
-                                    icon: Icon(
-                                      value.isPlaying
-                                          ? Icons.pause_circle_filled_rounded
-                                          : Icons.play_circle_fill_rounded,
+                                  Expanded(
+                                    child: Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
                                     ),
                                   ),
                                   IconButton(
-                                    tooltip: '快进 10 秒',
+                                    tooltip: '回到播放页面',
+                                    visualDensity: VisualDensity.compact,
                                     color: Colors.white,
-                                    onPressed: onForward,
-                                    icon: const Icon(Icons.forward_10_rounded),
+                                    onPressed: onReturnToPlayer,
+                                    icon: const Icon(
+                                      Icons.open_in_full_rounded,
+                                      size: 18,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: '关闭悬浮播放',
+                                    visualDensity: VisualDensity.compact,
+                                    color: Colors.white,
+                                    onPressed: onClose,
+                                    icon: const Icon(
+                                      Icons.close_rounded,
+                                      size: 19,
+                                    ),
                                   ),
                                 ],
                               ),
-                              const SizedBox(height: 4),
-                            ],
-                          ),
+                            ),
+                            const Spacer(),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                IconButton(
+                                  tooltip: '快退 10 秒',
+                                  color: Colors.white,
+                                  onPressed: onRewind,
+                                  icon: const Icon(Icons.replay_10_rounded),
+                                ),
+                                IconButton(
+                                  tooltip: value.isPlaying ? '暂停' : '播放',
+                                  color: CineoColors.primary,
+                                  iconSize: 34,
+                                  onPressed: onPlayPause,
+                                  icon: Icon(
+                                    value.isPlaying
+                                        ? Icons.pause_circle_filled_rounded
+                                        : Icons.play_circle_fill_rounded,
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: '快进 10 秒',
+                                  color: Colors.white,
+                                  onPressed: onForward,
+                                  icon: const Icon(Icons.forward_10_rounded),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                          ],
                         ),
                       ),
                     ),
-                  ],
-                ),
+                  ),
+                ],
               ),
             ),
           ),
-        ],
-      ),
+        ),
+      ],
     );
   }
 }
