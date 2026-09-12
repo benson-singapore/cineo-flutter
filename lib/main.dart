@@ -652,6 +652,8 @@ class _CineoShellState extends State<CineoShell> {
             widget.repository.saveProgress(progress, media: playingMedia),
           ),
           onSearchOtherSources: widget.repository.searchOtherSources,
+          onSearchOtherSourcesProgressively:
+              widget.repository.searchOtherSourcesProgressively,
           onLoadAlternative: (alternative) async {
             await widget.repository.savePreferredSource(media, alternative);
             return _resolveMediaDetails(alternative);

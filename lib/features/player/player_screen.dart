@@ -9,6 +9,7 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/models/media.dart';
+import '../../core/models/source_search_progress.dart';
 import '../../core/platform/picture_in_picture.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../settings/m3u8_filter_settings.dart';
@@ -138,6 +139,7 @@ class PlayerScreen extends StatefulWidget {
     this.onPictureInPicture,
     this.pictureInPictureAvailable = false,
     this.onSearchOtherSources,
+    this.onSearchOtherSourcesProgressively,
     this.onLoadAlternative,
     this.localSourceForOption,
     this.onLocalPlaybackError,
@@ -169,6 +171,8 @@ class PlayerScreen extends StatefulWidget {
       onPictureInPicture;
   final bool pictureInPictureAvailable;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
+  final Stream<SourceSearchProgress> Function(MediaItem media)?
+      onSearchOtherSourcesProgressively;
   final Future<MediaItem?> Function(MediaItem media)? onLoadAlternative;
 
   /// Resolves a completed local download to its final media file path.
@@ -806,19 +810,22 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _openSourcePanel() async {
     final finder = widget.onSearchOtherSources;
+    final progressiveFinder = widget.onSearchOtherSourcesProgressively;
     final loader = widget.onLoadAlternative;
-    if (finder == null || loader == null || _searchingOtherSources) return;
+    if ((finder == null && progressiveFinder == null) ||
+        loader == null ||
+        _searchingOtherSources) return;
     setState(() => _searchingOtherSources = true);
     try {
-      final matches = await finder(_media);
-      if (!mounted) return;
       final selected = await showModalBottomSheet<MediaItem>(
         context: context,
         showDragHandle: true,
         isScrollControlled: true,
         backgroundColor: CineoColors.surface,
         builder: (context) => _PlayerSourceSheet(
-          matches: <MediaItem>[_media, ...matches],
+          currentMedia: _media,
+          onSearch: finder,
+          onSearchProgressively: progressiveFinder,
           activeSourceId: _media.sourceId,
         ),
       );
@@ -1199,7 +1206,8 @@ class _PlayerScreenState extends State<PlayerScreen>
                     onNext: () => _selectRelativeEpisode(1),
                     onSpeedChanged: _setPlaybackSpeed,
                     onOpenEpisodes: _openEpisodePanel,
-                    canSwitchSource: widget.onSearchOtherSources != null &&
+                    canSwitchSource: (widget.onSearchOtherSources != null ||
+                            widget.onSearchOtherSourcesProgressively != null) &&
                         widget.onLoadAlternative != null,
                     isSwitchingSource: _searchingOtherSources,
                     onOpenSource: _openSourcePanel,
@@ -1420,30 +1428,99 @@ class _EpisodeBottomSheet extends StatefulWidget {
   State<_EpisodeBottomSheet> createState() => _EpisodeBottomSheetState();
 }
 
-class _PlayerSourceSheet extends StatelessWidget {
+class _PlayerSourceSheet extends StatefulWidget {
   const _PlayerSourceSheet({
-    required this.matches,
+    required this.currentMedia,
+    this.onSearch,
+    this.onSearchProgressively,
     required this.activeSourceId,
   });
 
-  final List<MediaItem> matches;
+  final MediaItem currentMedia;
+  final Future<List<MediaItem>> Function(MediaItem media)? onSearch;
+  final Stream<SourceSearchProgress> Function(MediaItem media)?
+      onSearchProgressively;
   final String? activeSourceId;
+
+  @override
+  State<_PlayerSourceSheet> createState() => _PlayerSourceSheetState();
+}
+
+class _PlayerSourceSheetState extends State<_PlayerSourceSheet> {
+  late final List<MediaItem> _matches = <MediaItem>[widget.currentMedia];
+  StreamSubscription<SourceSearchProgress>? _subscription;
+  int _searched = 0;
+  int _total = 0;
+  bool _loading = true;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final progressiveFinder = widget.onSearchProgressively;
+    if (progressiveFinder != null) {
+      _subscription = progressiveFinder(widget.currentMedia).listen(
+        _applyProgress,
+        onError: (_) => _finish(failed: true),
+        onDone: _finish,
+      );
+    } else {
+      _loadLegacyResults();
+    }
+  }
+
+  Future<void> _loadLegacyResults() async {
+    try {
+      final matches = await widget.onSearch!(widget.currentMedia);
+      if (!mounted) return;
+      setState(() {
+        _matches.addAll(matches);
+        _loading = false;
+      });
+    } catch (_) {
+      _finish(failed: true);
+    }
+  }
+
+  void _applyProgress(SourceSearchProgress progress) {
+    if (!mounted) return;
+    setState(() {
+      _searched = progress.searched;
+      _total = progress.total;
+      _matches.addAll(progress.matches);
+      _loading = !progress.isComplete;
+    });
+  }
+
+  void _finish({bool failed = false}) {
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _failed = failed;
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final sites = <String, MediaItem>{};
-    for (final media in matches) {
+    for (final media in _matches) {
       final sourceId = media.sourceId?.trim() ?? '';
       if (sourceId.isNotEmpty) sites.putIfAbsent(sourceId, () => media);
     }
     final ordered = sites.values.toList()
       ..sort((left, right) {
-        if (left.sourceId == activeSourceId) return -1;
-        if (right.sourceId == activeSourceId) return 1;
+        if (left.sourceId == widget.activeSourceId) return -1;
+        if (right.sourceId == widget.activeSourceId) return 1;
         return 0;
       });
     return SizedBox(
-      height: MediaQuery.sizeOf(context).height * .68,
+      height: MediaQuery.sizeOf(context).height * .76,
       child: SafeArea(
         top: false,
         child: Column(
@@ -1452,7 +1529,7 @@ class _PlayerSourceSheet extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
               child: Text(
-                '切换资源站',
+                '选择资源站',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -1461,10 +1538,56 @@ class _PlayerSourceSheet extends StatelessWidget {
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 0, 20, 14),
               child: Text(
-                '将自动定位到相同集数；目标源未提供时播放其第一集。',
+                '切换后会自动定位到相同集数；目标源未提供时播放其第一集。',
                 style: TextStyle(color: CineoColors.textSecondary),
               ),
             ),
+            if (widget.onSearchProgressively != null)
+              Padding(
+                key: const ValueKey('player-source-search-progress'),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '$_searched / $_total',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: CineoColors.textPrimary,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          _loading ? '正在查询普通源' : '查询完成',
+                          style: const TextStyle(
+                            color: CineoColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: _total == 0
+                          ? (_loading ? null : 1)
+                          : _searched / _total,
+                      minHeight: 4,
+                      color: CineoColors.primary,
+                      backgroundColor: CineoColors.surfaceOverlay,
+                    ),
+                  ],
+                ),
+              ),
+            if (!_loading && ordered.length == 1)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                child: Text(
+                  _failed ? '部分视频源查询失败，请稍后重试。' : '已查询所有普通视频源，暂未找到其他匹配内容。',
+                  style: const TextStyle(color: CineoColors.textSecondary),
+                ),
+              ),
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
@@ -1472,7 +1595,7 @@ class _PlayerSourceSheet extends StatelessWidget {
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, index) {
                   final media = ordered[index];
-                  final selected = media.sourceId == activeSourceId;
+                  final selected = media.sourceId == widget.activeSourceId;
                   final sourceName = media.sourceName?.trim().isNotEmpty == true
                       ? media.sourceName!.trim()
                       : '资源站';
