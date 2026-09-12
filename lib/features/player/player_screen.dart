@@ -966,9 +966,38 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Size _appPictureInPictureSize(Size screenSize, VideoPlayerValue value) {
-    final width = math.min(340.0, math.max(160.0, screenSize.width - 24));
+    final availableWidth = math.max(1.0, screenSize.width - 24);
+    final width = math.min(340.0, math.max(1.0, availableWidth));
     final aspectRatio = value.aspectRatio > 0 ? value.aspectRatio : 16 / 9;
     return Size(width, width / aspectRatio);
+  }
+
+  void _onAppPictureInPictureDoubleTap() {
+    final controller = _initializedController;
+    if (controller == null || !mounted) return;
+
+    final screenSize = MediaQuery.sizeOf(context);
+    final baseSize = _appPictureInPictureSize(screenSize, controller.value);
+    final maxWidth = math.max(1.0, screenSize.width - 24);
+    final maxScale = maxWidth / baseSize.width;
+    final nextSize = Size(
+      baseSize.width * maxScale,
+      baseSize.height * maxScale,
+    );
+    final padding = MediaQuery.paddingOf(context);
+    final minTop = padding.top + 12;
+    final maxTop = math.max(
+      minTop,
+      screenSize.height - padding.bottom - nextSize.height - 12,
+    );
+
+    setState(() {
+      _appPictureInPictureScale = maxScale;
+      _appPictureInPictureOffset = Offset(
+        (screenSize.width - nextSize.width) / 2,
+        (_appPictureInPictureOffset?.dy ?? minTop).clamp(minTop, maxTop),
+      );
+    });
   }
 
   void _onAppPictureInPictureScaleStart(ScaleStartDetails details) {
@@ -985,8 +1014,10 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (controller == null) return;
     final screenSize = MediaQuery.sizeOf(context);
     final baseSize = _appPictureInPictureSize(screenSize, controller.value);
+    final maxWidth = math.max(1.0, screenSize.width - 24);
+    final maxScale = maxWidth / baseSize.width;
     final nextScale = (_appPictureInPictureStartScale * details.scale)
-        .clamp(.65, 1.75)
+        .clamp(.65, maxScale)
         .toDouble();
     final nextSize = Size(
       baseSize.width * nextScale,
@@ -1076,6 +1107,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         offset: _appPictureInPictureOffset,
         onScaleStart: _onAppPictureInPictureScaleStart,
         onScaleUpdate: _onAppPictureInPictureScaleUpdate,
+        onDoubleTap: _onAppPictureInPictureDoubleTap,
         onToggleControls: _toggleAppPictureInPictureControls,
         onClose: _closeAppPictureInPicture,
         onReturnToPlayer: _returnToPlayerFromAppPictureInPicture,
@@ -1196,6 +1228,7 @@ class _AppPictureInPictureSurface extends StatelessWidget {
     required this.offset,
     required this.onScaleStart,
     required this.onScaleUpdate,
+    required this.onDoubleTap,
     required this.onToggleControls,
     required this.onClose,
     required this.onReturnToPlayer,
@@ -1211,6 +1244,7 @@ class _AppPictureInPictureSurface extends StatelessWidget {
   final Offset? offset;
   final GestureScaleStartCallback onScaleStart;
   final GestureScaleUpdateCallback onScaleUpdate;
+  final VoidCallback onDoubleTap;
   final VoidCallback onToggleControls;
   final VoidCallback onClose;
   final VoidCallback onReturnToPlayer;
@@ -1222,7 +1256,8 @@ class _AppPictureInPictureSurface extends StatelessWidget {
   Widget build(BuildContext context) {
     final value = controller.value;
     final screenSize = MediaQuery.sizeOf(context);
-    final baseWidth = math.min(340.0, math.max(160.0, screenSize.width - 24));
+    final availableWidth = math.max(1.0, screenSize.width - 24);
+    final baseWidth = math.min(340.0, math.max(1.0, availableWidth));
     final aspectRatio = value.aspectRatio > 0 ? value.aspectRatio : 16 / 9;
     final baseSize = Size(baseWidth, baseWidth / aspectRatio);
     final windowSize = Size(
@@ -1253,6 +1288,7 @@ class _AppPictureInPictureSurface extends StatelessWidget {
               child: GestureDetector(
                 behavior: HitTestBehavior.opaque,
                 onTap: onToggleControls,
+                onDoubleTap: onDoubleTap,
                 onScaleStart: onScaleStart,
                 onScaleUpdate: onScaleUpdate,
                 child: Stack(
