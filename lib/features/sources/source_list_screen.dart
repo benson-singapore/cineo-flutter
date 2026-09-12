@@ -215,6 +215,7 @@ class _SourceListScreenState extends State<SourceListScreen> {
   Future<void> _openImportDialog() async {
     final controller = TextEditingController();
     var allowInsecureHttp = true;
+    String? defaultSourceId;
     try {
       final request = await showDialog<_SourceImportRequest>(
         context: context,
@@ -231,6 +232,22 @@ class _SourceListScreenState extends State<SourceListScreen> {
                       '粘贴 MacCMS 兼容的 JSON 配置。仅导入本地配置，不会在导入时访问任何站点。',
                     ),
                     const SizedBox(height: 16),
+                    Align(
+                      alignment: Alignment.centerRight,
+                      child: TextButton.icon(
+                        onPressed: () => setDialogState(() {
+                          defaultSourceId = 'ruyi';
+                          controller.value = const TextEditingValue(
+                            text: defaultMacCmsSourceConfigJson,
+                            selection: TextSelection.collapsed(
+                              offset: defaultMacCmsSourceConfigJson.length,
+                            ),
+                          );
+                        }),
+                        icon: const Icon(Icons.auto_awesome_outlined),
+                        label: const Text('加载默认配置'),
+                      ),
+                    ),
                     TextField(
                       controller: controller,
                       minLines: 8,
@@ -266,6 +283,7 @@ class _SourceListScreenState extends State<SourceListScreen> {
                   _SourceImportRequest(
                     rawJson: controller.text,
                     allowInsecureHttp: allowInsecureHttp,
+                    defaultSourceId: defaultSourceId,
                   ),
                 ),
                 icon: const Icon(Icons.file_download_outlined),
@@ -283,6 +301,16 @@ class _SourceListScreenState extends State<SourceListScreen> {
       );
       for (final source in result.sources) {
         await widget.repository.saveSource(source);
+      }
+      final defaultSource = request.defaultSourceId == null
+          ? null
+          : result.sources
+                  .where((source) => source.id == request.defaultSourceId)
+                  .firstOrNull ??
+              result.sources.firstOrNull;
+      if (defaultSource != null) {
+        await widget.repository.setDefaultSource(defaultSource.id);
+        widget.onDefaultSourceChanged?.call();
       }
       if (!mounted) return;
       await _load();
@@ -790,10 +818,12 @@ class _SourceImportRequest {
   const _SourceImportRequest({
     required this.rawJson,
     required this.allowInsecureHttp,
+    this.defaultSourceId,
   });
 
   final String rawJson;
   final bool allowInsecureHttp;
+  final String? defaultSourceId;
 }
 
 class _SourceEmptyState extends StatelessWidget {

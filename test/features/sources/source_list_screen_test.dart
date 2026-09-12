@@ -11,6 +11,7 @@ import 'package:shared_preferences/shared_preferences.dart';
 
 class _FakeMediaRepository implements MediaRepository {
   int setDefaultCalls = 0;
+  String? lastDefaultSourceId;
 
   @override
   Future<List<MediaItem>> featured() async => const [];
@@ -87,6 +88,7 @@ class _FakeMediaRepository implements MediaRepository {
   @override
   Future<void> setDefaultSource(String id) async {
     setDefaultCalls++;
+    lastDefaultSourceId = id;
   }
 
   @override
@@ -153,11 +155,12 @@ void main() {
     SharedPreferences.setMockInitialValues({});
     final adultSettings = AdultSourceSettings();
     await adultSettings.initialize();
+    final repository = _FakeMediaRepository();
 
     await tester.pumpWidget(
       MaterialApp(
         home: SourceListScreen(
-          repository: _FakeMediaRepository(),
+          repository: repository,
           adultSourceSettings: adultSettings,
         ),
       ),
@@ -170,5 +173,76 @@ void main() {
     expect(find.text('普通视频源'), findsOneWidget);
     expect(find.text('成人视频源'), findsNothing);
     expect(find.textContaining('成人源'), findsNothing);
+  });
+
+  testWidgets('loads the bundled default source config into the import field',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final adultSettings = AdultSourceSettings();
+    await adultSettings.initialize();
+    final repository = _FakeMediaRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceListScreen(
+          repository: repository,
+          adultSourceSettings: adultSettings,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('导入 JSON 配置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('加载默认配置'));
+    await tester.pump();
+
+    final field = tester.widget<TextField>(find.byType(TextField).last);
+    expect(field.controller?.text, contains('"cache_time": 7200'));
+    expect(field.controller?.text, contains('"xiaomaomi"'));
+
+    await tester.tap(find.text('导入'));
+    await tester.pumpAndSettle();
+
+    expect(repository.lastDefaultSourceId, 'ruyi');
+  });
+
+  testWidgets('falls back to the first source when ruyi is unavailable',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final adultSettings = AdultSourceSettings();
+    await adultSettings.initialize();
+    final repository = _FakeMediaRepository();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceListScreen(
+          repository: repository,
+          adultSourceSettings: adultSettings,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('导入 JSON 配置'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('加载默认配置'));
+    await tester.pump();
+
+    final field = tester.widget<TextField>(find.byType(TextField).last);
+    field.controller!.text = '''
+    {
+      "api_site": {
+        "first": {
+          "api": "https://first.example.test/vod",
+          "name": "第一个来源"
+        }
+      }
+    }
+    ''';
+    await tester.tap(find.text('导入'));
+    await tester.pumpAndSettle();
+
+    expect(repository.lastDefaultSourceId, 'first');
   });
 }

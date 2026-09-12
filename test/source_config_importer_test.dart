@@ -4,6 +4,19 @@ import 'package:cineo_flutter/core/models/media_source.dart';
 import 'package:cineo_flutter/features/sources/source_config_importer.dart';
 
 void main() {
+  test('default source config contains all bundled sources', () {
+    final result = parseMacCmsSourceConfig(
+      defaultMacCmsSourceConfigJson,
+      allowInsecureHttp: true,
+    );
+
+    expect(result.issues, isEmpty);
+    expect(result.sources, hasLength(20));
+    expect(result.sources.first.id, 'dyttzy');
+    expect(result.sources.first.cacheTtlSeconds, 7200);
+    expect(result.sources.last.id, 'xiaomaomi');
+  });
+
   group('parseMacCmsSourceConfig', () {
     test('imports valid MacCMS entries and preserves shared metadata', () {
       const rawJson = '''
