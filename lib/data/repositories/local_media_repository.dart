@@ -12,6 +12,7 @@ import '../../core/models/download_models.dart';
 import '../../core/models/media_source.dart';
 import '../../core/models/paged_media.dart';
 import '../../core/models/source_group_config.dart';
+import '../../core/models/source_search_progress.dart';
 import '../download/download_directory.dart';
 import '../remote/mac_cms_client.dart';
 import '../remote/media_category_adapter.dart';
@@ -1174,8 +1175,9 @@ class LocalMediaRepository implements MediaRepository {
     return '${media.kind.name}:$normalizedTitle';
   }
 
-  Future<List<MediaItem>> searchOtherSources(MediaItem media,
-      {bool includeAdult = false}) async {
+  Stream<SourceSearchProgress> searchOtherSourcesProgressively(
+    MediaItem media,
+  ) async* {
     final allSources = await sources();
     final candidates = allSources
         .where((source) =>
@@ -1183,33 +1185,60 @@ class LocalMediaRepository implements MediaRepository {
             source.id != media.sourceId &&
             (source.type == MediaSourceType.macCmsApi ||
                 source.type == MediaSourceType.jsonApi) &&
-            (includeAdult || !source.isAdult))
+            !source.isAdult)
         .toList();
 
-    // Use concurrent requests with a fixed pool size (10-15 concurrent) for better performance
     const concurrentLimit = 12;
-    final results = <List<MediaItem>>[];
+    final pending = <Future<_SourceSearchResult>>[];
+    var nextSource = 0;
+    var searched = 0;
 
-    for (var i = 0; i < candidates.length; i += concurrentLimit) {
-      final batch = candidates.sublist(
-        i,
-        i + concurrentLimit > candidates.length
-            ? candidates.length
-            : i + concurrentLimit,
+    yield SourceSearchProgress(
+      searched: 0,
+      total: candidates.length,
+      isComplete: candidates.isEmpty,
+    );
+
+    while (nextSource < candidates.length || pending.isNotEmpty) {
+      while (
+          nextSource < candidates.length && pending.length < concurrentLimit) {
+        pending.add(_searchSource(candidates[nextSource++], media.title));
+      }
+
+      final result = await Future.any(pending);
+      pending.remove(result.request);
+      searched += 1;
+      yield SourceSearchProgress(
+        searched: searched,
+        total: candidates.length,
+        matches: result.matches,
+        isComplete: searched == candidates.length,
       );
-
-      final batchResults = await Future.wait(batch.map((source) async {
-        try {
-          return await _macCmsClient.list(source, query: media.title);
-        } catch (_) {
-          return const <MediaItem>[];
-        }
-      }));
-
-      results.addAll(batchResults);
     }
+  }
 
-    return results.expand((items) => items).toList(growable: false);
+  Future<_SourceSearchResult> _searchSource(
+    MediaSource source,
+    String query,
+  ) {
+    late final Future<_SourceSearchResult> request;
+    request = () async {
+      try {
+        final matches = await _macCmsClient.list(source, query: query);
+        return _SourceSearchResult(request, matches);
+      } catch (_) {
+        return _SourceSearchResult(request, const <MediaItem>[]);
+      }
+    }();
+    return request;
+  }
+
+  Future<List<MediaItem>> searchOtherSources(MediaItem media) async {
+    final matches = <MediaItem>[];
+    await for (final progress in searchOtherSourcesProgressively(media)) {
+      matches.addAll(progress.matches);
+    }
+    return matches;
   }
 
   /// Loads persisted download tasks in queue order.
@@ -1856,6 +1885,13 @@ class LocalMediaRepository implements MediaRepository {
     if (decoded is! List) return const [];
     return decoded.whereType<String>().toList(growable: false);
   }
+}
+
+class _SourceSearchResult {
+  const _SourceSearchResult(this.request, this.matches);
+
+  final Future<_SourceSearchResult> request;
+  final List<MediaItem> matches;
 }
 
 class _SourceGroupFilter {

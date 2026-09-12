@@ -430,10 +430,8 @@ class _CineoShellState extends State<CineoShell> {
               widget.tmdbSettings.configured ? _loadTmdbEnrichment : null,
           onSearchTmdbMatches: _searchTmdbMatches,
           onSelectTmdbMatch: (match) => _selectTmdbMatch(media, match),
-          onSearchOtherSources: (item) => widget.repository.searchOtherSources(
-            item,
-            includeAdult: widget.adultSourceSettings.showAdultSources,
-          ),
+          onSearchOtherSourcesProgressively:
+              widget.repository.searchOtherSourcesProgressively,
           onLoadAlternative: (alternative) async {
             await widget.repository.savePreferredSource(anchor, alternative);
             return _resolveMediaDetails(alternative);
@@ -652,10 +650,7 @@ class _CineoShellState extends State<CineoShell> {
           onProgressChanged: (playingMedia, progress) => unawaited(
             widget.repository.saveProgress(progress, media: playingMedia),
           ),
-          onSearchOtherSources: (item) => widget.repository.searchOtherSources(
-            item,
-            includeAdult: widget.adultSourceSettings.showAdultSources,
-          ),
+          onSearchOtherSources: widget.repository.searchOtherSources,
           onLoadAlternative: (alternative) async {
             await widget.repository.savePreferredSource(media, alternative);
             return _resolveMediaDetails(alternative);

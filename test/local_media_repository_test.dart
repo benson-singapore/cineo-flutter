@@ -522,4 +522,54 @@ void main() {
     expect(await repository.watchHistory(includeAdult: false), isEmpty);
     expect(await repository.watchHistory(includeAdult: true), hasLength(1));
   });
+
+  test('progressive source search reports progress and skips adult sources',
+      () async {
+    final requestedHosts = <String>[];
+    await repository.close();
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+      macCmsClient: MacCmsClient(
+        maxAttempts: 1,
+        fetcher: (uri) async {
+          requestedHosts.add(uri.host);
+          return jsonEncode({
+            'list': [
+              {
+                'vod_id': '7',
+                'vod_name': '本地保存的剧集',
+              },
+            ],
+          });
+        },
+      ),
+    );
+    await repository.sources();
+    await repository.saveSource(const MediaSource(
+      id: 'regular-source',
+      name: '普通源',
+      type: MediaSourceType.macCmsApi,
+      baseUrl: 'https://regular.example.test/api.php/provide/vod',
+    ));
+    await repository.saveSource(const MediaSource(
+      id: 'adult-source',
+      name: '成人源',
+      type: MediaSourceType.macCmsApi,
+      baseUrl: 'https://adult.example.test/api.php/provide/vod',
+      isAdult: true,
+    ));
+
+    final updates =
+        await repository.searchOtherSourcesProgressively(media).toList();
+
+    expect(updates.map((update) => update.searched), [0, 1, 2]);
+    expect(updates.map((update) => update.total), [2, 2, 2]);
+    expect(updates.last.isComplete, isTrue);
+    expect(
+      updates.expand((update) => update.matches).map((item) => item.sourceId),
+      containsAll(['built-in-ruyi', 'regular-source']),
+    );
+    expect(requestedHosts, contains('regular.example.test'));
+    expect(requestedHosts, isNot(contains('adult.example.test')));
+  });
 }

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cineo_flutter/core/models/media.dart';
+import 'package:cineo_flutter/core/models/source_search_progress.dart';
 import 'package:cineo_flutter/core/models/tmdb_media.dart';
 import 'package:cineo_flutter/core/theme/cineo_theme.dart';
 import 'package:cineo_flutter/data/download/download_service.dart';
@@ -499,6 +500,94 @@ void main() {
     expect(loaded?.sourceId, 'site-2');
     expect(find.text('选择资源站'), findsNothing);
     expect(find.text('如意资源站'), findsOneWidget);
+  });
+
+  testWidgets('opens the source sheet immediately and appends results',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final progress = StreamController<SourceSearchProgress>();
+    addTearDown(progress.close);
+    final current = buildSeries(
+      sourceId: 'site-1',
+      sourceName: '当前资源站',
+    );
+    const firstMatch = MediaItem(
+      id: 'site-2:remote-2',
+      sourceId: 'site-2',
+      sourceName: '第二资源站',
+      remoteId: 'remote-2',
+      title: '测试剧集',
+      description: '',
+      year: 2026,
+      kind: MediaKind.series,
+      posterUrl: '',
+      backdropUrl: '',
+      genres: [],
+      rating: 0,
+      duration: Duration.zero,
+    );
+    const secondMatch = MediaItem(
+      id: 'site-3:remote-3',
+      sourceId: 'site-3',
+      sourceName: '第三资源站',
+      remoteId: 'remote-3',
+      title: '测试剧集',
+      description: '',
+      year: 2026,
+      kind: MediaKind.series,
+      posterUrl: '',
+      backdropUrl: '',
+      genres: [],
+      rating: 0,
+      duration: Duration.zero,
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: current,
+        favorite: false,
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
+        onSearchOtherSourcesProgressively: (_) => progress.stream,
+      ),
+    ));
+    await tester.pump();
+    await _scrollDetailPage(tester);
+    await tester.tap(find.byKey(const ValueKey('switch-media-site')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('选择资源站'), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-2')), findsNothing);
+
+    progress.add(const SourceSearchProgress(searched: 0, total: 2));
+    await tester.pump();
+    expect(find.text('0 / 2'), findsOneWidget);
+    expect(find.text('正在查询普通源'), findsOneWidget);
+
+    progress.add(const SourceSearchProgress(
+      searched: 1,
+      total: 2,
+      matches: [firstMatch],
+    ));
+    await tester.pump();
+    expect(find.text('1 / 2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-3')), findsNothing);
+
+    progress.add(const SourceSearchProgress(
+      searched: 2,
+      total: 2,
+      matches: [secondMatch],
+      isComplete: true,
+    ));
+    await tester.pump();
+    expect(find.text('2 / 2'), findsOneWidget);
+    expect(find.text('查询完成'), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-3')), findsOneWidget);
   });
 
   test('formats inconsistent source episode labels', () {

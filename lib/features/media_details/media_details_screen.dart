@@ -1,5 +1,8 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 
+import '../../core/models/source_search_progress.dart';
 import '../../core/platform/adaptive_navigation.dart';
 import '../../core/models/media.dart';
 import '../../core/models/tmdb_media.dart';
@@ -23,6 +26,7 @@ class MediaDetailsScreen extends StatefulWidget {
     this.onLoadFavorite,
     this.onLoadMediaDetails,
     this.onSearchOtherSources,
+    this.onSearchOtherSourcesProgressively,
     this.onLoadAlternative,
     this.onLoadTmdbDetails,
     this.onLoadTmdbEnrichment,
@@ -46,6 +50,8 @@ class MediaDetailsScreen extends StatefulWidget {
   final Future<bool> Function(String mediaId)? onLoadFavorite;
   final Future<MediaItem?> Function(MediaItem media)? onLoadMediaDetails;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
+  final Stream<SourceSearchProgress> Function(MediaItem media)?
+      onSearchOtherSourcesProgressively;
   final Future<MediaItem?> Function(MediaItem media)? onLoadAlternative;
   final Future<TmdbMediaDetails?> Function(MediaItem media)? onLoadTmdbDetails;
   final Future<TmdbMediaDetails?> Function(MediaItem media)?
@@ -570,7 +576,8 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
         const SizedBox(height: 28),
         _sectionTitle('播放来源'),
         const SizedBox(height: 12),
-        if (widget.onSearchOtherSources != null) ...[
+        if (widget.onSearchOtherSources != null ||
+            widget.onSearchOtherSourcesProgressively != null) ...[
           _SiteSwitchTile(
             sourceName: _siteDisplayName(media),
             isLoading: _searchingOtherSources,
@@ -800,18 +807,19 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
 
   Future<void> _searchOtherSources() async {
     final finder = widget.onSearchOtherSources;
-    if (finder == null) return;
+    final progressiveFinder = widget.onSearchOtherSourcesProgressively;
+    if (finder == null && progressiveFinder == null) return;
     setState(() => _searchingOtherSources = true);
     try {
-      final matches = await finder(_media);
-      if (!mounted) return;
       await showModalBottomSheet<void>(
         context: context,
         showDragHandle: true,
         isScrollControlled: true,
         backgroundColor: CineoColors.surface,
         builder: (context) => _OtherSourcesSheet(
-          matches: <MediaItem>[_media, ...matches],
+          currentMedia: _media,
+          onSearch: finder,
+          onSearchProgressively: progressiveFinder,
           activeSourceId: _media.sourceId,
           onOpen: (media) async {
             Navigator.of(context).pop();
@@ -1458,34 +1466,97 @@ class _EpisodeLoadingPlaceholderState extends State<_EpisodeLoadingPlaceholder>
   }
 }
 
-class _OtherSourcesSheet extends StatelessWidget {
+class _OtherSourcesSheet extends StatefulWidget {
   const _OtherSourcesSheet({
-    required this.matches,
+    required this.currentMedia,
+    required this.onSearch,
+    required this.onSearchProgressively,
     required this.activeSourceId,
     required this.onOpen,
   });
 
-  final List<MediaItem> matches;
+  final MediaItem currentMedia;
+  final Future<List<MediaItem>> Function(MediaItem media)? onSearch;
+  final Stream<SourceSearchProgress> Function(MediaItem media)?
+      onSearchProgressively;
   final String? activeSourceId;
   final ValueChanged<MediaItem> onOpen;
 
   @override
-  Widget build(BuildContext context) {
-    if (matches.isEmpty) {
-      return const Padding(
-        padding: EdgeInsets.fromLTRB(24, 8, 24, 40),
-        child: Text('已搜索所有已启用的视频源，暂未找到匹配内容。'),
+  State<_OtherSourcesSheet> createState() => _OtherSourcesSheetState();
+}
+
+class _OtherSourcesSheetState extends State<_OtherSourcesSheet> {
+  late final List<MediaItem> _matches = <MediaItem>[widget.currentMedia];
+  StreamSubscription<SourceSearchProgress>? _subscription;
+  int _searched = 0;
+  int _total = 0;
+  bool _loading = true;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final progressiveFinder = widget.onSearchProgressively;
+    if (progressiveFinder != null) {
+      _subscription = progressiveFinder(widget.currentMedia).listen(
+        _applyProgress,
+        onError: (_) => _finish(failed: true),
+        onDone: _finish,
       );
+    } else {
+      _loadLegacyResults();
     }
+  }
+
+  Future<void> _loadLegacyResults() async {
+    try {
+      final matches = await widget.onSearch!(widget.currentMedia);
+      if (!mounted) return;
+      setState(() {
+        _matches.addAll(matches);
+        _loading = false;
+      });
+    } catch (_) {
+      _finish(failed: true);
+    }
+  }
+
+  void _applyProgress(SourceSearchProgress progress) {
+    if (!mounted) return;
+    setState(() {
+      _searched = progress.searched;
+      _total = progress.total;
+      _matches.addAll(progress.matches);
+      _loading = !progress.isComplete;
+    });
+  }
+
+  void _finish({bool failed = false}) {
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _failed = failed;
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final sites = <String, MediaItem>{};
-    for (final media in matches) {
+    for (final media in _matches) {
       final sourceId = media.sourceId?.trim() ?? '';
       if (sourceId.isNotEmpty) sites.putIfAbsent(sourceId, () => media);
     }
     final orderedSites = sites.values.toList()
       ..sort((left, right) {
-        final leftActive = left.sourceId == activeSourceId;
-        final rightActive = right.sourceId == activeSourceId;
+        final leftActive = left.sourceId == widget.activeSourceId;
+        final rightActive = right.sourceId == widget.activeSourceId;
         if (leftActive == rightActive) return 0;
         return leftActive ? -1 : 1;
       });
@@ -1510,6 +1581,52 @@ class _OtherSourcesSheet extends StatelessWidget {
                 style: TextStyle(color: CineoColors.textSecondary),
               ),
             ),
+            if (widget.onSearchProgressively != null)
+              Padding(
+                key: const ValueKey('source-search-progress'),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '$_searched / $_total',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: CineoColors.textPrimary,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          _loading ? '正在查询普通源' : '查询完成',
+                          style: const TextStyle(
+                            color: CineoColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: _total == 0
+                          ? (_loading ? null : 1)
+                          : _searched / _total,
+                      minHeight: 4,
+                      color: CineoColors.primary,
+                      backgroundColor: CineoColors.surfaceOverlay,
+                    ),
+                  ],
+                ),
+              ),
+            if (!_loading && orderedSites.length == 1)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                child: Text(
+                  _failed ? '部分视频源查询失败，请稍后重试。' : '已查询所有普通视频源，暂未找到其他匹配内容。',
+                  style: const TextStyle(color: CineoColors.textSecondary),
+                ),
+              ),
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
@@ -1519,8 +1636,8 @@ class _OtherSourcesSheet extends StatelessWidget {
                   final media = orderedSites[index];
                   return _SourceSiteCard(
                     media: media,
-                    selected: media.sourceId == activeSourceId,
-                    onTap: () => onOpen(media),
+                    selected: media.sourceId == widget.activeSourceId,
+                    onTap: () => widget.onOpen(media),
                   );
                 },
               ),
