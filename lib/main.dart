@@ -634,6 +634,7 @@ class _CineoShellState extends State<CineoShell> {
     await Navigator.of(context).push<void>(
       adaptivePageRoute(
         context,
+        opaque: false,
         builder: (_) => PlayerScreen(
           media: media,
           option: option,

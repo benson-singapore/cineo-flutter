@@ -25,6 +25,7 @@ class PictureInPictureRequest {
 }
 
 typedef PictureInPictureActionHandler = Future<void> Function(String action);
+typedef PictureInPictureAutoEnterHandler = Future<void> Function();
 typedef PictureInPictureModeHandler = void Function(
   bool isInPictureInPicture,
   Duration? position,
@@ -37,6 +38,7 @@ class PictureInPictureService {
 
   Future<void> setEventHandlers({
     PictureInPictureActionHandler? onAction,
+    PictureInPictureAutoEnterHandler? onAutoEnter,
     PictureInPictureModeHandler? onModeChanged,
   }) async {
     _channel.setMethodCallHandler((call) async {
@@ -44,6 +46,8 @@ class PictureInPictureService {
         case 'pictureInPictureAction':
           final action = call.arguments as String?;
           if (action != null && onAction != null) await onAction(action);
+        case 'pictureInPictureAutoEnterRequested':
+          if (onAutoEnter != null) await onAutoEnter();
         case 'pictureInPictureModeChanged':
           final arguments = call.arguments;
           final isInPictureInPicture = arguments is Map

@@ -210,6 +210,13 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool _searchingOtherSources = false;
   bool _isInPictureInPicture = false;
   bool _pictureInPictureRequestInFlight = false;
+  bool _isInAppPictureInPicture = false;
+  bool _appPictureInPictureControlsVisible = true;
+  double _appPictureInPictureScale = 1;
+  Offset? _appPictureInPictureOffset;
+  Offset? _appPictureInPictureStartOffset;
+  Offset? _appPictureInPictureStartFocalPoint;
+  double _appPictureInPictureStartScale = 1;
 
   List<PlaybackOption> get _episodes {
     final activeQuality = _activeOption?.quality ?? widget.option.quality;
@@ -243,6 +250,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_pictureInPicture.setEventHandlers(
       onAction: _handlePictureInPictureAction,
+      onAutoEnter: _handleAutomaticPictureInPictureRequest,
       onModeChanged: _handlePictureInPictureModeChanged,
     ));
     _loadOption(widget.option, initial: true);
@@ -591,13 +599,38 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  Future<void> _handleAutomaticPictureInPictureRequest() async {
+    await _enterAutomaticPictureInPicture();
+  }
+
+  Future<void> _enterAutomaticPictureInPicture() async {
+    final controller = _initializedController;
+    if (controller?.value.isPlaying != true ||
+        !mounted ||
+        _isInPictureInPicture ||
+        _pictureInPictureRequestInFlight) {
+      return;
+    }
+
+    if (_isInAppPictureInPicture) {
+      setState(() {
+        _isInAppPictureInPicture = false;
+        _appPictureInPictureControlsVisible = true;
+      });
+    }
+    await _openPictureInPicture();
+  }
+
   Future<void> _handlePictureInPictureModeChanged(
     bool isInPictureInPicture,
     Duration? position,
   ) async {
     if (!mounted) return;
     final wasInPictureInPicture = _isInPictureInPicture;
-    setState(() => _isInPictureInPicture = isInPictureInPicture);
+    setState(() {
+      _isInPictureInPicture = isInPictureInPicture;
+      if (isInPictureInPicture) _isInAppPictureInPicture = false;
+    });
     if (!isInPictureInPicture && wasInPictureInPicture) {
       final controller = _initializedController;
       if (controller == null) return;
@@ -621,10 +654,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     } else if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
-      final controller = _initializedController;
-      if (controller?.value.isPlaying == true && !_isInPictureInPicture) {
-        unawaited(_openPictureInPicture());
-      }
+      unawaited(_enterAutomaticPictureInPicture());
     }
   }
 
@@ -903,6 +933,89 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  void _openAppPictureInPicture() {
+    final controller = _initializedController;
+    if (controller == null) return;
+    final size = MediaQuery.sizeOf(context);
+    final windowSize = _appPictureInPictureSize(size, controller.value);
+    final padding = MediaQuery.paddingOf(context);
+    _appPictureInPictureScale = 1;
+    _appPictureInPictureOffset = Offset(
+      math.max(12, size.width - windowSize.width - 16),
+      math.max(
+        padding.top + 12,
+        size.height - padding.bottom - windowSize.height - 104,
+      ),
+    );
+    _appPictureInPictureControlsVisible = true;
+    setState(() => _isInAppPictureInPicture = true);
+    _showControls();
+  }
+
+  void _closeAppPictureInPicture() {
+    _save();
+    if (mounted) Navigator.of(context).pop();
+  }
+
+  void _returnToPlayerFromAppPictureInPicture() {
+    setState(() {
+      _isInAppPictureInPicture = false;
+      _appPictureInPictureControlsVisible = true;
+    });
+    _showControls();
+  }
+
+  Size _appPictureInPictureSize(Size screenSize, VideoPlayerValue value) {
+    final width = math.min(340.0, math.max(160.0, screenSize.width - 24));
+    final aspectRatio = value.aspectRatio > 0 ? value.aspectRatio : 16 / 9;
+    return Size(width, width / aspectRatio);
+  }
+
+  void _onAppPictureInPictureScaleStart(ScaleStartDetails details) {
+    _appPictureInPictureStartOffset = _appPictureInPictureOffset;
+    _appPictureInPictureStartFocalPoint = details.focalPoint;
+    _appPictureInPictureStartScale = _appPictureInPictureScale;
+  }
+
+  void _onAppPictureInPictureScaleUpdate(ScaleUpdateDetails details) {
+    final startOffset = _appPictureInPictureStartOffset;
+    final startFocalPoint = _appPictureInPictureStartFocalPoint;
+    if (startOffset == null || startFocalPoint == null || !mounted) return;
+    final controller = _initializedController;
+    if (controller == null) return;
+    final screenSize = MediaQuery.sizeOf(context);
+    final baseSize = _appPictureInPictureSize(screenSize, controller.value);
+    final nextScale = (_appPictureInPictureStartScale * details.scale)
+        .clamp(.65, 1.75)
+        .toDouble();
+    final nextSize = Size(
+      baseSize.width * nextScale,
+      baseSize.height * nextScale,
+    );
+    final padding = MediaQuery.paddingOf(context);
+    final maxLeft = math.max(12.0, screenSize.width - nextSize.width - 12);
+    final maxTop = math.max(
+      padding.top + 12,
+      screenSize.height - padding.bottom - nextSize.height - 12,
+    );
+    setState(() {
+      _appPictureInPictureScale = nextScale;
+      _appPictureInPictureOffset = Offset(
+        (startOffset.dx + details.focalPoint.dx - startFocalPoint.dx)
+            .clamp(12.0, maxLeft),
+        (startOffset.dy + details.focalPoint.dy - startFocalPoint.dy)
+            .clamp(padding.top + 12, maxTop),
+      );
+    });
+  }
+
+  void _toggleAppPictureInPictureControls() {
+    setState(() {
+      _appPictureInPictureControlsVisible =
+          !_appPictureInPictureControlsVisible;
+    });
+  }
+
   Future<void> _toggleOrientation() async {
     final landscape = _orientation == _PlayerOrientation.landscape;
     await SystemChrome.setPreferredOrientations(
@@ -953,6 +1066,24 @@ class _PlayerScreenState extends State<PlayerScreen>
     final controller = _controller;
     final value = controller?.value;
     final isReady = value?.isInitialized == true;
+
+    if (_isInAppPictureInPicture && controller != null) {
+      return _AppPictureInPictureSurface(
+        controller: controller,
+        title: _media.title,
+        controlsVisible: _appPictureInPictureControlsVisible,
+        scale: _appPictureInPictureScale,
+        offset: _appPictureInPictureOffset,
+        onScaleStart: _onAppPictureInPictureScaleStart,
+        onScaleUpdate: _onAppPictureInPictureScaleUpdate,
+        onToggleControls: _toggleAppPictureInPictureControls,
+        onClose: _closeAppPictureInPicture,
+        onReturnToPlayer: _returnToPlayerFromAppPictureInPicture,
+        onPlayPause: _togglePlayPause,
+        onRewind: () => unawaited(_seekBy(const Duration(seconds: -10))),
+        onForward: () => unawaited(_seekBy(const Duration(seconds: 10))),
+      );
+    }
 
     if (_isInPictureInPicture && isReady && controller != null) {
       if (defaultTargetPlatform == TargetPlatform.iOS) {
@@ -1023,9 +1154,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     canGoPrevious: _currentEpisodeIndex > 0,
                     canGoNext: _currentEpisodeIndex < _episodes.length - 1,
                     hasEpisodes: _episodes.length > 1,
-                    pictureInPictureAvailable:
-                        widget.pictureInPictureAvailable &&
-                            widget.onPictureInPicture != null,
+                    pictureInPictureAvailable: true,
                     onClose: () => Navigator.pop(context),
                     onPlayPause: _togglePlayPause,
                     onRewind: () => unawaited(
@@ -1045,7 +1174,7 @@ class _PlayerScreenState extends State<PlayerScreen>
                     isLandscape: _orientation == _PlayerOrientation.landscape,
                     onOpenSystemPlayer: _openSystemPlayer,
                     onToggleOrientation: _toggleOrientation,
-                    onPictureInPicture: _openPictureInPicture,
+                    onPictureInPicture: _openAppPictureInPicture,
                     onControlsInteraction: _showControls,
                     onToggleControls: _toggleControls,
                   ),
@@ -1053,6 +1182,188 @@ class _PlayerScreenState extends State<PlayerScreen>
               ),
           ],
         ),
+      ),
+    );
+  }
+}
+
+class _AppPictureInPictureSurface extends StatelessWidget {
+  const _AppPictureInPictureSurface({
+    required this.controller,
+    required this.title,
+    required this.controlsVisible,
+    required this.scale,
+    required this.offset,
+    required this.onScaleStart,
+    required this.onScaleUpdate,
+    required this.onToggleControls,
+    required this.onClose,
+    required this.onReturnToPlayer,
+    required this.onPlayPause,
+    required this.onRewind,
+    required this.onForward,
+  });
+
+  final VideoPlayerController controller;
+  final String title;
+  final bool controlsVisible;
+  final double scale;
+  final Offset? offset;
+  final GestureScaleStartCallback onScaleStart;
+  final GestureScaleUpdateCallback onScaleUpdate;
+  final VoidCallback onToggleControls;
+  final VoidCallback onClose;
+  final VoidCallback onReturnToPlayer;
+  final VoidCallback onPlayPause;
+  final VoidCallback onRewind;
+  final VoidCallback onForward;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = controller.value;
+    final screenSize = MediaQuery.sizeOf(context);
+    final baseWidth = math.min(340.0, math.max(160.0, screenSize.width - 24));
+    final aspectRatio = value.aspectRatio > 0 ? value.aspectRatio : 16 / 9;
+    final baseSize = Size(baseWidth, baseWidth / aspectRatio);
+    final windowSize = Size(
+      baseSize.width * scale,
+      baseSize.height * scale,
+    );
+    final windowOffset = offset ??
+        Offset(
+          screenSize.width - windowSize.width - 16,
+          MediaQuery.paddingOf(context).top + 12,
+        );
+
+    return Material(
+      color: Colors.transparent,
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          Positioned(
+            left: windowOffset.dx,
+            top: windowOffset.dy,
+            width: windowSize.width,
+            height: windowSize.height,
+            child: Material(
+              color: Colors.black,
+              elevation: 14,
+              borderRadius: BorderRadius.circular(12),
+              clipBehavior: Clip.antiAlias,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: onToggleControls,
+                onScaleStart: onScaleStart,
+                onScaleUpdate: onScaleUpdate,
+                child: Stack(
+                  fit: StackFit.expand,
+                  children: [
+                    Center(
+                      child: AspectRatio(
+                        aspectRatio: aspectRatio,
+                        child: VideoPlayer(controller),
+                      ),
+                    ),
+                    AnimatedOpacity(
+                      duration: const Duration(milliseconds: 160),
+                      opacity: controlsVisible ? 1 : 0,
+                      child: IgnorePointer(
+                        ignoring: !controlsVisible,
+                        child: DecoratedBox(
+                          decoration: const BoxDecoration(
+                            gradient: LinearGradient(
+                              begin: Alignment.topCenter,
+                              end: Alignment.bottomCenter,
+                              colors: [
+                                Colors.black87,
+                                Colors.transparent,
+                                Colors.black87,
+                              ],
+                              stops: [0, .45, 1],
+                            ),
+                          ),
+                          child: Column(
+                            children: [
+                              Padding(
+                                padding: const EdgeInsets.fromLTRB(4, 2, 2, 0),
+                                child: Row(
+                                  children: [
+                                    Expanded(
+                                      child: Text(
+                                        title,
+                                        maxLines: 1,
+                                        overflow: TextOverflow.ellipsis,
+                                        style: const TextStyle(
+                                          color: Colors.white,
+                                          fontSize: 12,
+                                          fontWeight: FontWeight.w700,
+                                        ),
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: '回到播放页面',
+                                      visualDensity: VisualDensity.compact,
+                                      color: Colors.white,
+                                      onPressed: onReturnToPlayer,
+                                      icon: const Icon(
+                                        Icons.open_in_full_rounded,
+                                        size: 18,
+                                      ),
+                                    ),
+                                    IconButton(
+                                      tooltip: '关闭悬浮播放',
+                                      visualDensity: VisualDensity.compact,
+                                      color: Colors.white,
+                                      onPressed: onClose,
+                                      icon: const Icon(
+                                        Icons.close_rounded,
+                                        size: 19,
+                                      ),
+                                    ),
+                                  ],
+                                ),
+                              ),
+                              const Spacer(),
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.center,
+                                children: [
+                                  IconButton(
+                                    tooltip: '快退 10 秒',
+                                    color: Colors.white,
+                                    onPressed: onRewind,
+                                    icon: const Icon(Icons.replay_10_rounded),
+                                  ),
+                                  IconButton(
+                                    tooltip: value.isPlaying ? '暂停' : '播放',
+                                    color: CineoColors.primary,
+                                    iconSize: 34,
+                                    onPressed: onPlayPause,
+                                    icon: Icon(
+                                      value.isPlaying
+                                          ? Icons.pause_circle_filled_rounded
+                                          : Icons.play_circle_fill_rounded,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: '快进 10 秒',
+                                    color: Colors.white,
+                                    onPressed: onForward,
+                                    icon: const Icon(Icons.forward_10_rounded),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                            ],
+                          ),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -1710,7 +2021,7 @@ class _PictureInPictureButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      tooltip: available ? '直接进入画中画' : '画中画不可用',
+      tooltip: available ? '应用内画中画' : '画中画不可用',
       onPressed: available ? onPressed : null,
       icon: const Icon(Icons.picture_in_picture_alt),
     );

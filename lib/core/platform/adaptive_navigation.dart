@@ -8,13 +8,23 @@ Route<T> adaptivePageRoute<T>(
   required WidgetBuilder builder,
   RouteSettings? settings,
   bool fullscreenDialog = false,
+  bool opaque = true,
 }) {
   final platform = Theme.of(context).platform;
-  if (platform == TargetPlatform.iOS) {
+  if (platform == TargetPlatform.iOS && opaque) {
     return CupertinoPageRoute<T>(
       builder: builder,
       settings: settings,
       fullscreenDialog: fullscreenDialog,
+    );
+  }
+  if (!opaque) {
+    return PageRouteBuilder<T>(
+      opaque: false,
+      pageBuilder: (context, animation, secondaryAnimation) => builder(context),
+      transitionsBuilder: (context, animation, secondaryAnimation, child) =>
+          FadeTransition(opacity: animation, child: child),
+      settings: settings,
     );
   }
   return MaterialPageRoute<T>(
