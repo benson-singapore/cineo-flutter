@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
+import '../../core/models/media_source.dart';
 import '../../core/theme/cineo_theme.dart';
 import 'media_poster_card.dart';
 
@@ -13,6 +14,7 @@ class MediaRail extends StatelessWidget {
     this.progressByMediaId = const {},
     this.showDescription = false,
     this.onSeeAll,
+    this.coverMode = MediaCoverMode.portrait,
   });
 
   final String title;
@@ -21,6 +23,7 @@ class MediaRail extends StatelessWidget {
   final Map<String, double> progressByMediaId;
   final bool showDescription;
   final VoidCallback? onSeeAll;
+  final MediaCoverMode coverMode;
 
   @override
   Widget build(BuildContext context) {
@@ -67,7 +70,11 @@ class MediaRail extends StatelessWidget {
             SizedBox(
               // The poster's fractional aspect ratio can round up by a pixel
               // on Android. Leave room for its text rows to avoid Flex overflow.
-              height: showDescription ? 310 : 276,
+              height: showDescription
+                  ? 310
+                  : coverMode == MediaCoverMode.portrait
+                      ? 322
+                      : 276,
               child: ListView.separated(
                 padding: const EdgeInsets.symmetric(horizontal: 20),
                 scrollDirection: Axis.horizontal,
@@ -79,6 +86,7 @@ class MediaRail extends StatelessWidget {
                     media: media,
                     progress: progressByMediaId[media.id],
                     showDescription: showDescription,
+                    coverMode: coverMode,
                     onTap: () => onOpenMedia(media),
                   );
                 },

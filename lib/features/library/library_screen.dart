@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
+import '../../core/models/media_source.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../data/repositories/media_repository.dart';
 import '../../shared/widgets/media_image.dart';
@@ -33,6 +34,7 @@ class LibraryScreen extends StatefulWidget {
 class _LibraryScreenState extends State<LibraryScreen> {
   List<MediaItem> _favorites = const [];
   List<_HistoryEntry> _history = const [];
+  MediaCoverMode _coverMode = MediaCoverMode.portrait;
   bool _loading = true;
   Object? _error;
   StreamSubscription<void>? _sourceChangedSubscription;
@@ -64,6 +66,11 @@ class _LibraryScreenState extends State<LibraryScreen> {
       _error = null;
     });
     try {
+      try {
+        _coverMode = await widget.repository.defaultSourceCoverMode();
+      } catch (_) {
+        _coverMode = MediaCoverMode.portrait;
+      }
       if (widget.mode == LibraryContentMode.favorites) {
         final favorites = await widget.repository.favorites();
         if (!mounted) return;
@@ -260,6 +267,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       emptyIcon: Icons.bookmark_border,
                       onTap: widget.onMediaTap,
                       onRemove: _removeFavorite,
+                      coverMode: _coverMode,
                     )
                   : _HistoryList(
                       entries: _history,
@@ -277,6 +285,7 @@ class _MediaGrid extends StatelessWidget {
     required this.emptyIcon,
     this.onTap,
     this.onRemove,
+    this.coverMode = MediaCoverMode.portrait,
   });
 
   final List<MediaItem> items;
@@ -284,6 +293,7 @@ class _MediaGrid extends StatelessWidget {
   final IconData emptyIcon;
   final Future<void> Function(MediaItem)? onTap;
   final ValueChanged<MediaItem>? onRemove;
+  final MediaCoverMode coverMode;
 
   @override
   Widget build(BuildContext context) {
@@ -292,15 +302,16 @@ class _MediaGrid extends StatelessWidget {
     }
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 20, 20, 32),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 172,
         mainAxisSpacing: 20,
         crossAxisSpacing: 12,
-        childAspectRatio: .61,
+        childAspectRatio: coverMode.gridChildAspectRatio,
       ),
       itemCount: items.length,
       itemBuilder: (context, index) => _MediaTile(
         media: items[index],
+        coverMode: coverMode,
         onTap: onTap == null ? null : () => onTap!(items[index]),
         onRemove: onRemove == null ? null : () => onRemove!(items[index]),
       ),
@@ -338,11 +349,17 @@ class _HistoryList extends StatelessWidget {
 }
 
 class _MediaTile extends StatefulWidget {
-  const _MediaTile({required this.media, this.onTap, this.onRemove});
+  const _MediaTile({
+    required this.media,
+    this.onTap,
+    this.onRemove,
+    this.coverMode = MediaCoverMode.portrait,
+  });
 
   final MediaItem media;
   final Future<void> Function()? onTap;
   final VoidCallback? onRemove;
+  final MediaCoverMode coverMode;
 
   @override
   State<_MediaTile> createState() => _MediaTileState();
@@ -369,7 +386,8 @@ class _MediaTileState extends State<_MediaTile> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
+          AspectRatio(
+            aspectRatio: widget.coverMode.posterAspectRatio,
             child: Stack(
               fit: StackFit.expand,
               children: [

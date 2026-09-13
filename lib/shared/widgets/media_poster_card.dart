@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
+import '../../core/models/media_source.dart';
 import '../../core/theme/cineo_theme.dart';
 import 'media_image.dart';
 
@@ -12,6 +13,7 @@ class MediaPosterCard extends StatefulWidget {
     this.progress,
     this.width = 142,
     this.showDescription = false,
+    this.coverMode = MediaCoverMode.portrait,
   });
 
   final MediaItem media;
@@ -19,6 +21,7 @@ class MediaPosterCard extends StatefulWidget {
   final double width;
   final double? progress;
   final bool showDescription;
+  final MediaCoverMode coverMode;
 
   @override
   State<MediaPosterCard> createState() => _MediaPosterCardState();
@@ -57,7 +60,7 @@ class _MediaPosterCardState extends State<MediaPosterCard> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 AspectRatio(
-                  aspectRatio: .69,
+                  aspectRatio: widget.coverMode.posterAspectRatio,
                   child: Stack(
                     fit: StackFit.expand,
                     children: [

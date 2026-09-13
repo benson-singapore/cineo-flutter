@@ -125,29 +125,109 @@ class MacCmsClient {
 
   Future<List<RemoteCategory>> categories(MediaSource source) async {
     final payload = await _get(source, const {'ac': 'list'});
+    final categories = _categoriesFromPayload(payload);
+    if (categories.isNotEmpty) return categories;
+
+    // A few forks expose no `class` field on `ac=list`, but do support the
+    // separate class action. Treat an unavailable optional fallback as an
+    // empty category list instead of turning a valid list response into an
+    // opaque "load failed" state.
+    try {
+      final classPayload = await _get(source, const {'ac': 'class'});
+      return _categoriesFromPayload(classPayload);
+    } on Object {
+      return const [];
+    }
+  }
+
+  List<RemoteCategory> _categoriesFromPayload(Object? payload) {
     if (payload is! Map) {
       throw const FormatException('站点分类响应格式不正确');
     }
-    final rawCategories = payload['class'] ??
-        payload['types'] ??
-        (payload['data'] is Map ? (payload['data'] as Map)['class'] : null);
-    if (rawCategories is! List) return const [];
-    return rawCategories
-        .whereType<Map>()
-        .map((raw) {
-          final item = Map<String, Object?>.from(raw);
-          final id = _string(item['type_id'] ?? item['id']);
-          final name = _string(item['type_name'] ?? item['name']);
-          final parentId = _string(item['type_pid'] ?? item['parent_id']);
-          if (id.isEmpty || name.isEmpty) return null;
-          return RemoteCategory(
-            id: id,
-            name: name,
-            parentId: parentId.isEmpty || parentId == '0' ? null : parentId,
-          );
-        })
-        .whereType<RemoteCategory>()
-        .toList(growable: false);
+
+    final candidates = <Object?>[
+      payload['class'],
+      payload['types'],
+      payload['categories'],
+      payload['data'],
+    ];
+    final data = payload['data'];
+    if (data is Map) {
+      candidates
+        ..add(data['class'])
+        ..add(data['types'])
+        ..add(data['categories'])
+        ..add(data['list']);
+    }
+
+    final rawCategories = <Map<String, Object?>>[];
+    for (final candidate in candidates) {
+      _collectCategoryMaps(candidate, rawCategories);
+    }
+
+    final result = <RemoteCategory>[];
+    final seen = <String>{};
+    for (final item in rawCategories) {
+      final id = _string(
+        item['type_id'] ?? item['typeId'] ?? item['id'] ?? item['value'],
+      );
+      final name = _string(
+        item['type_name'] ?? item['typeName'] ?? item['name'] ?? item['label'],
+      );
+      final parentId = _string(
+        item['type_pid'] ??
+            item['typePid'] ??
+            item['parent_id'] ??
+            item['parentId'],
+      );
+      if (id.isEmpty || name.isEmpty || !seen.add(id)) continue;
+      result.add(
+        RemoteCategory(
+          id: id,
+          name: name,
+          parentId: parentId.isEmpty || parentId == '0' ? null : parentId,
+        ),
+      );
+    }
+    return List.unmodifiable(result);
+  }
+
+  void _collectCategoryMaps(
+    Object? value,
+    List<Map<String, Object?>> output,
+  ) {
+    if (value == null) return;
+    if (value is String) {
+      try {
+        _collectCategoryMaps(jsonDecode(value), output);
+      } catch (_) {
+        // Ignore non-JSON status strings returned by some forks.
+      }
+      return;
+    }
+    if (value is List) {
+      for (final item in value) {
+        _collectCategoryMaps(item, output);
+      }
+      return;
+    }
+    if (value is! Map) return;
+
+    final map = Map<String, Object?>.from(value);
+    final hasId = map.containsKey('type_id') ||
+        map.containsKey('typeId') ||
+        map.containsKey('id');
+    final hasName = map.containsKey('type_name') ||
+        map.containsKey('typeName') ||
+        map.containsKey('name') ||
+        map.containsKey('label');
+    if (hasId && hasName) {
+      output.add(map);
+      return;
+    }
+    for (final nested in map.values) {
+      _collectCategoryMaps(nested, output);
+    }
   }
 
   Future<SourceProbeResult> probe(MediaSource source) async {

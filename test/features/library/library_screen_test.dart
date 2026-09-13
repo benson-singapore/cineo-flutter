@@ -85,11 +85,30 @@ class _FakeMediaRepository implements MediaRepository {
       const [];
 
   @override
+  Future<List<SourceGroupConfig>> refreshSourceGroupConfigs(
+          String sourceId) async =>
+      const [];
+
+  @override
   Future<void> saveSourceGroupConfig(SourceGroupConfig config) async {}
 
   @override
   Future<List<String>> getEnabledGroupIdsForSource(String sourceId) async =>
       const [];
+
+  @override
+  Future<MediaCoverMode> getSourceCoverMode(String sourceId) async =>
+      MediaCoverMode.portrait;
+
+  @override
+  Future<void> setSourceCoverMode(
+    String sourceId,
+    MediaCoverMode mode,
+  ) async {}
+
+  @override
+  Future<MediaCoverMode> defaultSourceCoverMode() async =>
+      MediaCoverMode.portrait;
 
   @override
   Future<void> initializeSourceGroupConfigs(

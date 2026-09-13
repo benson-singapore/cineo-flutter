@@ -24,6 +24,10 @@ abstract class MediaRepository {
   Future<MediaSource?> defaultSource();
   Future<void> setDefaultSource(String id);
   Future<List<SourceGroupConfig>> getSourceGroupConfigs(String sourceId);
+  Future<List<SourceGroupConfig>> refreshSourceGroupConfigs(
+    String sourceId,
+  ) async =>
+      getSourceGroupConfigs(sourceId);
   Future<void> saveSourceGroupConfig(SourceGroupConfig config);
   Future<List<String>> getEnabledGroupIdsForSource(String sourceId);
   Future<void> initializeSourceGroupConfigs(
@@ -35,4 +39,12 @@ abstract class MediaRepository {
     String groupId,
     bool enable,
   );
+  Future<MediaCoverMode> getSourceCoverMode(String sourceId) async =>
+      MediaCoverMode.portrait;
+  Future<void> setSourceCoverMode(
+    String sourceId,
+    MediaCoverMode mode,
+  ) async {}
+  Future<MediaCoverMode> defaultSourceCoverMode() async =>
+      MediaCoverMode.portrait;
 }

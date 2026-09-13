@@ -125,6 +125,7 @@ class _SourceListScreenState extends State<SourceListScreen> {
     try {
       await widget.repository.setDefaultSource(source.id);
       await _load();
+      widget.onDefaultSourceChanged?.call();
       if (!mounted) return;
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('已将“${source.name}”设为默认视频源')),

@@ -1,5 +1,16 @@
 enum MediaSourceType { direct, macCmsApi, jsonApi, demo }
 
+enum MediaCoverMode { portrait, landscape }
+
+extension MediaCoverModeLayout on MediaCoverMode {
+  double get posterAspectRatio =>
+      this == MediaCoverMode.landscape ? 16 / 9 : 9 / 16;
+
+  /// Includes the title/meta rows below a poster card.
+  double get gridChildAspectRatio =>
+      this == MediaCoverMode.landscape ? 1.18 : .47;
+}
+
 class MediaSource {
   const MediaSource({
     required this.id,
@@ -16,6 +27,7 @@ class MediaSource {
     this.isDefault = false,
     this.lastLatencyMs,
     this.isFavorite = false,
+    this.coverMode = MediaCoverMode.portrait,
   });
 
   final String id;
@@ -32,6 +44,7 @@ class MediaSource {
   final bool isDefault;
   final int? lastLatencyMs;
   final bool isFavorite;
+  final MediaCoverMode coverMode;
 
   MediaSource copyWith({
     String? name,
@@ -46,6 +59,7 @@ class MediaSource {
     bool? isDefault,
     int? lastLatencyMs,
     bool? isFavorite,
+    MediaCoverMode? coverMode,
     bool clearLastError = false,
   }) {
     return MediaSource(
@@ -63,6 +77,7 @@ class MediaSource {
       isDefault: isDefault ?? this.isDefault,
       lastLatencyMs: lastLatencyMs ?? this.lastLatencyMs,
       isFavorite: isFavorite ?? this.isFavorite,
+      coverMode: coverMode ?? this.coverMode,
     );
   }
 }

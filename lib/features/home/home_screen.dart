@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/models/home_category_rail.dart';
 import '../../core/models/media.dart';
+import '../../core/models/media_source.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../shared/widgets/cineo_brand_mark.dart';
 import '../../shared/widgets/content_state_view.dart';
@@ -29,6 +30,7 @@ class HomeScreen extends StatefulWidget {
     this.progressByMediaId = const {},
     this.categoryRails = const [],
     this.onSeeAll,
+    this.coverMode = MediaCoverMode.portrait,
     this.onContinueWatching,
     this.onOpenSearch,
     this.scrollController,
@@ -46,6 +48,7 @@ class HomeScreen extends StatefulWidget {
   final Future<void> Function()? onRefresh;
   final Map<String, double> progressByMediaId;
   final List<HomeCategoryRail> categoryRails;
+  final MediaCoverMode coverMode;
 
   final HomeRailSeeAllCallback? onSeeAll;
   final Future<void> Function(MediaItem)? onContinueWatching;
@@ -127,12 +130,14 @@ class _HomeScreenState extends State<HomeScreen> {
                     title: '继续观看',
                     items: widget.continueWatching,
                     progressByMediaId: widget.progressByMediaId,
+                    coverMode: widget.coverMode,
                     onOpenMedia: widget.onOpenMedia,
                   ),
                 if (widget.favorites.isNotEmpty)
                   MediaRail(
                     title: '我的收藏',
                     items: widget.favorites,
+                    coverMode: widget.coverMode,
                     onOpenMedia: widget.onOpenMedia,
                   ),
                 ..._fixedCategoryRails(),
@@ -200,6 +205,7 @@ class _HomeScreenState extends State<HomeScreen> {
           (rail) => MediaRail(
             title: rail.title,
             items: rail.items,
+            coverMode: widget.coverMode,
             onOpenMedia: widget.onOpenMedia,
             onSeeAll: widget.onSeeAll == null
                 ? null

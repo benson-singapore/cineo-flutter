@@ -91,11 +91,30 @@ class _FakeMediaRepository implements MediaRepository {
       const [];
 
   @override
+  Future<List<SourceGroupConfig>> refreshSourceGroupConfigs(
+          String sourceId) async =>
+      const [];
+
+  @override
   Future<void> saveSourceGroupConfig(SourceGroupConfig config) async {}
 
   @override
   Future<List<String>> getEnabledGroupIdsForSource(String sourceId) async =>
       const [];
+
+  @override
+  Future<MediaCoverMode> getSourceCoverMode(String sourceId) async =>
+      MediaCoverMode.portrait;
+
+  @override
+  Future<void> setSourceCoverMode(
+    String sourceId,
+    MediaCoverMode mode,
+  ) async {}
+
+  @override
+  Future<MediaCoverMode> defaultSourceCoverMode() async =>
+      MediaCoverMode.portrait;
 
   @override
   Future<void> initializeSourceGroupConfigs(
@@ -112,6 +131,32 @@ class _FakeMediaRepository implements MediaRepository {
 }
 
 void main() {
+  testWidgets('notifies the parent after changing the default source',
+      (tester) async {
+    SharedPreferences.setMockInitialValues({});
+    final adultSettings = AdultSourceSettings();
+    await adultSettings.initialize();
+    var notified = false;
+
+    await tester.pumpWidget(
+      MaterialApp(
+        home: SourceListScreen(
+          repository: _FakeMediaRepository(),
+          adultSourceSettings: adultSettings,
+          onDefaultSourceChanged: () => notified = true,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('普通源 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('设为默认'));
+    await tester.pumpAndSettle();
+
+    expect(notified, isTrue);
+  });
+
   testWidgets('hides adult sources from every tab when disabled',
       (tester) async {
     SharedPreferences.setMockInitialValues({});

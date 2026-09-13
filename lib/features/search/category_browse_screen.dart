@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../core/models/media.dart';
+import '../../core/models/media_source.dart';
 import '../../core/models/paged_media.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../shared/widgets/media_image.dart';
@@ -13,12 +14,14 @@ class CategoryBrowseScreen extends StatefulWidget {
     required this.initialItems,
     required this.onOpenMedia,
     this.onLoad,
+    this.coverMode = MediaCoverMode.portrait,
   });
 
   final String title;
   final List<MediaItem> initialItems;
   final Future<void> Function(MediaItem) onOpenMedia;
   final Future<PagedMedia> Function(int page)? onLoad;
+  final MediaCoverMode coverMode;
 
   @override
   State<CategoryBrowseScreen> createState() => _CategoryBrowseScreenState();
@@ -196,17 +199,19 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
                               delegate: SliverChildBuilderDelegate(
                                 (context, index) => BrowseMediaCard(
                                   media: _items[index],
+                                  coverMode: widget.coverMode,
                                   onTap: () =>
                                       widget.onOpenMedia(_items[index]),
                                 ),
                                 childCount: _items.length,
                               ),
                               gridDelegate:
-                                  const SliverGridDelegateWithMaxCrossAxisExtent(
+                                  SliverGridDelegateWithMaxCrossAxisExtent(
                                 maxCrossAxisExtent: 176,
                                 mainAxisSpacing: 18,
                                 crossAxisSpacing: 12,
-                                childAspectRatio: .62,
+                                childAspectRatio:
+                                    widget.coverMode.gridChildAspectRatio,
                               ),
                             ),
                           ),
@@ -271,12 +276,14 @@ class BrowseMediaGrid extends StatelessWidget {
     required this.onOpenMedia,
     this.emptyTitle = '没有内容',
     this.emptyMessage = '暂时没有可展示的资源',
+    this.coverMode = MediaCoverMode.portrait,
   });
 
   final List<MediaItem> items;
   final Future<void> Function(MediaItem) onOpenMedia;
   final String emptyTitle;
   final String emptyMessage;
+  final MediaCoverMode coverMode;
 
   @override
   Widget build(BuildContext context) {
@@ -289,15 +296,16 @@ class BrowseMediaGrid extends StatelessWidget {
     }
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
         maxCrossAxisExtent: 176,
         mainAxisSpacing: 18,
         crossAxisSpacing: 12,
-        childAspectRatio: .62,
+        childAspectRatio: coverMode.gridChildAspectRatio,
       ),
       itemCount: items.length,
       itemBuilder: (context, index) => BrowseMediaCard(
         media: items[index],
+        coverMode: coverMode,
         onTap: () => onOpenMedia(items[index]),
       ),
     );
@@ -309,10 +317,12 @@ class BrowseMediaCard extends StatefulWidget {
     super.key,
     required this.media,
     required this.onTap,
+    this.coverMode = MediaCoverMode.portrait,
   });
 
   final MediaItem media;
   final Future<void> Function() onTap;
+  final MediaCoverMode coverMode;
 
   @override
   State<BrowseMediaCard> createState() => _BrowseMediaCardState();
