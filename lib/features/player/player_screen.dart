@@ -979,9 +979,19 @@ class _PlayerScreenState extends State<PlayerScreen>
     _showControls();
   }
 
-  void _closeAppPictureInPicture() {
-    _save();
-    if (mounted) Navigator.of(context).pop();
+  Future<void> _closePlayer() async {
+    if (_isClosing) return;
+    _isClosing = true;
+    _saveTimer?.cancel();
+    try {
+      await _save();
+    } finally {
+      if (mounted) Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _closeAppPictureInPicture() async {
+    await _closePlayer();
   }
 
   void _returnToPlayerFromAppPictureInPicture() {
@@ -1109,7 +1119,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (_isInPictureInPicture) {
       unawaited(_pictureInPicture.stop());
     }
-    _save();
+    if (!_isClosing) unawaited(_save());
     unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     final controller = _controller;
     if (controller != null) {
@@ -1168,27 +1178,33 @@ class _PlayerScreenState extends State<PlayerScreen>
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (_error != null)
-              _PlayerFailure(
-                error: _error!,
-                onClose: () => Navigator.pop(context),
-              )
-            else if (!isReady || controller == null)
-              const Center(
-                child: CircularProgressIndicator(color: CineoColors.primary),
-              )
-            else
-              Center(
-                child: AspectRatio(
-                  aspectRatio:
-                      value!.aspectRatio > 0 ? value.aspectRatio : 16 / 9,
-                  child: VideoPlayer(controller),
+    return WillPopScope(
+      onWillPop: () async {
+        await _closePlayer();
+        return false;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_error != null)
+                _PlayerFailure(
+                  error: _error!,
+                  onClose: () => Navigator.pop(context),
+                )
+              else if (!isReady || controller == null)
+                const Center(
+                  child: CircularProgressIndicator(color: CineoColors.primary),
+                )
+              else
+                Center(
+                  child: AspectRatio(
+                    aspectRatio:
+                        value!.aspectRatio > 0 ? value.aspectRatio : 16 / 9,
+                    child: VideoPlayer(controller),
+                  ),
                 ),
               ),
             if (_error == null && isReady && controller != null)
