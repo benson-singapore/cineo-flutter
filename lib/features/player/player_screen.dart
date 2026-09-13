@@ -12,6 +12,7 @@ import '../../core/models/media.dart';
 import '../../core/models/source_search_progress.dart';
 import '../../core/platform/picture_in_picture.dart';
 import '../../core/theme/cineo_theme.dart';
+import '../../shared/widgets/media_image.dart';
 import '../settings/m3u8_filter_settings.dart';
 
 const List<double> supportedPlaybackSpeeds = <double>[
@@ -1638,6 +1639,7 @@ class _PlayerSourceSheetState extends State<_PlayerSourceSheet> {
                   final sourceName = media.sourceName?.trim().isNotEmpty == true
                       ? media.sourceName!.trim()
                       : '资源站';
+                  final posterUrl = _posterUrlFor(media);
                   return Material(
                     color: selected
                         ? CineoColors.primaryContainer
@@ -1650,14 +1652,18 @@ class _PlayerSourceSheetState extends State<_PlayerSourceSheet> {
                       child: Padding(
                         padding: const EdgeInsets.all(14),
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(
-                              selected
-                                  ? Icons.check_circle_rounded
-                                  : Icons.video_library_outlined,
-                              color: selected
-                                  ? CineoColors.primary
-                                  : CineoColors.textSecondary,
+                            SizedBox(
+                              width: 56,
+                              height: 82,
+                              child: MediaImage(
+                                url: posterUrl,
+                                borderRadius: BorderRadius.circular(7),
+                                placeholderIcon: selected
+                                    ? Icons.check_circle_rounded
+                                    : Icons.video_library_outlined,
+                              ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -1703,6 +1709,18 @@ class _PlayerSourceSheetState extends State<_PlayerSourceSheet> {
         ),
       ),
     );
+  }
+
+  String _posterUrlFor(MediaItem media) {
+    for (final candidate in <String>[
+      widget.currentMedia.posterUrl,
+      widget.currentMedia.backdropUrl,
+      media.posterUrl,
+      media.backdropUrl,
+    ]) {
+      if (candidate.trim().isNotEmpty) return candidate;
+    }
+    return '';
   }
 }
 

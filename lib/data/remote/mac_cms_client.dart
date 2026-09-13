@@ -339,8 +339,8 @@ class MacCmsClient {
       description: formatMediaDescription(_string(item['vod_content'])),
       year: _int(item['vod_year']),
       kind: _kindFor(typeName),
-      posterUrl: _resolveUrl(source.baseUrl, _string(item['vod_pic'])),
-      backdropUrl: _resolveUrl(source.baseUrl, _string(item['vod_pic'])),
+      posterUrl: _imageUrl(item, source),
+      backdropUrl: _imageUrl(item, source),
       genres: typeName.isEmpty
           ? const []
           : typeName
@@ -548,6 +548,24 @@ class MacCmsClient {
     final uri = Uri.tryParse(value);
     if (uri != null && uri.hasScheme) return value;
     return Uri.parse(baseUrl).resolve(value).toString();
+  }
+
+  static String _imageUrl(Map<String, Object?> item, MediaSource source) {
+    // Different MacCMS deployments expose the same artwork under different
+    // fields. Keep the provider's preferred poster first, then use the common
+    // thumbnail, slide, and image aliases as fallbacks.
+    const keys = <String>[
+      'vod_pic',
+      'vod_pic_thumb',
+      'vod_pic_slide',
+      'vod_img',
+      'vod_pic_screenshot',
+    ];
+    for (final key in keys) {
+      final value = _string(item[key]);
+      if (value.isNotEmpty) return _resolveUrl(source.baseUrl, value);
+    }
+    return '';
   }
 
   static String _messageFor(Object error) => error is TimeoutException

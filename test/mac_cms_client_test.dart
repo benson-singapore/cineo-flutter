@@ -110,6 +110,30 @@ void main() {
     expect(items.single.title, '兼容影片');
   });
 
+  test('uses common MacCMS artwork aliases when vod_pic is missing', () async {
+    final client = MacCmsClient(
+      fetcher: (_) async => jsonEncode({
+        'list': [
+          {
+            'vod_id': 9,
+            'vod_name': '使用缩略图的影片',
+            'vod_pic_thumb': '/thumb.jpg',
+          },
+          {
+            'vod_id': 10,
+            'vod_name': '使用横图的影片',
+            'vod_pic_slide': 'https://cdn.example.test/slide.jpg',
+          },
+        ],
+      }),
+    );
+
+    final items = await client.list(source);
+
+    expect(items[0].posterUrl, 'https://media.example.test/thumb.jpg');
+    expect(items[1].posterUrl, 'https://cdn.example.test/slide.jpg');
+  });
+
   test('derives page count from total and limit when pagecount is absent',
       () async {
     final client = MacCmsClient(
