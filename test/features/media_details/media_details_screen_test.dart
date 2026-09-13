@@ -4,8 +4,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:cineo_flutter/core/models/media.dart';
+import 'package:cineo_flutter/core/models/source_search_progress.dart';
 import 'package:cineo_flutter/core/models/tmdb_media.dart';
 import 'package:cineo_flutter/core/theme/cineo_theme.dart';
+import 'package:cineo_flutter/data/download/download_service.dart';
+import 'package:cineo_flutter/features/media_details/episode_library_screen.dart';
 import 'package:cineo_flutter/features/media_details/media_details_screen.dart';
 
 class _DelayedDetailsRepository {
@@ -90,6 +93,9 @@ void main() {
     ValueChanged<PlaybackOption>? onPlay,
     String description = '测试简介',
     List<WatchProgress> watchHistory = const [],
+    Future<List<WatchProgress>> Function()? onLoadWatchHistory,
+    double imageAspectRatio = 2 / 3,
+    DownloadService? downloadService,
   }) {
     return MaterialApp(
       theme: buildCineoTheme(),
@@ -99,6 +105,9 @@ void main() {
         initialWatchHistory: watchHistory,
         onFavoriteChanged: (_, __) {},
         onPlay: (_, option) => (onPlay ?? (_) {})(option),
+        imageAspectRatio: imageAspectRatio,
+        onLoadWatchHistory: onLoadWatchHistory,
+        downloadService: downloadService,
       ),
     );
   }
@@ -139,6 +148,138 @@ void main() {
     expect(played?.id, lineAEpisodeTwo.id);
   });
 
+  testWidgets('refreshes episode progress after returning from the player',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    var history = <WatchProgress>[
+      WatchProgress(
+        mediaId: 'series',
+        episodeId: lineAEpisode.id,
+        episodeLabel: '第1集',
+        episodeNumber: 1,
+        episodeCount: 2,
+        position: const Duration(minutes: 1),
+        duration: const Duration(minutes: 20),
+        updatedAt: DateTime(2026, 1, 1),
+      ),
+    ];
+    var playerClosed = false;
+
+    await tester.pumpWidget(buildScreen(
+      watchHistory: history,
+      onLoadWatchHistory: () async => history,
+      onPlay: (_) {
+        playerClosed = true;
+        history = [
+          WatchProgress(
+            mediaId: 'series',
+            episodeId: lineAEpisode.id,
+            episodeLabel: '第1集',
+            episodeNumber: 1,
+            episodeCount: 2,
+            position: const Duration(minutes: 10, seconds: 8),
+            duration: const Duration(minutes: 19, seconds: 43),
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        ];
+      },
+    ));
+    await tester.pumpAndSettle();
+
+    await _scrollDetailPage(tester);
+    await tester.tap(find.byKey(const ValueKey('primary-play-button')));
+    await tester.pumpAndSettle();
+
+    expect(playerClosed, isTrue);
+    final progress = tester.widget<LinearProgressIndicator>(
+      find.descendant(
+        of: find.byKey(const ValueKey('episode-progress-episode-a-1')),
+        matching: find.byType(LinearProgressIndicator),
+      ),
+    );
+    expect(progress.value, closeTo(608 / 1183, 0.001));
+  });
+
+  testWidgets('shows the download button for HLS episodes and opens the sheet',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    final service = DownloadService();
+
+    await tester.pumpWidget(buildScreen(downloadService: service));
+    await tester.pump(const Duration(milliseconds: 100));
+    await _scrollDetailPageWithPump(tester);
+
+    expect(find.byKey(const ValueKey('download-button')), findsOneWidget);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('download-button'))).dx,
+      lessThan(tester.getTopLeft(find.byTooltip('收藏')).dx),
+    );
+
+    await tester.tap(find.byKey(const ValueKey('download-button')));
+    await tester.pump(const Duration(milliseconds: 400));
+
+    expect(find.text('缓存下载'), findsOneWidget);
+    expect(find.text('全部加入'), findsOneWidget);
+    expect(find.textContaining('第 1 集'), findsWidgets);
+  });
+
+  testWidgets('hides the download button when all playback options are MP4',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    const mp4Episode = Episode(
+      id: 'episode-mp4',
+      title: '正片',
+      season: 1,
+      number: 1,
+      playbackOption: lineBEpisode,
+    );
+    final mp4Media = buildSeries().copyWith(
+      playbackOptions: const [lineBEpisode],
+      episodes: [mp4Episode],
+    );
+
+    final service = DownloadService();
+
+    await tester.pumpWidget(
+      MaterialApp(
+        theme: buildCineoTheme(),
+        home: MediaDetailsScreen(
+          media: mp4Media,
+          favorite: false,
+          onFavoriteChanged: (_, __) {},
+          onPlay: (_, __) {},
+          downloadService: service,
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    await _scrollDetailPageWithPump(tester);
+
+    expect(find.byKey(const ValueKey('download-button')), findsNothing);
+    expect(find.byTooltip('收藏'), findsOneWidget);
+  });
+
+  testWidgets('uses the configured image aspect ratio for the hero poster',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(buildScreen(imageAspectRatio: 16 / 9));
+    await tester.pumpAndSettle();
+
+    final posterSize = tester.getSize(
+      find.byKey(const ValueKey('detail-poster')),
+    );
+    expect(posterSize.width, 800);
+    expect(posterSize.height, closeTo(450, 0.1));
+  });
+
   testWidgets('defaults the primary button to the first available episode',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
@@ -153,6 +294,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('primary-play-button')));
     expect(played?.id, lineAEpisode.id);
   });
+
   testWidgets('renders formatted HTML description with a collapsible section',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));
@@ -349,8 +491,6 @@ void main() {
     await tester.pumpWidget(buildScreen());
     await tester.pumpAndSettle();
 
-    expect(find.text('正序'), findsNothing);
-    expect(find.text('倒序'), findsNothing);
     expect(find.byType(ChoiceChip), findsNothing);
     expect(find.text('查看全部'), findsOneWidget);
   });
@@ -416,6 +556,94 @@ void main() {
     expect(loaded?.sourceId, 'site-2');
     expect(find.text('选择资源站'), findsNothing);
     expect(find.text('如意资源站'), findsOneWidget);
+  });
+
+  testWidgets('opens the source sheet immediately and appends results',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final progress = StreamController<SourceSearchProgress>();
+    addTearDown(progress.close);
+    final current = buildSeries(
+      sourceId: 'site-1',
+      sourceName: '当前资源站',
+    );
+    const firstMatch = MediaItem(
+      id: 'site-2:remote-2',
+      sourceId: 'site-2',
+      sourceName: '第二资源站',
+      remoteId: 'remote-2',
+      title: '测试剧集',
+      description: '',
+      year: 2026,
+      kind: MediaKind.series,
+      posterUrl: '',
+      backdropUrl: '',
+      genres: [],
+      rating: 0,
+      duration: Duration.zero,
+    );
+    const secondMatch = MediaItem(
+      id: 'site-3:remote-3',
+      sourceId: 'site-3',
+      sourceName: '第三资源站',
+      remoteId: 'remote-3',
+      title: '测试剧集',
+      description: '',
+      year: 2026,
+      kind: MediaKind.series,
+      posterUrl: '',
+      backdropUrl: '',
+      genres: [],
+      rating: 0,
+      duration: Duration.zero,
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: MediaDetailsScreen(
+        media: current,
+        favorite: false,
+        onFavoriteChanged: (_, __) {},
+        onPlay: (_, __) {},
+        onSearchOtherSourcesProgressively: (_) => progress.stream,
+      ),
+    ));
+    await tester.pump();
+    await _scrollDetailPage(tester);
+    await tester.tap(find.byKey(const ValueKey('switch-media-site')));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.text('选择资源站'), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-1')), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-2')), findsNothing);
+
+    progress.add(const SourceSearchProgress(searched: 0, total: 2));
+    await tester.pump();
+    expect(find.text('0 / 2'), findsOneWidget);
+    expect(find.text('正在查询普通源'), findsOneWidget);
+
+    progress.add(const SourceSearchProgress(
+      searched: 1,
+      total: 2,
+      matches: [firstMatch],
+    ));
+    await tester.pump();
+    expect(find.text('1 / 2'), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-3')), findsNothing);
+
+    progress.add(const SourceSearchProgress(
+      searched: 2,
+      total: 2,
+      matches: [secondMatch],
+      isComplete: true,
+    ));
+    await tester.pump();
+    expect(find.text('2 / 2'), findsOneWidget);
+    expect(find.text('查询完成'), findsOneWidget);
+    expect(find.byKey(const ValueKey('media-site-site-3')), findsOneWidget);
   });
 
   test('formats inconsistent source episode labels', () {
@@ -553,6 +781,73 @@ void main() {
     expect(find.text('第1季 · 全部剧集'), findsOneWidget);
     expect(find.byKey(const ValueKey('library-episode-a-1')), findsOneWidget);
     expect(find.textContaining('开端'), findsOneWidget);
+    expect(find.byKey(const ValueKey('episode-sort-toggle')), findsOneWidget);
+    expect(find.text('正序'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('episode-sort-toggle')));
+    await tester.pumpAndSettle();
+    expect(find.text('倒序'), findsOneWidget);
+  });
+
+  testWidgets('can return to the top of the episode library', (tester) async {
+    await tester.binding.setSurfaceSize(const Size(400, 700));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final episodes = List<Episode>.generate(
+      10,
+      (index) => Episode(
+        id: 'library-episode-${index + 1}',
+        title: '第${index + 1}集',
+        season: 1,
+        number: index + 1,
+        playbackOption: PlaybackOption(
+          id: 'library-option-${index + 1}',
+          sourceId: 'site-1',
+          label: '第${index + 1}集',
+          url: 'https://example.test/${index + 1}.m3u8',
+          quality: '线路 A',
+          isHls: true,
+        ),
+      ),
+    );
+
+    await tester.pumpWidget(MaterialApp(
+      theme: buildCineoTheme(),
+      home: EpisodeLibraryScreen(
+        media: buildSeries(),
+        episodes: episodes,
+        tmdbSeason: null,
+        fallbackPosterUrl: '',
+        onPlay: (_) {},
+      ),
+    ));
+    await tester.pumpAndSettle();
+
+    final firstEpisodeBefore = tester.getTopLeft(
+      find.byKey(const ValueKey('library-library-episode-1')),
+    );
+    expect(firstEpisodeBefore.dy, greaterThan(0));
+
+    await tester.tap(find.byKey(const ValueKey('episode-sort-toggle')));
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('library-library-episode-10')),
+      findsOneWidget,
+    );
+
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('library-library-episode-10')),
+      400,
+      scrollable: find.descendant(
+        of: find.byType(CustomScrollView),
+        matching: find.byType(Scrollable),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('episode-back-to-top')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('episode-back-to-top')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('episode-back-to-top')), findsNothing);
   });
 
   testWidgets('uses supplied TMDB details without loading them again',
@@ -709,6 +1004,8 @@ void main() {
     expect(find.text('测试剧集'), findsOneWidget);
     expect(find.text('测试简介'), findsOneWidget);
     expect(find.text('查看全部'), findsOneWidget);
+    expect(find.text('8.0 分'), findsNothing);
+    expect(find.text('40 分钟'), findsNothing);
   });
 
   testWidgets('manually searches and applies a TMDB match', (tester) async {
@@ -787,4 +1084,12 @@ Future<void> _scrollDetailPage(WidgetTester tester) async {
     const Offset(0, -900),
   );
   await tester.pumpAndSettle();
+}
+
+Future<void> _scrollDetailPageWithPump(WidgetTester tester) async {
+  await tester.drag(
+    find.byType(CustomScrollView),
+    const Offset(0, -900),
+  );
+  await tester.pump(const Duration(milliseconds: 100));
 }

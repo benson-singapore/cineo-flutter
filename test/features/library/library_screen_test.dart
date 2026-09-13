@@ -47,6 +47,9 @@ class _FakeMediaRepository implements MediaRepository {
   }) async {}
 
   @override
+  Future<void> mergeMediaHistory(MediaItem current) async {}
+
+  @override
   Future<MediaItem?> loadDetails(MediaItem item) async => item;
 
   @override
@@ -85,15 +88,13 @@ class _FakeMediaRepository implements MediaRepository {
       const [];
 
   @override
-  Future<List<SourceGroupConfig>> refreshSourceGroupConfigs(
+  Future<List<SourceGroupConfig>> syncSourceGroupConfigs(
           String sourceId) async =>
       const [];
 
   @override
-  Future<void> saveSourceGroupConfig(SourceGroupConfig config) async {}
-
-  @override
-  Future<List<String>> getEnabledGroupIdsForSource(String sourceId) async =>
+  Future<List<SourceGroupConfig>> refreshSourceGroupConfigs(
+          String sourceId) async =>
       const [];
 
   @override
@@ -109,6 +110,13 @@ class _FakeMediaRepository implements MediaRepository {
   @override
   Future<MediaCoverMode> defaultSourceCoverMode() async =>
       MediaCoverMode.portrait;
+
+  @override
+  Future<void> saveSourceGroupConfig(SourceGroupConfig config) async {}
+
+  @override
+  Future<List<String>> getEnabledGroupIdsForSource(String sourceId) async =>
+      const [];
 
   @override
   Future<void> initializeSourceGroupConfigs(

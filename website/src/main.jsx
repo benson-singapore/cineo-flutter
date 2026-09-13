@@ -34,9 +34,17 @@ const screenshots = [
   ['首页 · 内容分区', '首页媒体分区界面'], ['关于 · Cineo', 'Cineo 关于页面'], ['发现 · 分类浏览', '分类浏览界面'], ['详情 · 内容信息', '影视详情界面'],
   ['播放 · 沉浸观看', '视频播放界面'], ['来源 · 多源管理', '视频来源管理界面'], ['搜索 · 快速找到', '搜索界面'],
   ['首页 · 推荐内容', '首页推荐内容界面'], ['发现 · 热门分类', '热门分类界面'], ['详情 · 剧集信息', '剧集信息界面'],
-  ['播放 · 播放控制', '播放控制界面'], ['来源 · 站点选择', '站点选择界面'], ['搜索 · 结果列表', '搜索结果列表界面'],
-  ['设置 · TMDB 配置', 'TMDB 配置界面'], ['设置 · 应用偏好', '应用偏好设置界面'],
-].map(([label, alt], index) => ({ name: `IMG_${[3493, 3507, 3494, 3495, 3496, 3497, 3498, 3499, 3500, 3501, 3502, 3503, 3504, 3505, 3506][index]}`, label, alt: `Cineo ${alt}` }))
+  ['播放 · 播放控制', '播放控制界面'], ['来源 · 视频源', '视频源界面'], ['设置 · 通用设置', '通用设置界面'],
+  ['设置 · 应用锁', '应用锁设置界面'], ['设置 · 版本更新', '版本更新界面'],
+].map(([label, alt], index) => ({ name: `IMG_${[3493, 3507, 3494, 3495, 3496, 3497, 3498, 3499, 3500, 3501, 3502, 3503, 3504, 3506, 3505][index]}`, label, alt: `Cineo ${alt}` }))
+
+const downloadShots = [
+  { src: './download/download-01.png', label: '从详情页开始下载', alt: 'Cineo 下载功能界面' },
+  { src: './download/download-02.png', label: '查看下载任务', alt: 'Cineo 下载任务界面' },
+  { src: './download/download-03.png', label: '跟踪下载进度', alt: 'Cineo 下载进度界面' },
+  { src: './download/download-04.png', label: '管理本地内容', alt: 'Cineo 本地下载内容界面' },
+  { src: './download/download-05.png', label: '完成后的下载状态', alt: 'Cineo 下载完成状态界面' },
+]
 
 const features = [
   { icon: Layers3, number: '01', title: '多源聚合', text: '把分散的视频来源收进一个清晰的入口。支持 MacCMS 兼容 API、JSON 导入、启用、收藏与连通性测试。', image: 'IMG_3498' },
@@ -49,12 +57,35 @@ function App() {
   const [activeShot, setActiveShot] = useState(null)
   const [activePreview, setActivePreview] = useState(0)
   const previewRef = useRef(null)
-  const previewDragRef = useRef({ active: false, startX: 0, startScroll: 0 })
+  const previewDragRef = useRef({ active: false, moved: false, suppressClick: false, startX: 0, startScroll: 0 })
+
+  const openShot = (items, index) => setActiveShot({ items, index })
+
+  const moveShot = (direction) => {
+    setActiveShot((current) => {
+      if (!current) return current
+      return {
+        ...current,
+        index: (current.index + direction + current.items.length) % current.items.length,
+      }
+    })
+  }
 
   useEffect(() => {
     document.body.style.overflow = activeShot || menuOpen ? 'hidden' : ''
     return () => { document.body.style.overflow = '' }
   }, [activeShot, menuOpen])
+
+  useEffect(() => {
+    if (!activeShot) return undefined
+    const handlePreviewKeyDown = (event) => {
+      if (event.key === 'Escape') setActiveShot(null)
+      if (event.key === 'ArrowLeft') moveShot(-1)
+      if (event.key === 'ArrowRight') moveShot(1)
+    }
+    window.addEventListener('keydown', handlePreviewKeyDown)
+    return () => window.removeEventListener('keydown', handlePreviewKeyDown)
+  }, [activeShot])
 
   const closeMenu = () => setMenuOpen(false)
 
@@ -83,16 +114,21 @@ function App() {
     if (event.pointerType === 'mouse' && event.button !== 0) return
     const track = previewRef.current
     if (!track) return
-    previewDragRef.current = { active: true, startX: event.clientX, startScroll: track.scrollLeft }
+    previewDragRef.current = { active: true, moved: false, suppressClick: false, startX: event.clientX, startScroll: track.scrollLeft }
     track.setPointerCapture?.(event.pointerId)
-    track.classList.add('is-dragging')
   }
 
   const handlePreviewPointerMove = (event) => {
     const track = previewRef.current
     const drag = previewDragRef.current
     if (!track || !drag.active) return
-    track.scrollLeft = drag.startScroll - (event.clientX - drag.startX)
+    const distance = event.clientX - drag.startX
+    if (Math.abs(distance) > 6) {
+      drag.moved = true
+      drag.suppressClick = true
+      track.classList.add('is-dragging')
+    }
+    track.scrollLeft = drag.startScroll - distance
   }
 
   const handlePreviewPointerUp = (event) => {
@@ -101,6 +137,16 @@ function App() {
     previewDragRef.current.active = false
     track.releasePointerCapture?.(event.pointerId)
     track.classList.remove('is-dragging')
+  }
+
+  const handlePreviewClick = (event, items, index) => {
+    if (previewDragRef.current.suppressClick) {
+      event.preventDefault()
+      event.stopPropagation()
+      previewDragRef.current.suppressClick = false
+      return
+    }
+    openShot(items, index)
   }
 
   const PhoneMockup = ({ image, alt, className = '' }) => (
@@ -123,6 +169,7 @@ function App() {
           </a>
           <nav className="hidden items-center gap-8 text-sm font-semibold text-muted md:flex" aria-label="主导航">
             <a className="transition-colors hover:text-copy" href="#features">功能</a>
+            <a className="transition-colors hover:text-copy" href="#download">下载功能</a>
             <a className="transition-colors hover:text-copy" href="#preview">预览</a>
             <a className="transition-colors hover:text-copy" href="#tmdb">TMDB</a>
             <a className="transition-colors hover:text-copy" href="#install">安装</a>
@@ -136,7 +183,9 @@ function App() {
           </Button>
         </div>
         {menuOpen && <div className="border-t border-white/[.06] bg-ink px-5 py-5 md:hidden"><nav className="container-wide flex flex-col gap-5 text-sm font-semibold text-muted" aria-label="移动端主导航">
-          {['功能', '预览', 'tmdb', '安装'].map((item) => <a key={item} href={`#${item}`} onClick={closeMenu} className="hover:text-copy">{item === 'tmdb' ? 'TMDB' : item}</a>)}
+          <a href="#features" onClick={closeMenu} className="hover:text-copy">功能</a>
+          <a href="#download" onClick={closeMenu} className="hover:text-copy">下载功能</a>
+          {['预览', 'tmdb', '安装'].map((item) => <a key={item} href={`#${item}`} onClick={closeMenu} className="hover:text-copy">{item === 'tmdb' ? 'TMDB' : item}</a>)}
           <a href={GITHUB_URL} target="_blank" rel="noreferrer" className="hover:text-copy">GitHub <ExternalLink size={13} className="ml-1 inline" /></a>
           <Button asChild><a href={RELEASES_URL} target="_blank" rel="noreferrer">获取 Cineo <ArrowRight size={15} className="ml-2" /></a></Button>
         </nav></div>}
@@ -177,16 +226,21 @@ function App() {
           <div className="feature-grid mt-16 grid gap-5 md:grid-cols-2 lg:auto-rows-fr lg:grid-cols-3 lg:items-stretch">{features.map((feature) => <Card key={feature.number} className="group flex h-full flex-col overflow-hidden" style={{ marginTop: 0, transform: 'none' }}><div className="relative aspect-[4/5] shrink-0 overflow-hidden bg-black"><img src={asset(feature.image)} alt={feature.text} className={`h-full w-full object-cover ${feature.number === '03' ? 'object-center' : 'object-top'} opacity-75 transition duration-700 group-hover:scale-[1.02] group-hover:opacity-100`} /><div className="pointer-events-none absolute inset-0 bg-gradient-to-t from-panel via-transparent to-transparent" /><span className="absolute left-5 top-5 font-mono text-xs text-cineo">{feature.number}</span><span className="absolute right-5 top-5 flex h-9 w-9 items-center justify-center rounded-full border border-white/15 bg-ink/60 text-cineo-light backdrop-blur"><feature.icon size={16} /></span></div><div className="p-6"><h3 className="font-display text-2xl font-semibold tracking-tight">{feature.title}</h3><p className="mt-3 text-sm leading-6 text-muted">{feature.text}</p></div></Card>)}</div>
         </section>
 
-        <section id="preview" className="scroll-mt-20 border-y border-white/[.06] bg-panel/45 py-28 sm:py-36"><div className="container-wide"><div className="flex flex-col justify-between gap-7 sm:flex-row sm:items-end"><div><p className="eyebrow">Real screens / 02</p><h2 className="section-title mt-5">真实界面，<br /><span className="text-cineo">一眼看见质感。</span></h2></div><p className="max-w-sm text-sm leading-6 text-muted sm:text-right">所有预览均来自 Cineo 当前应用界面。左右滑动或拖动浏览，点击截图查看完整细节。</p></div><div className="relative mt-14"><div ref={previewRef} onScroll={handlePreviewScroll} onPointerDown={handlePreviewPointerDown} onPointerMove={handlePreviewPointerMove} onPointerUp={handlePreviewPointerUp} onPointerCancel={handlePreviewPointerUp} className="preview-track flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain pb-5" aria-label="Cineo 应用界面轮播">{screenshots.map((shot, index) => <button key={shot.name} data-preview-index={index} className="preview-slide group w-[min(72vw,16rem)] shrink-0 snap-center text-left sm:w-[min(38vw,18rem)] lg:w-[19rem]" onClick={() => setActiveShot(shot)} aria-label={`查看${shot.label}`}><div className="image-frame relative aspect-[1290/2796] transition duration-300 group-hover:-translate-y-1 group-hover:border-cineo/50 group-hover:shadow-glow-sm"><img src={asset(shot.name)} alt={shot.alt} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]" /><div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/95 to-transparent p-4 pt-14"><p className="text-xs font-semibold text-copy">{shot.label}</p><p className="mt-1 font-mono text-[9px] uppercase tracking-widest text-cineo">Open preview ↗</p></div></div></button>)}</div><div className="flex items-center justify-between gap-5 border-t border-white/[.08] pt-5"><div className="flex items-center gap-2" aria-label="预览页码">{screenshots.map((shot, index) => <button key={shot.name} onClick={() => scrollToPreview(index)} className={`h-2 rounded-full transition-all ${index === activePreview ? 'w-8 bg-cineo' : 'w-2 bg-white/20 hover:bg-white/50'}`} aria-label={`显示第 ${index + 1} 张预览`} aria-current={index === activePreview ? 'true' : undefined} />)}</div><div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => scrollToPreview(activePreview - 1)} aria-label="上一张预览"><ChevronLeft size={18} /></Button><Button variant="outline" size="icon" onClick={() => scrollToPreview(activePreview + 1)} aria-label="下一张预览"><ChevronRight size={18} /></Button></div></div></div></div></section>
+        <section id="preview" className="scroll-mt-20 border-y border-white/[.06] bg-panel/45 py-28 sm:py-36"><div className="container-wide"><div className="flex flex-col justify-between gap-7 sm:flex-row sm:items-end"><div><p className="eyebrow">Real screens / 02</p><h2 className="section-title mt-5">真实界面，<br /><span className="text-cineo">一眼看见质感。</span></h2></div><p className="max-w-sm text-sm leading-6 text-muted sm:text-right">所有预览均来自 Cineo 当前应用界面。左右滑动或拖动浏览，点击截图查看完整细节。</p></div><div className="relative mt-14"><div ref={previewRef} onScroll={handlePreviewScroll} onPointerDown={handlePreviewPointerDown} onPointerMove={handlePreviewPointerMove} onPointerUp={handlePreviewPointerUp} onPointerCancel={handlePreviewPointerUp} className="preview-track flex snap-x snap-mandatory gap-4 overflow-x-auto overscroll-x-contain pb-5" aria-label="Cineo 应用界面轮播">{screenshots.map((shot, index) => <button key={shot.name} type="button" data-preview-index={index} className="preview-slide group w-[min(72vw,16rem)] shrink-0 snap-center text-left sm:w-[min(38vw,18rem)] lg:w-[19rem]" onClick={(event) => handlePreviewClick(event, screenshots, index)} aria-label={`查看${shot.label}`}><div className="image-frame relative aspect-[1290/2796] transition duration-300 group-hover:-translate-y-1 group-hover:border-cineo/50 group-hover:shadow-glow-sm"><img src={asset(shot.name)} alt={shot.alt} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]" /><div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/95 to-transparent p-4 pt-14"><p className="text-xs font-semibold text-copy">{shot.label}</p><p className="mt-1 font-mono text-[9px] uppercase tracking-widest text-cineo">Open preview ↗</p></div></div></button>)}</div><div className="flex items-center justify-between gap-5 border-t border-white/[.08] pt-5"><div className="flex items-center gap-2" aria-label="预览页码">{screenshots.map((shot, index) => <button key={shot.name} onClick={() => scrollToPreview(index)} className={`h-2 rounded-full transition-all ${index === activePreview ? 'w-8 bg-cineo' : 'w-2 bg-white/20 hover:bg-white/50'}`} aria-label={`显示第 ${index + 1} 张预览`} aria-current={index === activePreview ? 'true' : undefined} />)}</div><div className="flex items-center gap-2"><Button variant="outline" size="icon" onClick={() => scrollToPreview(activePreview - 1)} aria-label="上一张预览"><ChevronLeft size={18} /></Button><Button variant="outline" size="icon" onClick={() => scrollToPreview(activePreview + 1)} aria-label="下一张预览"><ChevronRight size={18} /></Button></div></div></div></div></section>
 
-        <section id="tmdb" className="container-wide scroll-mt-28 py-28 sm:py-36"><div className="relative overflow-hidden rounded-[2rem] border border-cineo/20 bg-cineo-deep/45 p-7 sm:p-12 lg:p-16"><div className="absolute -right-20 -top-28 h-80 w-80 rounded-full bg-cineo/20 blur-[100px]" /><div className="relative grid items-center gap-14 lg:grid-cols-[1fr_.8fr]"><div><p className="eyebrow">Metadata enrichment / 03</p><h2 className="mt-5 max-w-xl font-display text-4xl font-semibold leading-tight tracking-[-.04em] sm:text-6xl">让每一部电影，<br /><span className="text-cineo-light">看起来都值得。</span></h2><p className="mt-6 max-w-lg text-base leading-7 text-muted">接入 TMDB 数据增强，为你的媒体补充海报、背景图、演员、季和单集简介。基础播放不依赖 TMDB，但它会显著提升整个片库的展示质量。</p><div className="mt-8 flex flex-wrap gap-2"><Badge>海报与背景图</Badge><Badge>演员与季</Badge><Badge>本地磁盘缓存</Badge></div><a href="#install" className="group mt-9 inline-flex items-center text-sm font-bold text-cineo-light">查看配置方法 <ArrowRight size={16} className="button-arrow ml-2" /></a></div><div className="relative mx-auto w-full max-w-[330px]"><PhoneMockup image={asset('IMG_3495')} alt="Cineo 详情页展示 TMDB 丰富元数据" className="rotate-[4deg]" /><div className="absolute -bottom-5 -left-8 rounded-2xl border border-white/10 bg-panel px-4 py-3 shadow-xl"><div className="flex items-center gap-2"><Sparkles size={14} className="text-cineo" /><span className="font-mono text-[10px] uppercase tracking-wider text-muted">Enriched locally</span></div></div></div></div></div></section>
+        <section id="download" className="scroll-mt-20 border-y border-white/[.06] bg-panel/45 py-28 sm:py-36"><div className="container-wide"><div className="grid gap-10 lg:grid-cols-[minmax(0,.85fr)_minmax(0,1.15fr)] lg:items-end lg:gap-24"><div><p className="eyebrow">Download flow / 03</p><h2 className="section-title mt-5">把喜欢的内容，<br /><span className="text-cineo">留在设备里。</span></h2></div><div className="max-w-2xl lg:pb-1"><p className="section-copy">Cineo 新增下载功能。发现想看的内容后，可以把它加入下载任务，在应用内查看进度，并在完成后从本地继续访问。</p><div className="mt-7 flex flex-wrap gap-x-7 gap-y-3 text-xs font-medium text-muted"><span className="flex items-center gap-2"><Check size={14} className="text-cineo" />任务状态清晰</span><span className="flex items-center gap-2"><Check size={14} className="text-cineo" />本地保存</span><span className="flex items-center gap-2"><Check size={14} className="text-cineo" />随时管理</span></div></div></div><div className="mt-14 grid gap-5 sm:grid-cols-2 lg:grid-cols-5">{downloadShots.map((shot, index) => <button key={shot.src} type="button" className="download-shot group text-left" onClick={() => openShot(downloadShots, index)} aria-label={`查看${shot.label}`}><div className="image-frame relative aspect-[1206/2622] transition duration-300 group-hover:-translate-y-1 group-hover:border-cineo/50 group-hover:shadow-glow-sm"><img src={shot.src} alt={shot.alt} className="h-full w-full object-cover transition duration-500 group-hover:scale-[1.02]" /><div className="pointer-events-none absolute inset-x-0 bottom-0 bg-gradient-to-t from-ink/95 to-transparent p-4 pt-14"><span className="font-mono text-[10px] text-cineo">0{index + 1}</span><p className="mt-1 text-xs font-semibold text-copy">{shot.label}</p></div></div></button>)}</div></div></section>
+
+        <section id="tmdb" className="container-wide scroll-mt-28 py-28 sm:py-36"><div className="relative overflow-hidden rounded-[2rem] border border-cineo/20 bg-cineo-deep/45 p-7 sm:p-12 lg:p-16"><div className="absolute -right-20 -top-28 h-80 w-80 rounded-full bg-cineo/20 blur-[100px]" /><div className="relative grid items-center gap-14 lg:grid-cols-[1fr_.8fr]"><div><p className="eyebrow">Metadata enrichment / 04</p><h2 className="mt-5 max-w-xl font-display text-4xl font-semibold leading-tight tracking-[-.04em] sm:text-6xl">让每一部电影，<br /><span className="text-cineo-light">看起来都值得。</span></h2><p className="mt-6 max-w-lg text-base leading-7 text-muted">接入 TMDB 数据增强，为你的媒体补充海报、背景图、演员、季和单集简介。基础播放不依赖 TMDB，但它会显著提升整个片库的展示质量。</p><div className="mt-8 flex flex-wrap gap-2"><Badge>海报与背景图</Badge><Badge>演员与季</Badge><Badge>本地磁盘缓存</Badge></div><a href="#install" className="group mt-9 inline-flex items-center text-sm font-bold text-cineo-light">查看配置方法 <ArrowRight size={16} className="button-arrow ml-2" /></a></div><div className="relative mx-auto w-full max-w-[330px]"><PhoneMockup image={asset('IMG_3495')} alt="Cineo 详情页展示 TMDB 丰富元数据" className="rotate-[4deg]" /><div className="absolute -bottom-5 -left-8 rounded-2xl border border-white/10 bg-panel px-4 py-3 shadow-xl"><div className="flex items-center gap-2"><Sparkles size={14} className="text-cineo" /><span className="font-mono text-[10px] uppercase tracking-wider text-muted">Enriched locally</span></div></div></div></div></div></section>
 
         <section id="install" className="scroll-mt-20 border-t border-white/[.06] bg-panel/45 py-28 sm:py-36"><div className="container-wide"><div className="max-w-4xl"><p className="eyebrow">Start your library / 04</p><h2 className="section-title mt-5">下载，配置，<br /><span className="text-cineo">开始观看。</span></h2><p className="section-copy mt-7 max-w-3xl">Cineo 提供 Android APK 与未签名的 iOS IPA 安装文件。Android 可以直接安装；iOS 需要使用你自己的证书完成签名后再安装。首次启动内置演示媒体库，也可以随后添加自己的合法视频源。</p></div><div className="mt-14 grid gap-5 lg:grid-cols-2"><Card className="relative overflow-hidden p-7 sm:p-9"><div className="absolute right-0 top-0 h-48 w-48 rounded-full bg-cineo/10 blur-3xl" /><div className="relative"><div className="flex items-start justify-between"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-cineo text-[#251300]"><Download size={22} /></div><Badge>Android</Badge></div><h3 className="keep-cjk mt-8 font-display text-3xl font-semibold">直接安装 APK</h3><p className="keep-cjk mt-3 max-w-md text-sm leading-6 text-muted">前往 GitHub Releases 下载最新 Android APK。若系统提示来源限制，请在确认文件来源后允许安装未知应用。</p><Button asChild className="mt-7"><a href={RELEASES_URL} target="_blank" rel="noreferrer">前往 Releases <ExternalLink size={15} className="ml-2" /></a></Button></div></Card><Card className="p-7 sm:p-9"><div className="flex items-start justify-between"><div className="flex h-12 w-12 items-center justify-center rounded-2xl bg-panel2 text-cineo"><Zap size={22} /></div><Badge className="border-white/15 bg-white/5 text-muted">iOS / unsigned</Badge></div><h3 className="keep-cjk mt-8 font-display text-3xl font-semibold">未签名 IPA 安装</h3><p className="keep-cjk mt-3 text-sm leading-6 text-muted">本项目仅提供未签名的 IPA 安装文件，不提供已签名版本。下载后需要使用你自己的 Apple Developer 账号、证书或签名工具完成签名，然后安装到 iPhone 或 iPad。</p><ol className="mt-5 space-y-3 text-sm leading-6 text-muted"><li className="flex gap-3"><span className="font-mono text-cineo">01</span><span>从 GitHub Releases 下载未签名 IPA。</span></li><li className="flex gap-3"><span className="font-mono text-cineo">02</span><span>使用自己的证书和签名工具完成签名。</span></li><li className="flex gap-3"><span className="font-mono text-cineo">03</span><span>将签名后的 IPA 安装到自己的 iOS 设备。</span></li></ol><Button asChild variant="outline" className="mt-7"><a href={`${GITHUB_URL}#getting-started`} target="_blank" rel="noreferrer">查看源码说明 <Github size={15} className="ml-2" /></a></Button></Card></div><Card className="mt-5 border-cineo/20 bg-cineo/5 p-7 sm:p-9"><div className="grid gap-8 lg:grid-cols-[.75fr_1fr]"><div><div className="flex items-center gap-3"><Settings2 size={18} className="text-cineo" /><h3 className="font-display text-2xl font-semibold">TMDB 数据增强配置</h3></div><p className="mt-3 text-sm leading-6 text-muted">可选配置，不影响基础播放。Token 只保存在本机安全存储中。</p></div><div className="grid gap-3 sm:grid-cols-3"><div className="rounded-xl border border-white/10 bg-panel/60 p-4"><span className="font-mono text-xs text-cineo">01</span><p className="mt-3 text-sm font-semibold">创建 Read Access Token</p></div><div className="rounded-xl border border-white/10 bg-panel/60 p-4"><span className="font-mono text-xs text-cineo">02</span><p className="mt-3 text-sm font-semibold">打开设置中的 TMDB</p></div><div className="rounded-xl border border-white/10 bg-panel/60 p-4"><span className="font-mono text-xs text-cineo">03</span><p className="mt-3 text-sm font-semibold">粘贴并保存 Token</p></div></div></div></Card></div></section>
       </main>
 
-      <footer className="border-t border-white/[.06] py-12"><div className="container-wide"><div className="flex flex-col justify-between gap-8 sm:flex-row sm:items-start"><div><a href="#top" className="flex items-center gap-3"><img src="./branding/cineo_mark.png" alt="Cineo" className="h-7 w-7" /><span className="font-display text-base font-bold tracking-[.16em]">CINEO</span></a><p className="mt-4 max-w-sm text-xs leading-6 text-muted">一个简洁、专注、可扩展的 Flutter 影视发现与播放客户端。</p></div><div className="flex flex-wrap gap-5 text-xs font-semibold text-muted"><a href={GITHUB_URL} target="_blank" rel="noreferrer" className="transition-colors hover:text-copy">GitHub</a><a href={RELEASES_URL} target="_blank" rel="noreferrer" className="transition-colors hover:text-copy">Releases</a><a href="#tmdb" className="transition-colors hover:text-copy">TMDB 配置</a></div></div><div className="mt-9 flex items-start gap-3 rounded-2xl border border-cineo/20 bg-cineo/5 px-5 py-4"><LockKeyhole size={18} className="mt-0.5 shrink-0 text-cineo" /><p className="text-sm leading-6 text-copy"><span className="font-semibold">本地优先，资料由你掌控。</span> 所有数据都保存在你的设备上，不会被上传到服务器；你的片库、来源和设置始终由你自己控制。</p></div><Separator className="my-9" /><div className="flex flex-col gap-4 text-[11px] leading-5 text-muted sm:flex-row sm:items-start sm:justify-between"><p>© {new Date().getFullYear()} Cineo · 由 <a href="https://benson.indevs.in/" target="_blank" rel="noreferrer" className="text-cineo-light transition-colors hover:text-cineo">Benson</a> 独立制作 · 欢迎创意引用</p><p className="max-w-2xl sm:text-right">本项目仅供个人参考与学习交流使用，由个人开发者独立维护。Cineo 不提供、不托管任何影视资源，页面中的图片与第三方服务标识归其各自权利人所有。请仅配置和访问你有权使用的内容，并遵守所在地法律法规及相关服务条款。</p></div></div></footer>
+      <footer className="border-t border-white/[.06] py-12"><div className="container-wide"><div className="flex flex-col justify-between gap-8 sm:flex-row sm:items-start"><div><a href="#top" className="flex items-center gap-3"><img src="./branding/cineo_mark.png" alt="Cineo" className="h-7 w-7" /><span className="font-display text-base font-bold tracking-[.16em]">CINEO</span></a><p className="mt-4 max-w-sm text-xs leading-6 text-muted">一个简洁、专注、可扩展的 Flutter 影视发现与播放客户端。</p></div><div className="flex flex-wrap gap-5 text-xs font-semibold text-muted"><a href="#download" className="transition-colors hover:text-copy">下载功能</a><a href={GITHUB_URL} target="_blank" rel="noreferrer" className="transition-colors hover:text-copy">GitHub</a><a href={RELEASES_URL} target="_blank" rel="noreferrer" className="transition-colors hover:text-copy">Releases</a><a href="#tmdb" className="transition-colors hover:text-copy">TMDB 配置</a></div></div><div className="mt-9 flex items-start gap-3 rounded-2xl border border-cineo/20 bg-cineo/5 px-5 py-4"><LockKeyhole size={18} className="mt-0.5 shrink-0 text-cineo" /><p className="text-sm leading-6 text-copy"><span className="font-semibold">本地优先，资料由你掌控。</span> 所有数据都保存在你的设备上，不会被上传到服务器；你的片库、来源和设置始终由你自己控制。</p></div><Separator className="my-9" /><div className="flex flex-col gap-4 text-[11px] leading-5 text-muted sm:flex-row sm:items-start sm:justify-between"><p>© {new Date().getFullYear()} Cineo · 由 <a href="https://benson.indevs.in/" target="_blank" rel="noreferrer" className="text-cineo-light transition-colors hover:text-cineo">Benson</a> 独立制作 · 欢迎创意引用</p><p className="max-w-2xl sm:text-right">本项目仅供个人参考与学习交流使用，由个人开发者独立维护。Cineo 不提供、不托管任何影视资源，页面中的图片与第三方服务标识归其各自权利人所有。请仅配置和访问你有权使用的内容，并遵守所在地法律法规及相关服务条款。</p></div></div></footer>
 
-      {activeShot && <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-5 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={activeShot.label} onClick={() => setActiveShot(null)}><button className="absolute right-5 top-5 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-panel text-copy hover:border-cineo" onClick={() => setActiveShot(null)} aria-label="关闭预览"><X size={20} /></button><div className="max-h-[90vh] max-w-[min(90vw,420px)]" onClick={(event) => event.stopPropagation()}><PhoneMockup image={asset(activeShot.name)} alt={activeShot.alt} className="phone-shell-modal" /><p className="mt-4 text-center text-sm font-semibold text-copy">{activeShot.label}</p></div></div>}
+      {activeShot && (() => {
+        const currentShot = activeShot.items[activeShot.index]
+        return <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/90 p-5 backdrop-blur-sm" role="dialog" aria-modal="true" aria-label={currentShot.label} onClick={() => setActiveShot(null)}><button className="absolute right-5 top-5 flex h-11 w-11 items-center justify-center rounded-full border border-white/15 bg-panel text-copy hover:border-cineo" onClick={() => setActiveShot(null)} aria-label="关闭预览"><X size={20} /></button><button className="absolute left-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-panel/90 text-copy shadow-lg transition hover:border-cineo sm:left-6" onClick={(event) => { event.stopPropagation(); moveShot(-1) }} aria-label="上一张图片"><ChevronLeft size={22} /></button><button className="absolute right-3 top-1/2 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full border border-white/15 bg-panel/90 text-copy shadow-lg transition hover:border-cineo sm:right-6" onClick={(event) => { event.stopPropagation(); moveShot(1) }} aria-label="下一张图片"><ChevronRight size={22} /></button><div className="max-h-[90vh] max-w-[min(90vw,420px)]" onClick={(event) => event.stopPropagation()}>{currentShot.src ? <img className="download-modal-image" src={currentShot.src} alt={currentShot.alt} /> : <PhoneMockup image={asset(currentShot.name)} alt={currentShot.alt} className="phone-shell-modal" />}<p className="mt-4 text-center text-sm font-semibold text-copy">{currentShot.label}</p></div></div>
+      })()}
     </div>
   )
 }

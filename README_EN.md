@@ -31,10 +31,10 @@ The product direction and interaction concepts are primarily inspired by [Kately
 The README intentionally shows four representative screenshots:
 
 <div align="center">
-  <img src="docs/pic/IMG_3493.jpg" width="180" alt="Cineo home screen">
-  <img src="docs/pic/IMG_3495.jpg" width="180" alt="Cineo details screen">
-  <img src="docs/pic/IMG_3507.jpg" width="180" alt="Cineo search screen">
-  <img src="docs/pic/IMG_3496.jpg" width="180" alt="Cineo player screen">
+  <img src="docs/pic/app/IMG_3493.jpg" width="180" alt="Cineo home screen">
+  <img src="docs/pic/app/IMG_3495.jpg" width="180" alt="Cineo details screen">
+  <img src="docs/pic/app/IMG_3507.jpg" width="180" alt="Cineo search screen">
+  <img src="docs/pic/app/IMG_3496.jpg" width="180" alt="Cineo player screen">
 </div>
 
 ## Tech stack
@@ -107,6 +107,12 @@ Open the “Video Sources” page to add a source manually or import a MacCMS-co
 | JSON API | An HTTP(S) API URL | Read source data using the implemented MacCMS JSON structure |
 
 An API source must pass the connectivity test before it can be selected as the default source. The default source powers the home page, search, and category browsing. Without a configured API source, the app falls back to its built-in demo catalog.
+
+### Basic source configuration
+
+You can download the [KatelyaTV basic video-source configuration](https://www.mediafire.com/file/upztrjc0g1ynbzy/config_isadult.json/file). It contains 20+ MacCMS-compatible sources. See [KatelyaTV](https://github.com/katelya77/KatelyaTV) for the source and configuration details. The basic configuration currently includes: 电影天堂, 黑木耳, 如意资源, 暴风资源, 天涯资源, 非凡影视, 360 资源, 茅台资源, 卧龙资源, 极速资源, 豆瓣资源, 魔爪资源, 魔都资源, 最大资源, 樱花资源, 无尽资源, 旺旺短剧, iKun 资源, 量子资源站, and 小猫咪资源.
+
+After downloading the configuration, import it from the “Video Sources” page, run a connectivity test, enable the sources you want to use, and choose a default source. Source URLs, content, and availability are maintained by third parties and may change at any time. Only configure and access sources and content that you are authorized to use.
 
 ### Importing a source configuration
 

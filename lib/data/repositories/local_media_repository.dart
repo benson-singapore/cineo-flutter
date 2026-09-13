@@ -1,14 +1,19 @@
 import 'dart:convert';
+import 'dart:io';
 
+import 'package:flutter/foundation.dart';
 import 'package:path/path.dart' as path;
 import 'package:sqflite/sqflite.dart';
 
 import '../../core/demo/demo_content.dart';
 import '../../core/models/home_category_rail.dart';
 import '../../core/models/media.dart';
+import '../../core/models/download_models.dart';
 import '../../core/models/media_source.dart';
 import '../../core/models/paged_media.dart';
 import '../../core/models/source_group_config.dart';
+import '../../core/models/source_search_progress.dart';
+import '../download/download_directory.dart';
 import '../remote/mac_cms_client.dart';
 import '../remote/media_category_adapter.dart';
 import 'media_repository.dart';
@@ -22,11 +27,15 @@ class LocalMediaRepository implements MediaRepository {
     this.catalog = const <MediaItem>[],
     this.databasePath,
     MacCmsClient? macCmsClient,
-  }) : _macCmsClient = macCmsClient ?? MacCmsClient();
+    DownloadDirectoryProvider? downloadDirectoryProvider,
+  })  : _macCmsClient = macCmsClient ?? MacCmsClient(),
+        _downloadDirectoryProvider =
+            downloadDirectoryProvider ?? DownloadDirectoryProvider();
 
   final List<MediaItem> catalog;
   final String? databasePath;
   final MacCmsClient _macCmsClient;
+  final DownloadDirectoryProvider _downloadDirectoryProvider;
   late final Future<Database> _database = _openDatabase();
 
   static const _builtInRuyiSource = MediaSource(
@@ -43,7 +52,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     final database = await openDatabase(
       resolvedPath,
-      version: 10,
+      version: 12,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -100,6 +109,7 @@ class LocalMediaRepository implements MediaRepository {
         await _createMediaSnapshotsTable(database);
         await _createHomeCategoryCacheTable(database);
         await _createSourceGroupConfigTable(database);
+        await _createDownloadTables(database);
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -152,13 +162,26 @@ class LocalMediaRepository implements MediaRepository {
         if (oldVersion < 9) {
           await _createSourceGroupConfigTable(database);
         }
-        if (oldVersion < 10) {
-          await database.execute(
-            'ALTER TABLE sources ADD COLUMN cover_mode INTEGER NOT NULL DEFAULT 0',
+        if (oldVersion < 10) await _createDownloadTables(database);
+        if (oldVersion < 11) await _addDownloadPresentationColumns(database);
+        if (oldVersion < 12) {
+          final sourceColumns =
+              await database.rawQuery('PRAGMA table_info(sources)');
+          final hasCoverMode = sourceColumns.any(
+            (column) => column['name'] == 'cover_mode',
           );
+          if (!hasCoverMode) {
+            await database.execute(
+              'ALTER TABLE sources ADD COLUMN cover_mode INTEGER NOT NULL DEFAULT 0',
+            );
+          }
         }
       },
     );
+    // A previous build may have recorded version 9 without creating the
+    // table. Re-checking it here repairs that state without touching data.
+    await _ensureSourceGroupConfigTable(database);
+    await _ensureDownloadTables(database);
     await _ensureBuiltInSource(database);
     return database;
   }
@@ -379,6 +402,90 @@ class LocalMediaRepository implements MediaRepository {
   }
 
   @override
+  Future<void> mergeMediaHistory(MediaItem current) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      await _saveMediaSnapshot(current, database: transaction);
+
+      final rows = await transaction.rawQuery('''
+        SELECT progress.*
+        FROM progress
+        LEFT JOIN media_snapshots
+          ON media_snapshots.media_id = progress.media_id
+        WHERE media_snapshots.title = ?
+          AND media_snapshots.kind = ?
+        ORDER BY progress.updated_at DESC
+      ''', [current.title, current.kind.index]);
+      if (rows.isEmpty) return;
+
+      final merged = <String, Map<String, Object?>>{};
+      for (final row in rows) {
+        final episodeId = _currentEpisodeId(
+          row['episode_id'] as String?,
+          _safeParseIntNullable(row['episode_number']),
+          row['episode_label'] as String?,
+          current,
+        );
+        final episodeKey = episodeId ?? '';
+        // Rows are newest first, so the first row wins when old source
+        // records already contain duplicates for the same episode.
+        merged.putIfAbsent(episodeKey, () {
+          return {
+            'progress_key': '${current.id}:$episodeKey',
+            'media_id': current.id,
+            'episode_id': episodeId,
+            'episode_label': row['episode_label'],
+            'episode_number': row['episode_number'],
+            'episode_count': row['episode_count'],
+            'position_ms': row['position_ms'],
+            'duration_ms': row['duration_ms'],
+            'updated_at': row['updated_at'],
+          };
+        });
+      }
+
+      final mediaIds = rows
+          .map((row) => row['media_id'] as String)
+          .toSet()
+          .toList(growable: false);
+      await transaction.delete(
+        'progress',
+        where: 'media_id IN (${List.filled(mediaIds.length, '?').join(',')})',
+        whereArgs: mediaIds,
+      );
+      for (final row in merged.values) {
+        await transaction.insert(
+          'progress',
+          row,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+
+  String? _currentEpisodeId(
+    String? oldEpisodeId,
+    int? episodeNumber,
+    String? episodeLabel,
+    MediaItem current,
+  ) {
+    if (current.kind == MediaKind.movie) return null;
+    final number = episodeNumber ??
+        _episodeNumber(episodeLabel) ??
+        _episodeNumber(oldEpisodeId);
+    if (number == null) return oldEpisodeId;
+    for (final option in current.playbackOptions) {
+      if (_episodeNumber(option.label) == number) return option.id;
+    }
+    return oldEpisodeId;
+  }
+
+  int? _episodeNumber(String? value) {
+    final match = RegExp(r'第\s*0*(\d+)\s*集').firstMatch(value ?? '');
+    return int.tryParse(match?.group(1) ?? '');
+  }
+
+  @override
   Future<void> removeHistory(String mediaId) async {
     await (await _db).delete(
       'progress',
@@ -523,8 +630,88 @@ class LocalMediaRepository implements MediaRepository {
     return rows.map(_groupConfigFromRow).toList();
   }
 
-  /// Fetches the source's current native categories and merges them with the
-  /// locally persisted enable/disable state.
+  /// Fetches the source's native leaf categories and merges them into the
+  /// user's saved visibility settings.
+  @override
+  Future<List<SourceGroupConfig>> syncSourceGroupConfigs(
+      String sourceId) async {
+    final sourceRows = await (await _db).query(
+      'sources',
+      where: 'id = ?',
+      whereArgs: [sourceId],
+      limit: 1,
+    );
+    if (sourceRows.isEmpty) throw StateError('未找到视频源');
+    final source = _sourceFromRow(sourceRows.single);
+    if (source.type != MediaSourceType.macCmsApi &&
+        source.type != MediaSourceType.jsonApi) {
+      throw StateError('该视频源不支持片库分组');
+    }
+
+    final categories = MediaCategoryAdapter.adapt(
+      await _macCmsClient.categories(source),
+      isAdult: source.isAdult,
+    );
+    final leavesById = <String, UnifiedSubcategory>{};
+    for (final category in categories) {
+      for (final leaf in category.subcategories) {
+        leavesById.putIfAbsent(leaf.id, () => leaf);
+      }
+    }
+
+    final database = await _db;
+    await database.transaction((transaction) async {
+      final existingRows = await transaction.query(
+        'source_group_configs',
+        where: 'source_id = ?',
+        whereArgs: [sourceId],
+      );
+      final existingById = <String, Map<String, Object?>>{
+        for (final row in existingRows)
+          if (_stringValue(row['category_id']).isNotEmpty)
+            _stringValue(row['category_id']): row,
+      };
+      final now = DateTime.now().millisecondsSinceEpoch;
+
+      final staleIds = existingById.keys
+          .where((id) => !leavesById.containsKey(id))
+          .toList(growable: false);
+      if (staleIds.isNotEmpty) {
+        final placeholders = List.filled(staleIds.length, '?').join(', ');
+        await transaction.delete(
+          'source_group_configs',
+          where: 'source_id = ? AND category_id IN ($placeholders)',
+          whereArgs: [sourceId, ...staleIds],
+        );
+      }
+
+      for (final leaf in leavesById.values) {
+        final existing = existingById[leaf.id];
+        if (existing == null) {
+          await transaction.insert('source_group_configs', {
+            'source_id': sourceId,
+            'category_id': leaf.id,
+            'category_name': leaf.name,
+            'is_enabled': 1,
+            'created_at': now,
+            'updated_at': now,
+          });
+        } else if (_stringValue(existing['category_name']) != leaf.name) {
+          await transaction.update(
+            'source_group_configs',
+            {'category_name': leaf.name, 'updated_at': now},
+            where: 'source_id = ? AND category_id = ?',
+            whereArgs: [sourceId, leaf.id],
+          );
+        }
+      }
+    });
+
+    return getSourceGroupConfigs(sourceId);
+  }
+
+  /// Refreshes source-native leaf categories while preserving local settings.
+  /// An empty remote response is treated as unavailable, not as deletion.
   @override
   Future<List<SourceGroupConfig>> refreshSourceGroupConfigs(
     String sourceId,
@@ -545,11 +732,6 @@ class LocalMediaRepository implements MediaRepository {
 
     final remoteCategories = await _macCmsClient.categories(source);
     final existing = await getSourceGroupConfigs(sourceId);
-
-    // An empty category response is ambiguous: some compatible APIs omit
-    // categories, and a temporary fallback failure is normalized to an empty
-    // list by MacCmsClient. Never interpret that as a confirmed deletion of
-    // the user's local configuration.
     if (remoteCategories.isEmpty) return existing;
 
     final leafCategories = _sourceNativeLeafCategories(remoteCategories);
@@ -600,9 +782,6 @@ class LocalMediaRepository implements MediaRepository {
     return refreshed;
   }
 
-  /// Keeps the same source-native leaf IDs that MediaCategoryAdapter uses for
-  /// API requests. A cycle is treated as a leaf unless it also has a child
-  /// outside that cycle, matching the adapter's defensive tree handling.
   List<RemoteCategory> _sourceNativeLeafCategories(
     List<RemoteCategory> categories,
   ) {
@@ -610,7 +789,6 @@ class LocalMediaRepository implements MediaRepository {
     for (final category in categories) {
       byId.putIfAbsent(category.id, () => category);
     }
-
     final childrenById = <String, Set<String>>{};
     for (final category in categories) {
       final parentId = category.parentId;
@@ -619,40 +797,17 @@ class LocalMediaRepository implements MediaRepository {
       }
       childrenById.putIfAbsent(parentId, () => <String>{}).add(category.id);
     }
-
-    final cycleIds = _categoryCycleIds(byId);
-    return categories.where((category) {
-      final children = childrenById[category.id] ?? const <String>{};
-      final hasNonCycleChild =
-          children.any((childId) => !cycleIds.contains(childId));
-      final hasKnownChild = children.isNotEmpty;
-      return !hasKnownChild ||
-          (cycleIds.contains(category.id) && !hasNonCycleChild);
-    }).fold<List<RemoteCategory>>(
-      <RemoteCategory>[],
-      (result, category) {
-        if (result.every((item) => item.id != category.id)) {
-          result.add(category);
-        }
-        return result;
-      },
-    );
-  }
-
-  Set<String> _categoryCycleIds(Map<String, RemoteCategory> byId) {
     final cycleIds = <String>{};
     for (final startId in byId.keys) {
       final path = <String>[];
       final positions = <String, int>{};
       var currentId = startId;
-      while (true) {
+      while (byId.containsKey(currentId)) {
         final cycleStart = positions[currentId];
         if (cycleStart != null) {
           cycleIds.addAll(path.skip(cycleStart));
           break;
         }
-        if (!byId.containsKey(currentId)) break;
-
         positions[currentId] = path.length;
         path.add(currentId);
         final parentId = byId[currentId]!.parentId;
@@ -660,7 +815,15 @@ class LocalMediaRepository implements MediaRepository {
         currentId = parentId;
       }
     }
-    return cycleIds;
+    final seen = <String>{};
+    return categories.where((category) {
+      final children = childrenById[category.id] ?? const <String>{};
+      final hasNonCycleChild =
+          children.any((childId) => !cycleIds.contains(childId));
+      return (children.isEmpty ||
+              (cycleIds.contains(category.id) && !hasNonCycleChild)) &&
+          seen.add(category.id);
+    }).toList(growable: false);
   }
 
   /// Gets only the enabled category IDs for a source.
@@ -670,11 +833,15 @@ class LocalMediaRepository implements MediaRepository {
     final database = await _db;
     final rows = await database.query(
       'source_group_configs',
-      columns: ['category_id'],
-      where: 'source_id = ? AND is_enabled = 1',
+      columns: ['category_id', 'is_enabled'],
+      where: 'source_id = ?',
       whereArgs: [sourceId],
     );
-    return rows.map((row) => row['category_id'] as String).toList();
+    return rows
+        .where((row) => _safeParseInt(row['is_enabled']) == 1)
+        .map((row) => _stringValue(row['category_id']))
+        .where((id) => id.isNotEmpty)
+        .toList(growable: false);
   }
 
   /// Initializes all group configurations for a source based on remote leaf categories.
@@ -756,22 +923,22 @@ class LocalMediaRepository implements MediaRepository {
       return _localPage(filtered, page);
     }
 
+    final groupFilter = await _sourceGroupFilter(source.id);
+
     final ids = _normalizedCategoryIds(categoryIds);
-    if (ids.isEmpty) {
-      return _macCmsClient.listPage(source, page: page);
-    }
 
-    final configs = await getSourceGroupConfigs(source.id);
-    final hasGroupConfig = configs.isNotEmpty;
-    final enabledGroupIds = configs
-        .where((config) => config.isEnabled)
-        .map((config) => config.categoryId)
-        .toSet();
-    final filteredIds = !hasGroupConfig
-        ? ids
-        : ids.where(enabledGroupIds.contains).toList(growable: false);
+    // For an unqualified browse, request each enabled leaf so disabled groups
+    // cannot leak into the all-category result.
+    final requestedIds =
+        ids.isEmpty && groupFilter.hasConfig ? groupFilter.enabledIds : ids;
+    final filteredIds = groupFilter.hasConfig
+        ? requestedIds
+            .where((id) => groupFilter.enabledIds.contains(id))
+            .toList(growable: false)
+        : requestedIds;
 
-    if (hasGroupConfig && filteredIds.isEmpty) {
+    if (filteredIds.isEmpty && groupFilter.hasConfig) {
+      // All specified categories are disabled
       return PagedMedia(
         items: const [],
         page: page,
@@ -781,6 +948,7 @@ class LocalMediaRepository implements MediaRepository {
         hasMore: false,
       );
     }
+
     if (filteredIds.isEmpty) {
       return _macCmsClient.listPage(source, page: page);
     }
@@ -829,11 +997,12 @@ class LocalMediaRepository implements MediaRepository {
         _homeCategoryIds(definition, categories),
     ];
     final pages = await Future.wait(
-      idsByRail.map(
-        (ids) => ids.isEmpty
-            ? Future<List<MediaItem>>.value(const [])
-            : browseDefaultSourcePage(categoryIds: ids)
-                .then((page) => page.items),
+      List.generate(
+        _homeCategoryDefinitions.length,
+        (index) => _browseHomeCategoryRailItems(
+          title: _homeCategoryDefinitions[index].title,
+          categoryIds: idsByRail[index],
+        ),
       ),
     );
     return List<HomeCategoryRail>.generate(
@@ -875,14 +1044,15 @@ class LocalMediaRepository implements MediaRepository {
       final category = subcategories[i];
       if (i == 0) {
         // Load only the first category eagerly
-        final page = await browseDefaultSourcePage(
+        final items = await _browseHomeCategoryRailItems(
+          title: category.name,
           categoryIds: category.sourceCategoryIds,
         );
         rails.add(
           HomeCategoryRail(
             title: category.name,
             categoryIds: category.sourceCategoryIds,
-            items: page.items,
+            items: items,
           ),
         );
       } else {
@@ -900,6 +1070,53 @@ class LocalMediaRepository implements MediaRepository {
     return rails;
   }
 
+  /// Keeps independent home rails available when one source category fails.
+  Future<List<MediaItem>> _browseHomeCategoryRailItems({
+    required String title,
+    required List<String> categoryIds,
+  }) async {
+    final ids = _normalizedCategoryIds(categoryIds);
+    if (ids.isEmpty) return const [];
+
+    final pages = await Future.wait(
+      ids.map((categoryId) async {
+        try {
+          return await browseDefaultSourcePage(categoryIds: [categoryId]);
+        } on Object catch (error, stackTrace) {
+          _debugHomeRailError(
+            title: title,
+            categoryId: categoryId,
+            error: error,
+            stackTrace: stackTrace,
+          );
+          return null;
+        }
+      }),
+    );
+    return _combinePages(pages.whereType<PagedMedia>().toList(), 1).items;
+  }
+
+  static void _debugHomeRailError({
+    required String title,
+    required String categoryId,
+    required Object error,
+    required StackTrace stackTrace,
+  }) {
+    assert(() {
+      debugPrint(
+        '[Cineo][Repository] home_rail phase=load_failed '
+        'title=$title categoryId=$categoryId '
+        'error=${error.runtimeType}: $error',
+      );
+      debugPrintStack(
+        label: '[Cineo][Repository] home_rail stack',
+        stackTrace: stackTrace,
+        maxFrames: 12,
+      );
+      return true;
+    }());
+  }
+
   Future<List<UnifiedCategory>> defaultSourceCategories() async {
     final source = await defaultSource();
     if (source == null) {
@@ -909,9 +1126,13 @@ class LocalMediaRepository implements MediaRepository {
         UnifiedCategory(type: UnifiedMediaType.series, sourceCategoryIds: []),
       ];
     }
-    return MediaCategoryAdapter.adapt(
+    final categories = MediaCategoryAdapter.adapt(
       await _macCmsClient.categories(source),
       isAdult: source.isAdult,
+    );
+    return _filterCategoriesByGroupConfig(
+      categories,
+      await _sourceGroupFilter(source.id),
     );
   }
 
@@ -964,20 +1185,16 @@ class LocalMediaRepository implements MediaRepository {
       return _localPage(filtered, page);
     }
     final ids = _normalizedCategoryIds(categoryIds);
-    if (ids.isEmpty) {
-      return _macCmsClient.listPage(source, query: normalizedQuery, page: page);
-    }
+    final groupFilter = await _sourceGroupFilter(source.id);
+    final requestedIds =
+        ids.isEmpty && groupFilter.hasConfig ? groupFilter.enabledIds : ids;
+    final filteredIds = groupFilter.hasConfig
+        ? requestedIds
+            .where((id) => groupFilter.enabledIds.contains(id))
+            .toList(growable: false)
+        : requestedIds;
 
-    final configs = await getSourceGroupConfigs(source.id);
-    final hasGroupConfig = configs.isNotEmpty;
-    final enabledGroupIds = configs
-        .where((config) => config.isEnabled)
-        .map((config) => config.categoryId)
-        .toSet();
-    final filteredIds = !hasGroupConfig
-        ? ids
-        : ids.where(enabledGroupIds.contains).toList(growable: false);
-    if (hasGroupConfig && filteredIds.isEmpty) {
+    if (filteredIds.isEmpty && groupFilter.hasConfig) {
       return PagedMedia(
         items: const [],
         page: page,
@@ -1035,6 +1252,55 @@ class LocalMediaRepository implements MediaRepository {
       .where((id) => id.isNotEmpty)
       .toSet()
       .toList(growable: false);
+
+  Future<_SourceGroupFilter> _sourceGroupFilter(String sourceId) async {
+    try {
+      final configs = await getSourceGroupConfigs(sourceId);
+      return _SourceGroupFilter(
+        hasConfig: configs.isNotEmpty,
+        enabledIds: configs
+            .where((config) => config.isEnabled)
+            .map((config) => config.categoryId)
+            .toSet()
+            .toList(growable: false),
+      );
+    } catch (_) {
+      // A missing or unreadable config table must not break normal browsing.
+      return const _SourceGroupFilter.unconfigured();
+    }
+  }
+
+  List<UnifiedCategory> _filterCategoriesByGroupConfig(
+    List<UnifiedCategory> categories,
+    _SourceGroupFilter groupFilter,
+  ) {
+    if (!groupFilter.hasConfig) return categories;
+
+    final filtered = <UnifiedCategory>[];
+    for (final category in categories) {
+      if (category.type == UnifiedMediaType.all) {
+        filtered.add(category);
+        continue;
+      }
+      final subcategories = category.subcategories
+          .where(
+              (subcategory) => groupFilter.enabledIds.contains(subcategory.id))
+          .toList(growable: false);
+      final sourceCategoryIds = category.sourceCategoryIds
+          .where((id) => groupFilter.enabledIds.contains(id))
+          .toList(growable: false);
+      if (subcategories.isEmpty && sourceCategoryIds.isEmpty) continue;
+      filtered.add(
+        UnifiedCategory(
+          type: category.type,
+          sourceCategoryIds: sourceCategoryIds,
+          displayName: category.displayName,
+          subcategories: subcategories,
+        ),
+      );
+    }
+    return List.unmodifiable(filtered);
+  }
 
   PagedMedia _localPage(List<MediaItem> items, int requestedPage) {
     final page = requestedPage < 1 ? 1 : requestedPage;
@@ -1152,8 +1418,9 @@ class LocalMediaRepository implements MediaRepository {
     return '${media.kind.name}:$normalizedTitle';
   }
 
-  Future<List<MediaItem>> searchOtherSources(MediaItem media,
-      {bool includeAdult = false}) async {
+  Stream<SourceSearchProgress> searchOtherSourcesProgressively(
+    MediaItem media,
+  ) async* {
     final allSources = await sources();
     final candidates = allSources
         .where((source) =>
@@ -1161,33 +1428,280 @@ class LocalMediaRepository implements MediaRepository {
             source.id != media.sourceId &&
             (source.type == MediaSourceType.macCmsApi ||
                 source.type == MediaSourceType.jsonApi) &&
-            (includeAdult || !source.isAdult))
+            !source.isAdult)
         .toList();
 
-    // Use concurrent requests with a fixed pool size (10-15 concurrent) for better performance
     const concurrentLimit = 12;
-    final results = <List<MediaItem>>[];
+    final pending = <Future<_SourceSearchResult>>[];
+    var nextSource = 0;
+    var searched = 0;
 
-    for (var i = 0; i < candidates.length; i += concurrentLimit) {
-      final batch = candidates.sublist(
-        i,
-        i + concurrentLimit > candidates.length
-            ? candidates.length
-            : i + concurrentLimit,
+    yield SourceSearchProgress(
+      searched: 0,
+      total: candidates.length,
+      isComplete: candidates.isEmpty,
+    );
+
+    while (nextSource < candidates.length || pending.isNotEmpty) {
+      while (
+          nextSource < candidates.length && pending.length < concurrentLimit) {
+        pending.add(_searchSource(candidates[nextSource++], media.title));
+      }
+
+      final result = await Future.any(pending);
+      pending.remove(result.request);
+      searched += 1;
+      yield SourceSearchProgress(
+        searched: searched,
+        total: candidates.length,
+        matches: result.matches,
+        isComplete: searched == candidates.length,
       );
+    }
+  }
 
-      final batchResults = await Future.wait(batch.map((source) async {
-        try {
-          return await _macCmsClient.list(source, query: media.title);
-        } catch (_) {
-          return const <MediaItem>[];
-        }
-      }));
+  Future<_SourceSearchResult> _searchSource(
+    MediaSource source,
+    String query,
+  ) {
+    late final Future<_SourceSearchResult> request;
+    request = () async {
+      try {
+        final matches = await _macCmsClient.list(source, query: query);
+        return _SourceSearchResult(request, matches);
+      } catch (_) {
+        return _SourceSearchResult(request, const <MediaItem>[]);
+      }
+    }();
+    return request;
+  }
 
-      results.addAll(batchResults);
+  Future<List<MediaItem>> searchOtherSources(MediaItem media) async {
+    final matches = <MediaItem>[];
+    await for (final progress in searchOtherSourcesProgressively(media)) {
+      matches.addAll(progress.matches);
+    }
+    return matches;
+  }
+
+  /// Loads persisted download tasks in queue order.
+  ///
+  /// Passing [mediaId] limits the result to one movie or series. The task key
+  /// is unique in SQLite, so repeated enqueue requests can safely reuse this
+  /// method without creating duplicate rows.
+  Future<List<DownloadTask>> loadDownloadTasks({String? mediaId}) async {
+    final database = await _db;
+    final normalizedMediaId = mediaId?.trim();
+    final rows = await database.query(
+      'download_tasks',
+      where: normalizedMediaId == null || normalizedMediaId.isEmpty
+          ? null
+          : 'media_id = ?',
+      whereArgs: normalizedMediaId == null || normalizedMediaId.isEmpty
+          ? null
+          : [normalizedMediaId],
+      orderBy: 'created_at ASC, task_id ASC',
+    );
+    return rows.map(_downloadTaskFromRow).toList(growable: false);
+  }
+
+  Future<DownloadTask?> loadDownloadTask(String taskId) async {
+    final rows = await (await _db).query(
+      'download_tasks',
+      where: 'task_id = ?',
+      whereArgs: [taskId],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : _downloadTaskFromRow(rows.single);
+  }
+
+  /// Saves a task and returns the row that owns its unique task key.
+  ///
+  /// If another task already owns [task.taskKey], that existing task is
+  /// returned and no duplicate row is inserted. Updates to an existing task
+  /// continue to work by using its original [taskId].
+  Future<DownloadTask> saveDownloadTask(DownloadTask task) async {
+    final database = await _db;
+    final existingById = await database.query(
+      'download_tasks',
+      where: 'task_id = ?',
+      whereArgs: [task.taskId],
+      limit: 1,
+    );
+    final existingByKey = await database.query(
+      'download_tasks',
+      where: 'task_key = ?',
+      whereArgs: [task.taskKey],
+      limit: 1,
+    );
+    if (existingByKey.isNotEmpty &&
+        (existingById.isEmpty ||
+            existingByKey.single['task_id'] != task.taskId)) {
+      return _downloadTaskFromRow(existingByKey.single);
     }
 
-    return results.expand((items) => items).toList(growable: false);
+    final row = _downloadTaskToRow(task);
+    if (existingById.isEmpty) {
+      await database.insert('download_tasks', row);
+    } else {
+      await database.update(
+        'download_tasks',
+        row,
+        where: 'task_id = ?',
+        whereArgs: [task.taskId],
+      );
+    }
+    return task;
+  }
+
+  Future<Map<String, List<DownloadTask>>> downloadTaskGroups() async {
+    final tasks = await loadDownloadTasks();
+    final groups = <String, List<DownloadTask>>{};
+    for (final task in tasks) {
+      groups.putIfAbsent(task.mediaId, () => <DownloadTask>[]).add(task);
+    }
+    return groups.map(
+      (mediaId, mediaTasks) => MapEntry(
+        mediaId,
+        List<DownloadTask>.unmodifiable(mediaTasks),
+      ),
+    );
+  }
+
+  /// Replaces the completed segment checkpoint for a task atomically.
+  Future<void> saveDownloadCheckpoint({
+    required String taskId,
+    required Set<int> completedSegments,
+    Map<int, int> segmentBytes = const <int, int>{},
+  }) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      await transaction.delete(
+        'download_segments',
+        where: 'task_id = ?',
+        whereArgs: [taskId],
+      );
+      for (final index in completedSegments.where((value) => value >= 0)) {
+        await transaction.insert('download_segments', {
+          'task_id': taskId,
+          'segment_index': index,
+          'byte_count': segmentBytes[index] ?? 0,
+          'completed_at': DateTime.now().millisecondsSinceEpoch,
+        });
+      }
+    });
+  }
+
+  Future<Set<int>> loadDownloadCheckpoint(String taskId) async {
+    final rows = await (await _db).query(
+      'download_segments',
+      columns: ['segment_index'],
+      where: 'task_id = ?',
+      whereArgs: [taskId],
+      orderBy: 'segment_index ASC',
+    );
+    return rows.map((row) => _safeParseInt(row['segment_index'])).toSet();
+  }
+
+  Future<Map<int, int>> loadDownloadSegmentBytes(String taskId) async {
+    final rows = await (await _db).query(
+      'download_segments',
+      columns: ['segment_index', 'byte_count'],
+      where: 'task_id = ?',
+      whereArgs: [taskId],
+    );
+    return {
+      for (final row in rows)
+        _safeParseInt(row['segment_index']): _safeParseInt(row['byte_count']),
+    };
+  }
+
+  Future<void> deleteDownloadCheckpoint(String taskId) async {
+    await (await _db).delete(
+      'download_segments',
+      where: 'task_id = ?',
+      whereArgs: [taskId],
+    );
+  }
+
+  Future<Directory> downloadTaskDirectory(String taskId) {
+    return _downloadDirectoryProvider.taskDirectory(taskId);
+  }
+
+  /// Deletes the persisted task and its private media files.
+  Future<void> deleteDownloadTask(
+    String taskId, {
+    bool deleteFiles = true,
+  }) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      await transaction.delete(
+        'download_segments',
+        where: 'task_id = ?',
+        whereArgs: [taskId],
+      );
+      await transaction.delete(
+        'download_tasks',
+        where: 'task_id = ?',
+        whereArgs: [taskId],
+      );
+    });
+    if (deleteFiles) await clearDownloadFiles(taskId: taskId);
+  }
+
+  Future<void> deleteAllDownloadTasks({bool deleteFiles = true}) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      await transaction.delete('download_segments');
+      await transaction.delete('download_tasks');
+    });
+    if (deleteFiles) await clearDownloadFiles();
+  }
+
+  /// Deletes files below one task directory, or all task directories when no
+  /// task id is supplied. The root itself is retained for future downloads.
+  Future<void> clearDownloadFiles({String? taskId}) async {
+    if (taskId != null) {
+      await _downloadDirectoryProvider.deleteTaskDirectory(taskId);
+      return;
+    }
+    final root = await _downloadDirectoryProvider.root;
+    if (!await root.exists()) return;
+    await for (final entity in root.list(followLinks: false)) {
+      if (entity is Directory) {
+        await entity.delete(recursive: true);
+      } else if (entity is File) {
+        await entity.delete();
+      }
+    }
+  }
+
+  Future<DownloadCacheStats> downloadCacheStats() async {
+    final root = await _downloadDirectoryProvider.root;
+    var totalBytes = 0;
+    var fileCount = 0;
+    if (await root.exists()) {
+      await for (final entity
+          in root.list(recursive: true, followLinks: false)) {
+        final name = path.basename(entity.path);
+        if (entity is File &&
+            !name.endsWith('.json') &&
+            !name.endsWith('.json.tmp') &&
+            !name.endsWith('.tmp')) {
+          totalBytes += await entity.length();
+          fileCount++;
+        }
+      }
+    }
+    final row = (await (await _db).rawQuery(
+      'SELECT COUNT(*) AS count FROM download_tasks',
+    ))
+        .single;
+    return DownloadCacheStats(
+      totalBytes: totalBytes,
+      fileCount: fileCount,
+      taskCount: _safeParseInt(row['count']),
+    );
   }
 
   Future<void> close() async {
@@ -1234,7 +1748,7 @@ class LocalMediaRepository implements MediaRepository {
 
   Future<void> _createSourceGroupConfigTable(DatabaseExecutor database) {
     return database.execute('''
-      CREATE TABLE source_group_configs (
+      CREATE TABLE IF NOT EXISTS source_group_configs (
         source_id TEXT NOT NULL,
         category_id TEXT NOT NULL,
         category_name TEXT NOT NULL,
@@ -1244,6 +1758,163 @@ class LocalMediaRepository implements MediaRepository {
         PRIMARY KEY (source_id, category_id)
       )
     ''');
+  }
+
+  Future<void> _createDownloadTables(DatabaseExecutor database) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS download_tasks (
+        task_id TEXT PRIMARY KEY,
+        task_key TEXT NOT NULL UNIQUE,
+        media_id TEXT NOT NULL,
+        source_url TEXT NOT NULL,
+        title TEXT,
+        episode_id TEXT,
+        season_number INTEGER,
+        episode_number INTEGER,
+        episode_label TEXT,
+        poster_url TEXT,
+        backdrop_url TEXT,
+        status TEXT NOT NULL,
+        total_segments INTEGER NOT NULL DEFAULT 0,
+        completed_segments INTEGER NOT NULL DEFAULT 0,
+        total_bytes INTEGER NOT NULL DEFAULT 0,
+        downloaded_bytes INTEGER NOT NULL DEFAULT 0,
+        output_path TEXT,
+        error_message TEXT,
+        created_at INTEGER NOT NULL,
+        updated_at INTEGER NOT NULL
+      )
+    ''');
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS download_segments (
+        task_id TEXT NOT NULL,
+        segment_index INTEGER NOT NULL,
+        byte_count INTEGER NOT NULL DEFAULT 0,
+        completed_at INTEGER NOT NULL,
+        PRIMARY KEY (task_id, segment_index)
+      )
+    ''');
+    await database.execute('''
+      CREATE INDEX IF NOT EXISTS download_tasks_media_idx
+      ON download_tasks (media_id, created_at)
+    ''');
+    await database.execute('''
+      CREATE INDEX IF NOT EXISTS download_segments_task_idx
+      ON download_segments (task_id, segment_index)
+    ''');
+  }
+
+  Future<void> _ensureDownloadTables(Database database) async {
+    await _createDownloadTables(database);
+    await _addDownloadPresentationColumns(database);
+  }
+
+  Future<void> _addDownloadPresentationColumns(
+      DatabaseExecutor database) async {
+    final columns =
+        await database.rawQuery('PRAGMA table_info(download_tasks)');
+    final existing =
+        columns.map((row) => row['name']).whereType<String>().toSet();
+    if (!existing.contains('season_number')) {
+      await database.execute(
+        'ALTER TABLE download_tasks ADD COLUMN season_number INTEGER',
+      );
+    }
+    if (!existing.contains('poster_url')) {
+      await database.execute(
+        'ALTER TABLE download_tasks ADD COLUMN poster_url TEXT',
+      );
+    }
+    if (!existing.contains('backdrop_url')) {
+      await database.execute(
+        'ALTER TABLE download_tasks ADD COLUMN backdrop_url TEXT',
+      );
+    }
+  }
+
+  /// Repairs partially-created group tables left by older iOS migrations.
+  ///
+  /// `CREATE TABLE IF NOT EXISTS` does not validate an existing table's
+  /// columns, so a table with a legacy/corrupt schema can still make inserts
+  /// fail. Rebuild only this table and copy values from known legacy names.
+  Future<void> _ensureSourceGroupConfigTable(Database database) async {
+    final info =
+        await database.rawQuery('PRAGMA table_info(source_group_configs)');
+    if (info.isEmpty) {
+      await _createSourceGroupConfigTable(database);
+      return;
+    }
+
+    final columns = <String>{
+      for (final row in info) _stringValue(row['name']).toLowerCase(),
+    };
+    const required = {
+      'source_id',
+      'category_id',
+      'category_name',
+      'is_enabled',
+      'created_at',
+      'updated_at',
+    };
+    if (required.every(columns.contains)) return;
+
+    await database.transaction((transaction) async {
+      await transaction.execute(
+        'ALTER TABLE source_group_configs RENAME TO source_group_configs_legacy',
+      );
+      await _createSourceGroupConfigTable(transaction);
+
+      final legacyRows = await transaction.query('source_group_configs_legacy');
+      final legacyInfo = await transaction.rawQuery(
+        'PRAGMA table_info(source_group_configs_legacy)',
+      );
+      final actualNames = <String, String>{
+        for (final row in legacyInfo)
+          _stringValue(row['name']).toLowerCase(): _stringValue(row['name']),
+      };
+
+      Object? value(Map<String, Object?> row, List<String> candidates) {
+        for (final candidate in candidates) {
+          final actual = actualNames[candidate.toLowerCase()];
+          if (actual != null && row.containsKey(actual)) return row[actual];
+        }
+        return null;
+      }
+
+      for (final row in legacyRows) {
+        final sourceId = _stringValue(value(row, ['source_id', 'sourceId']));
+        final categoryId =
+            _stringValue(value(row, ['category_id', 'categoryId']));
+        if (sourceId.isEmpty || categoryId.isEmpty) continue;
+
+        final categoryName = _stringValue(
+          value(row, ['category_name', 'categoryName']),
+        );
+        final enabledValue = value(row, ['is_enabled', 'isEnabled']);
+        await transaction.insert(
+          'source_group_configs',
+          {
+            'source_id': sourceId,
+            'category_id': categoryId,
+            'category_name': categoryName.isEmpty ? categoryId : categoryName,
+            'is_enabled': enabledValue == null
+                ? 1
+                : _safeParseInt(enabledValue) == 0
+                    ? 0
+                    : 1,
+            'created_at': _safeParseInt(
+              value(row, ['created_at', 'createdAt']),
+            ),
+            'updated_at': _safeParseInt(
+              value(row, ['updated_at', 'updatedAt']),
+            ),
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+
+      await transaction.execute('DROP TABLE source_group_configs_legacy');
+    });
   }
 
   Future<void> _saveMediaSnapshot(
@@ -1271,6 +1942,64 @@ class LocalMediaRepository implements MediaRepository {
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
+    );
+  }
+
+  Map<String, Object?> _downloadTaskToRow(DownloadTask task) {
+    return {
+      'task_id': task.taskId,
+      'task_key': task.taskKey,
+      'media_id': task.mediaId,
+      'source_url': task.sourceUrl,
+      'title': task.title,
+      'episode_id': task.episodeId,
+      'season_number': task.seasonNumber,
+      'episode_number': task.episodeNumber,
+      'episode_label': task.episodeLabel,
+      'poster_url': task.posterUrl,
+      'backdrop_url': task.backdropUrl,
+      'status': task.status.wireName,
+      'total_segments': task.totalSegments,
+      'completed_segments': task.completedSegments,
+      'total_bytes': task.totalBytes,
+      'downloaded_bytes': task.downloadedBytes,
+      'output_path': task.outputPath,
+      'error_message': task.errorMessage,
+      'created_at': task.createdAt.toUtc().millisecondsSinceEpoch,
+      'updated_at': task.updatedAt.toUtc().millisecondsSinceEpoch,
+    };
+  }
+
+  DownloadTask _downloadTaskFromRow(Map<String, Object?> row) {
+    return DownloadTask(
+      taskId: _stringValue(row['task_id']),
+      taskKey: _stringValue(row['task_key']),
+      mediaId: _stringValue(row['media_id']),
+      sourceUrl: _stringValue(row['source_url']),
+      title: row['title'] as String?,
+      episodeId: row['episode_id'] as String?,
+      seasonNumber: _safeParseIntNullable(row['season_number']),
+      episodeNumber: _safeParseIntNullable(row['episode_number']),
+      episodeLabel: row['episode_label'] as String?,
+      posterUrl: row['poster_url'] as String?,
+      backdropUrl: row['backdrop_url'] as String?,
+      status: DownloadTaskStatusCodec.fromWireName(
+        _stringValue(row['status']),
+      ),
+      totalSegments: _safeParseInt(row['total_segments']),
+      completedSegments: _safeParseInt(row['completed_segments']),
+      totalBytes: _safeParseInt(row['total_bytes']),
+      downloadedBytes: _safeParseInt(row['downloaded_bytes']),
+      outputPath: row['output_path'] as String?,
+      errorMessage: row['error_message'] as String?,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(
+        _safeParseInt(row['created_at']),
+        isUtc: true,
+      ),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(
+        _safeParseInt(row['updated_at']),
+        isUtc: true,
+      ),
     );
   }
 
@@ -1371,16 +2100,20 @@ class LocalMediaRepository implements MediaRepository {
 
   SourceGroupConfig _groupConfigFromRow(Map<String, Object?> row) {
     return SourceGroupConfig(
-      sourceId: row['source_id'] as String,
-      categoryId: row['category_id'] as String,
-      categoryName: row['category_name'] as String,
-      isEnabled: (row['is_enabled'] as int? ?? 1) == 1,
-      createdAt:
-          DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int? ?? 0),
-      updatedAt:
-          DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int? ?? 0),
+      sourceId: _stringValue(row['source_id']),
+      categoryId: _stringValue(row['category_id']),
+      categoryName: _stringValue(row['category_name']),
+      isEnabled: _safeParseInt(row['is_enabled'] ?? 1) == 1,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(
+        _safeParseInt(row['created_at']),
+      ),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(
+        _safeParseInt(row['updated_at']),
+      ),
     );
   }
+
+  String _stringValue(Object? value) => value?.toString().trim() ?? '';
 
   int _safeParseInt(Object? value) {
     if (value == null) return 0;
@@ -1404,6 +2137,27 @@ class LocalMediaRepository implements MediaRepository {
     if (decoded is! List) return const [];
     return decoded.whereType<String>().toList(growable: false);
   }
+}
+
+class _SourceSearchResult {
+  const _SourceSearchResult(this.request, this.matches);
+
+  final Future<_SourceSearchResult> request;
+  final List<MediaItem> matches;
+}
+
+class _SourceGroupFilter {
+  const _SourceGroupFilter({
+    required this.hasConfig,
+    required this.enabledIds,
+  });
+
+  const _SourceGroupFilter.unconfigured()
+      : hasConfig = false,
+        enabledIds = const [];
+
+  final bool hasConfig;
+  final List<String> enabledIds;
 }
 
 class _HomeCategoryDefinition {

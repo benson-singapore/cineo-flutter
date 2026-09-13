@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:io';
 import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart'
@@ -8,8 +9,10 @@ import 'package:flutter/services.dart';
 import 'package:video_player/video_player.dart';
 
 import '../../core/models/media.dart';
+import '../../core/models/source_search_progress.dart';
 import '../../core/platform/picture_in_picture.dart';
 import '../../core/theme/cineo_theme.dart';
+import '../../shared/widgets/media_image.dart';
 import '../settings/m3u8_filter_settings.dart';
 
 const List<double> supportedPlaybackSpeeds = <double>[
@@ -23,6 +26,7 @@ const List<double> supportedPlaybackSpeeds = <double>[
 
 const int _maxPlaybackInitializationAttempts = 3;
 const Duration _playbackRetryDelay = Duration(milliseconds: 500);
+const Duration _playbackInitializationTimeout = Duration(seconds: 12);
 const Duration _controlsHideDelay = Duration(seconds: 3);
 
 /// Formats the elapsed or total playback duration for the player controls.
@@ -35,6 +39,18 @@ String formatPlaybackDuration(Duration duration) {
     return '$hours:${minutes.toString().padLeft(2, '0')}:${seconds.toString().padLeft(2, '0')}';
   }
   return '$minutes:${seconds.toString().padLeft(2, '0')}';
+}
+
+/// Applies a relative seek while keeping the target inside the video range.
+Duration seekPositionBy({
+  required Duration position,
+  required Duration offset,
+  required Duration duration,
+}) {
+  final target = position + offset;
+  if (target < Duration.zero) return Duration.zero;
+  if (duration > Duration.zero && target > duration) return duration;
+  return target;
 }
 
 String episodeDisplayLabel(PlaybackOption option) {
@@ -69,6 +85,39 @@ List<String> playbackUrlCandidatesForOption(
   return <String>[filteredUrl, option.url];
 }
 
+/// Returns the local file candidate when it points at a usable regular file.
+///
+/// The callback is intentionally kept outside the player and returns a path
+/// rather than a [File], so callers can resolve completed download tasks
+/// without coupling the player to the download service.
+Future<File?> localPlaybackFileForOption(
+  PlaybackOption option,
+  Future<String?> Function(PlaybackOption option)? localSourceForOption,
+) async {
+  if (localSourceForOption == null) return null;
+  final path = (await localSourceForOption(option))?.trim();
+  if (path == null || path.isEmpty) return null;
+  final file = File(path);
+  return await file.exists() ? file : null;
+}
+
+/// Resolves a completed local source that can be either a file path or a
+/// loopback HTTP HLS URL.
+Future<String?> localPlaybackSourceForOption(
+  PlaybackOption option,
+  Future<String?> Function(PlaybackOption option)? localSourceForOption,
+) async {
+  if (localSourceForOption == null) return null;
+  final source = (await localSourceForOption(option))?.trim();
+  if (source == null || source.isEmpty) return null;
+  final uri = Uri.tryParse(source);
+  if (uri != null && (uri.scheme == 'http' || uri.scheme == 'https')) {
+    return source;
+  }
+  final file = File(source);
+  return await file.exists() ? file.path : null;
+}
+
 VideoFormat? playbackFormatHintForOption(PlaybackOption option) {
   final isM3u8 = option.isHls || option.url.toLowerCase().contains('.m3u8');
   return isM3u8 ? VideoFormat.hls : null;
@@ -91,13 +140,17 @@ class PlayerScreen extends StatefulWidget {
     this.onPictureInPicture,
     this.pictureInPictureAvailable = false,
     this.onSearchOtherSources,
+    this.onSearchOtherSourcesProgressively,
     this.onLoadAlternative,
+    this.localSourceForOption,
+    this.onLocalPlaybackError,
+    this.localOnly = false,
   });
 
   final MediaItem media;
   final PlaybackOption option;
   final Duration initialPosition;
-  final void Function(MediaItem media, WatchProgress progress)
+  final Future<void> Function(MediaItem media, WatchProgress progress)
       onProgressChanged;
   final M3u8FilterSettings? m3u8FilterSettings;
   final String? episodeId;
@@ -119,7 +172,24 @@ class PlayerScreen extends StatefulWidget {
       onPictureInPicture;
   final bool pictureInPictureAvailable;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
+  final Stream<SourceSearchProgress> Function(MediaItem media)?
+      onSearchOtherSourcesProgressively;
   final Future<MediaItem?> Function(MediaItem media)? onLoadAlternative;
+
+  /// Resolves a completed local download to its final media file path.
+  ///
+  /// A null/empty/nonexistent path is treated as a cache miss. The player
+  /// never deletes a path returned by this callback.
+  final Future<String?> Function(PlaybackOption option)? localSourceForOption;
+
+  /// Receives local-cache playback failures. Errors are advisory and must not
+  /// remove the completed cache file.
+  final void Function(PlaybackOption option, String path, Object error)?
+      onLocalPlaybackError;
+
+  /// When true, the player must use the resolved local source and never try a
+  /// remote playback URL. This is used by the cache manager's play action.
+  final bool localOnly;
 
   @override
   State<PlayerScreen> createState() => _PlayerScreenState();
@@ -145,6 +215,14 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool _searchingOtherSources = false;
   bool _isInPictureInPicture = false;
   bool _pictureInPictureRequestInFlight = false;
+  bool _isInAppPictureInPicture = false;
+  bool _appPictureInPictureControlsVisible = true;
+  double _appPictureInPictureScale = 1;
+  Offset? _appPictureInPictureOffset;
+  Offset? _appPictureInPictureStartOffset;
+  Offset? _appPictureInPictureStartFocalPoint;
+  double _appPictureInPictureStartScale = 1;
+  bool _isClosing = false;
 
   List<PlaybackOption> get _episodes {
     final activeQuality = _activeOption?.quality ?? widget.option.quality;
@@ -178,6 +256,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     WidgetsBinding.instance.addObserver(this);
     unawaited(_pictureInPicture.setEventHandlers(
       onAction: _handlePictureInPictureAction,
+      onAutoEnter: _handleAutomaticPictureInPictureRequest,
       onModeChanged: _handlePictureInPictureModeChanged,
     ));
     _loadOption(widget.option, initial: true);
@@ -201,11 +280,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     PlaybackOption option, {
     bool initial = false,
     bool savePrevious = true,
+    Duration? positionOverride,
   }) async {
     final generation = ++_loadGeneration;
     final previousController = _controller;
     if (previousController != null) {
-      if (savePrevious) _save();
+      if (savePrevious) await _save();
       _controller = null;
       previousController.removeListener(_onControllerChanged);
       await previousController.dispose();
@@ -224,6 +304,49 @@ class _PlayerScreenState extends State<PlayerScreen>
     _lastIsPlaying = null;
     _error = null;
 
+    final localSource = await _resolveLocalPlaybackSource(option, generation);
+    if (localSource != null) {
+      assert(() {
+        debugPrint('[Cineo][Player] local_source_selected source=$localSource');
+        return true;
+      }());
+      final localUri = Uri.tryParse(localSource);
+      final loadedLocally = localUri != null &&
+              (localUri.scheme == 'http' || localUri.scheme == 'https')
+          ? await _initializeLocalNetworkController(
+              option,
+              localUri,
+              initial: initial,
+              generation: generation,
+            )
+          : await _initializeLocalController(
+              option,
+              File(localSource),
+              initial: initial,
+              generation: generation,
+            );
+      if (loadedLocally) return;
+      if (widget.localOnly) {
+        if (mounted && generation == _loadGeneration) {
+          setState(() => _error = '本地缓存无法播放');
+        }
+        return;
+      }
+    } else {
+      assert(() {
+        debugPrint(widget.localOnly
+            ? '[Cineo][Player] local_source_miss; local-only playback stopped'
+            : '[Cineo][Player] local_source_miss; using remote candidates');
+        return true;
+      }());
+      if (widget.localOnly) {
+        if (mounted && generation == _loadGeneration) {
+          setState(() => _error = '本地缓存不存在');
+        }
+        return;
+      }
+    }
+
     for (var urlIndex = 0; urlIndex < playbackUrls.length; urlIndex++) {
       final playbackUrl = playbackUrls[urlIndex];
       final attempts = urlIndex == 0 && playbackUrls.length > 1
@@ -233,39 +356,25 @@ class _PlayerScreenState extends State<PlayerScreen>
       for (var attempt = 1; attempt <= attempts; attempt++) {
         if (!mounted || generation != _loadGeneration) return;
 
-        final controller = VideoPlayerController.networkUrl(
-          Uri.parse(playbackUrl),
-          formatHint: playbackFormatHintForOption(option),
-          videoPlayerOptions: VideoPlayerOptions(
-            allowBackgroundPlayback: true,
-          ),
-        );
+        final controller = _networkControllerFor(playbackUrl, option);
         _controller = controller;
         if (mounted) setState(() {});
         controller.addListener(_onControllerChanged);
 
         try {
-          await controller.initialize();
+          await controller.initialize().timeout(_playbackInitializationTimeout);
           if (!mounted || generation != _loadGeneration) {
             controller.removeListener(_onControllerChanged);
             await controller.dispose();
             return;
           }
 
-          final requestedPosition = _positionFor(option, initial: initial);
-          if (requestedPosition > Duration.zero) {
-            final maxPosition = controller.value.duration;
-            await controller.seekTo(
-              requestedPosition > maxPosition ? maxPosition : requestedPosition,
-            );
-          }
-          await controller.setPlaybackSpeed(_playbackSpeed);
-          await controller.play();
-          _saveTimer ??=
-              Timer.periodic(const Duration(seconds: 10), (_) => _save());
-          _scheduleControlsHide();
-          _updatePictureInPictureControls();
-          if (mounted) setState(() {});
+          await _finishControllerInitialization(
+            controller,
+            option,
+            initial: initial,
+            positionOverride: positionOverride,
+          );
           return;
         } catch (error) {
           controller.removeListener(_onControllerChanged);
@@ -301,6 +410,166 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (mounted && generation == _loadGeneration) {
       setState(() => _error = '此播放地址暂时无法播放');
     }
+  }
+
+  Future<String?> _resolveLocalPlaybackSource(
+    PlaybackOption option,
+    int generation,
+  ) async {
+    try {
+      final source = await localPlaybackSourceForOption(
+        option,
+        widget.localSourceForOption,
+      );
+      if (!mounted || generation != _loadGeneration) return null;
+      return source;
+    } catch (error) {
+      assert(() {
+        debugPrint('[Cineo][Player] local_source_lookup_failed error=$error');
+        return true;
+      }());
+      return null;
+    }
+  }
+
+  VideoPlayerController _networkControllerFor(
+    String playbackUrl,
+    PlaybackOption option,
+  ) {
+    return VideoPlayerController.networkUrl(
+      Uri.parse(playbackUrl),
+      formatHint: playbackFormatHintForOption(option),
+      videoPlayerOptions: VideoPlayerOptions(
+        allowBackgroundPlayback: true,
+      ),
+    );
+  }
+
+  Future<bool> _initializeLocalController(
+    PlaybackOption option,
+    File file, {
+    required bool initial,
+    required int generation,
+    Duration? positionOverride,
+  }) async {
+    final controller = VideoPlayerController.file(
+      file,
+      videoPlayerOptions: VideoPlayerOptions(
+        allowBackgroundPlayback: true,
+      ),
+    );
+    _controller = controller;
+    if (mounted) setState(() {});
+    controller.addListener(_onControllerChanged);
+
+    try {
+      await controller.initialize().timeout(_playbackInitializationTimeout);
+      if (!mounted || generation != _loadGeneration) {
+        controller.removeListener(_onControllerChanged);
+        await controller.dispose();
+        return false;
+      }
+      await _finishControllerInitialization(
+        controller,
+        option,
+        initial: initial,
+        positionOverride: positionOverride,
+      );
+      return true;
+    } catch (error) {
+      controller.removeListener(_onControllerChanged);
+      if (identical(_controller, controller)) _controller = null;
+      await controller.dispose();
+      try {
+        widget.onLocalPlaybackError?.call(option, file.path, error);
+      } catch (_) {
+        // An observer must not prevent remote playback fallback.
+      }
+      assert(() {
+        debugPrint(
+          '[Cineo][Player] local_initialize_failed path=${file.path} '
+          'error=$error',
+        );
+        return true;
+      }());
+      if (mounted && generation == _loadGeneration) setState(() {});
+      return false;
+    }
+  }
+
+  Future<bool> _initializeLocalNetworkController(
+    PlaybackOption option,
+    Uri uri, {
+    required bool initial,
+    required int generation,
+    Duration? positionOverride,
+  }) async {
+    final controller = VideoPlayerController.networkUrl(
+      uri,
+      formatHint: VideoFormat.hls,
+      videoPlayerOptions: VideoPlayerOptions(
+        allowBackgroundPlayback: true,
+      ),
+    );
+    _controller = controller;
+    if (mounted) setState(() {});
+    controller.addListener(_onControllerChanged);
+
+    try {
+      await controller.initialize().timeout(_playbackInitializationTimeout);
+      if (!mounted || generation != _loadGeneration) {
+        controller.removeListener(_onControllerChanged);
+        await controller.dispose();
+        return false;
+      }
+      await _finishControllerInitialization(
+        controller,
+        option,
+        initial: initial,
+        positionOverride: positionOverride,
+      );
+      return true;
+    } catch (error) {
+      controller.removeListener(_onControllerChanged);
+      if (identical(_controller, controller)) _controller = null;
+      await controller.dispose();
+      assert(() {
+        debugPrint(
+          '[Cineo][Player] local_hls_initialize_failed url=$uri '
+          'error=$error; falling back to remote',
+        );
+        return true;
+      }());
+      if (mounted && generation == _loadGeneration) setState(() {});
+      return false;
+    }
+  }
+
+  Future<void> _finishControllerInitialization(
+    VideoPlayerController controller,
+    PlaybackOption option, {
+    required bool initial,
+    Duration? positionOverride,
+  }) async {
+    // Resource switching must preserve the live position even when the new
+    // source uses a different PlaybackOption.id and the queued history write
+    // has not completed yet.
+    final requestedPosition =
+        positionOverride ?? _positionFor(option, initial: initial);
+    if (requestedPosition > Duration.zero) {
+      final maxPosition = controller.value.duration;
+      await controller.seekTo(
+        requestedPosition > maxPosition ? maxPosition : requestedPosition,
+      );
+    }
+    await controller.setPlaybackSpeed(_playbackSpeed);
+    await controller.play();
+    _saveTimer ??= Timer.periodic(const Duration(seconds: 10), (_) {
+      unawaited(_save());
+    });
+    _scheduleControlsHide();
+    _updatePictureInPictureControls();
+    if (mounted) setState(() {});
   }
 
   void _onControllerChanged() {
@@ -349,13 +618,38 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  Future<void> _handleAutomaticPictureInPictureRequest() async {
+    await _enterAutomaticPictureInPicture();
+  }
+
+  Future<void> _enterAutomaticPictureInPicture() async {
+    final controller = _initializedController;
+    if (controller?.value.isPlaying != true ||
+        !mounted ||
+        _isInPictureInPicture ||
+        _pictureInPictureRequestInFlight) {
+      return;
+    }
+
+    if (_isInAppPictureInPicture) {
+      setState(() {
+        _isInAppPictureInPicture = false;
+        _appPictureInPictureControlsVisible = true;
+      });
+    }
+    await _openPictureInPicture();
+  }
+
   Future<void> _handlePictureInPictureModeChanged(
     bool isInPictureInPicture,
     Duration? position,
   ) async {
     if (!mounted) return;
     final wasInPictureInPicture = _isInPictureInPicture;
-    setState(() => _isInPictureInPicture = isInPictureInPicture);
+    setState(() {
+      _isInPictureInPicture = isInPictureInPicture;
+      if (isInPictureInPicture) _isInAppPictureInPicture = false;
+    });
     if (!isInPictureInPicture && wasInPictureInPicture) {
       final controller = _initializedController;
       if (controller == null) return;
@@ -379,14 +673,11 @@ class _PlayerScreenState extends State<PlayerScreen>
     } else if (state == AppLifecycleState.inactive ||
         state == AppLifecycleState.paused ||
         state == AppLifecycleState.hidden) {
-      final controller = _initializedController;
-      if (controller?.value.isPlaying == true && !_isInPictureInPicture) {
-        unawaited(_openPictureInPicture());
-      }
+      unawaited(_enterAutomaticPictureInPicture());
     }
   }
 
-  void _save() {
+  Future<void> _save() async {
     final controller = _controller;
     final option = _activeOption;
     if (controller == null ||
@@ -394,7 +685,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         !controller.value.isInitialized) {
       return;
     }
-    widget.onProgressChanged(
+    await widget.onProgressChanged(
         _media,
         WatchProgress(
           mediaId: _media.id,
@@ -480,6 +771,20 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  Future<void> _seekBy(Duration offset) async {
+    final controller = _initializedController;
+    if (controller == null) return;
+    final value = controller.value;
+    await controller.seekTo(
+      seekPositionBy(
+        position: value.position,
+        offset: offset,
+        duration: value.duration,
+      ),
+    );
+    _showControls();
+  }
+
   Future<void> _setPlaybackSpeed(double speed) async {
     _playbackSpeed = speed;
     final controller = _initializedController;
@@ -520,19 +825,22 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _openSourcePanel() async {
     final finder = widget.onSearchOtherSources;
+    final progressiveFinder = widget.onSearchOtherSourcesProgressively;
     final loader = widget.onLoadAlternative;
-    if (finder == null || loader == null || _searchingOtherSources) return;
+    if ((finder == null && progressiveFinder == null) ||
+        loader == null ||
+        _searchingOtherSources) return;
     setState(() => _searchingOtherSources = true);
     try {
-      final matches = await finder(_media);
-      if (!mounted) return;
       final selected = await showModalBottomSheet<MediaItem>(
         context: context,
         showDragHandle: true,
         isScrollControlled: true,
         backgroundColor: CineoColors.surface,
         builder: (context) => _PlayerSourceSheet(
-          matches: <MediaItem>[_media, ...matches],
+          currentMedia: _media,
+          onSearch: finder,
+          onSearchProgressively: progressiveFinder,
           activeSourceId: _media.sourceId,
         ),
       );
@@ -553,7 +861,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     MediaItem alternative,
     Future<MediaItem?> Function(MediaItem media) loader,
   ) async {
-    _save();
+    final currentPosition =
+        _initializedController?.value.position ?? Duration.zero;
+    await _save();
     final loaded = await loader(alternative);
     if (!mounted || loaded == null) {
       _showMessage('切换资源站失败，请稍后重试');
@@ -566,7 +876,11 @@ class _PlayerScreenState extends State<PlayerScreen>
       return;
     }
     setState(() => _media = loaded);
-    await _loadOption(option, savePrevious: false);
+    await _loadOption(
+      option,
+      savePrevious: false,
+      positionOverride: currentPosition,
+    );
     if (mounted) _showMessage('已切换到${loaded.sourceName ?? '其他资源站'}');
   }
 
@@ -647,6 +961,130 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
+  void _openAppPictureInPicture() {
+    final controller = _initializedController;
+    if (controller == null) return;
+    final size = MediaQuery.sizeOf(context);
+    final windowSize = _appPictureInPictureSize(size, controller.value);
+    final padding = MediaQuery.paddingOf(context);
+    _appPictureInPictureScale = 1;
+    _appPictureInPictureOffset = Offset(
+      math.max(12, size.width - windowSize.width - 16),
+      math.max(
+        padding.top + 12,
+        size.height - padding.bottom - windowSize.height - 104,
+      ),
+    );
+    _appPictureInPictureControlsVisible = true;
+    setState(() => _isInAppPictureInPicture = true);
+    _showControls();
+  }
+
+  Future<void> _closePlayer() async {
+    if (_isClosing) return;
+    _isClosing = true;
+    _saveTimer?.cancel();
+    try {
+      await _save();
+    } finally {
+      if (mounted) Navigator.of(context).pop();
+    }
+  }
+
+  Future<void> _closeAppPictureInPicture() async {
+    await _closePlayer();
+  }
+
+  void _returnToPlayerFromAppPictureInPicture() {
+    setState(() {
+      _isInAppPictureInPicture = false;
+      _appPictureInPictureControlsVisible = true;
+    });
+    _showControls();
+  }
+
+  Size _appPictureInPictureSize(Size screenSize, VideoPlayerValue value) {
+    final availableWidth = math.max(1.0, screenSize.width - 24);
+    final width = math.min(340.0, math.max(1.0, availableWidth));
+    final aspectRatio = value.aspectRatio > 0 ? value.aspectRatio : 16 / 9;
+    return Size(width, width / aspectRatio);
+  }
+
+  void _onAppPictureInPictureDoubleTap() {
+    final controller = _initializedController;
+    if (controller == null || !mounted) return;
+
+    final screenSize = MediaQuery.sizeOf(context);
+    final baseSize = _appPictureInPictureSize(screenSize, controller.value);
+    final maxWidth = math.max(1.0, screenSize.width - 24);
+    final maxScale = maxWidth / baseSize.width;
+    final nextSize = Size(
+      baseSize.width * maxScale,
+      baseSize.height * maxScale,
+    );
+    final padding = MediaQuery.paddingOf(context);
+    final minTop = padding.top + 12;
+    final maxTop = math.max(
+      minTop,
+      screenSize.height - padding.bottom - nextSize.height - 12,
+    );
+
+    setState(() {
+      _appPictureInPictureScale = maxScale;
+      _appPictureInPictureOffset = Offset(
+        (screenSize.width - nextSize.width) / 2,
+        (_appPictureInPictureOffset?.dy ?? minTop).clamp(minTop, maxTop),
+      );
+    });
+  }
+
+  void _onAppPictureInPictureScaleStart(ScaleStartDetails details) {
+    _appPictureInPictureStartOffset = _appPictureInPictureOffset;
+    _appPictureInPictureStartFocalPoint = details.focalPoint;
+    _appPictureInPictureStartScale = _appPictureInPictureScale;
+  }
+
+  void _onAppPictureInPictureScaleUpdate(ScaleUpdateDetails details) {
+    final startOffset = _appPictureInPictureStartOffset;
+    final startFocalPoint = _appPictureInPictureStartFocalPoint;
+    if (startOffset == null || startFocalPoint == null || !mounted) return;
+    final controller = _initializedController;
+    if (controller == null) return;
+    final screenSize = MediaQuery.sizeOf(context);
+    final baseSize = _appPictureInPictureSize(screenSize, controller.value);
+    final maxWidth = math.max(1.0, screenSize.width - 24);
+    final maxScale = maxWidth / baseSize.width;
+    final nextScale = (_appPictureInPictureStartScale * details.scale)
+        .clamp(.65, maxScale)
+        .toDouble();
+    final nextSize = Size(
+      baseSize.width * nextScale,
+      baseSize.height * nextScale,
+    );
+    final padding = MediaQuery.paddingOf(context);
+    final maxLeft = math.max(12.0, screenSize.width - nextSize.width - 12);
+    final maxTop = math.max(
+      padding.top + 12,
+      screenSize.height - padding.bottom - nextSize.height - 12,
+    );
+    setState(() {
+      _appPictureInPictureScale = nextScale;
+      _appPictureInPictureOffset = Offset(
+        (startOffset.dx + details.focalPoint.dx - startFocalPoint.dx)
+            .clamp(12.0, maxLeft),
+        (startOffset.dy + details.focalPoint.dy - startFocalPoint.dy)
+            .clamp(padding.top + 12, maxTop),
+      );
+    });
+  }
+
+  void _toggleAppPictureInPictureControls() {
+    setState(() {
+      _appPictureInPictureControlsVisible =
+          !_appPictureInPictureControlsVisible;
+    });
+  }
+
   Future<void> _toggleOrientation() async {
     final landscape = _orientation == _PlayerOrientation.landscape;
     await SystemChrome.setPreferredOrientations(
@@ -682,7 +1120,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (_isInPictureInPicture) {
       unawaited(_pictureInPicture.stop());
     }
-    _save();
+    if (!_isClosing) unawaited(_save());
     unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     final controller = _controller;
     if (controller != null) {
@@ -697,6 +1135,25 @@ class _PlayerScreenState extends State<PlayerScreen>
     final controller = _controller;
     final value = controller?.value;
     final isReady = value?.isInitialized == true;
+
+    if (_isInAppPictureInPicture && controller != null) {
+      return _AppPictureInPictureSurface(
+        controller: controller,
+        title: _media.title,
+        controlsVisible: _appPictureInPictureControlsVisible,
+        scale: _appPictureInPictureScale,
+        offset: _appPictureInPictureOffset,
+        onScaleStart: _onAppPictureInPictureScaleStart,
+        onScaleUpdate: _onAppPictureInPictureScaleUpdate,
+        onDoubleTap: _onAppPictureInPictureDoubleTap,
+        onToggleControls: _toggleAppPictureInPictureControls,
+        onClose: _closeAppPictureInPicture,
+        onReturnToPlayer: _returnToPlayerFromAppPictureInPicture,
+        onPlayPause: _togglePlayPause,
+        onRewind: () => unawaited(_seekBy(const Duration(seconds: -10))),
+        onForward: () => unawaited(_seekBy(const Duration(seconds: 10))),
+      );
+    }
 
     if (_isInPictureInPicture && isReady && controller != null) {
       if (defaultTargetPlatform == TargetPlatform.iOS) {
@@ -722,76 +1179,276 @@ class _PlayerScreenState extends State<PlayerScreen>
       );
     }
 
-    return Scaffold(
-      backgroundColor: Colors.black,
-      body: SafeArea(
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (_error != null)
-              _PlayerFailure(
-                error: _error!,
-                onClose: () => Navigator.pop(context),
-              )
-            else if (!isReady || controller == null)
-              const Center(
-                child: CircularProgressIndicator(color: CineoColors.primary),
-              )
-            else
-              Center(
-                child: AspectRatio(
-                  aspectRatio:
-                      value!.aspectRatio > 0 ? value.aspectRatio : 16 / 9,
-                  child: VideoPlayer(controller),
-                ),
-              ),
-            if (_error == null && isReady && controller != null)
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTap: _toggleControls,
-                  onVerticalDragUpdate: _handleVerticalDrag,
-                ),
-              ),
-            if (_error == null && isReady && controller != null)
-              IgnorePointer(
-                ignoring: !_controlsVisible,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 180),
-                  opacity: _controlsVisible ? 1 : 0,
-                  child: _PlayerControls(
-                    controller: controller,
-                    title: _media.title,
-                    isPlaying: value!.isPlaying,
-                    speed: _playbackSpeed,
-                    canGoPrevious: _currentEpisodeIndex > 0,
-                    canGoNext: _currentEpisodeIndex < _episodes.length - 1,
-                    hasEpisodes: _episodes.length > 1,
-                    pictureInPictureAvailable:
-                        widget.pictureInPictureAvailable &&
-                            widget.onPictureInPicture != null,
-                    onClose: () => Navigator.pop(context),
-                    onPlayPause: _togglePlayPause,
-                    onPrevious: () => _selectRelativeEpisode(-1),
-                    onNext: () => _selectRelativeEpisode(1),
-                    onSpeedChanged: _setPlaybackSpeed,
-                    onOpenEpisodes: _openEpisodePanel,
-                    canSwitchSource: widget.onSearchOtherSources != null &&
-                        widget.onLoadAlternative != null,
-                    isSwitchingSource: _searchingOtherSources,
-                    onOpenSource: _openSourcePanel,
-                    isLandscape: _orientation == _PlayerOrientation.landscape,
-                    onOpenSystemPlayer: _openSystemPlayer,
-                    onToggleOrientation: _toggleOrientation,
-                    onPictureInPicture: _openPictureInPicture,
-                    onControlsInteraction: _showControls,
-                    onToggleControls: _toggleControls,
+    return WillPopScope(
+      onWillPop: () async {
+        await _closePlayer();
+        return false;
+      },
+      child: Scaffold(
+        backgroundColor: Colors.black,
+        body: SafeArea(
+          child: Stack(
+            fit: StackFit.expand,
+            children: [
+              if (_error != null)
+                _PlayerFailure(
+                  error: _error!,
+                  onClose: () => Navigator.pop(context),
+                )
+              else if (!isReady || controller == null)
+                const Center(
+                  child: CircularProgressIndicator(color: CineoColors.primary),
+                )
+              else
+                Center(
+                  child: AspectRatio(
+                    aspectRatio:
+                        value!.aspectRatio > 0 ? value.aspectRatio : 16 / 9,
+                    child: VideoPlayer(controller),
                   ),
                 ),
-              ),
-          ],
+              if (_error == null && isReady && controller != null)
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: _toggleControls,
+                    onVerticalDragUpdate: _handleVerticalDrag,
+                  ),
+                ),
+              if (_error == null)
+                IgnorePointer(
+                  ignoring: !_controlsVisible,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 180),
+                    opacity: _controlsVisible ? 1 : 0,
+                    child: _PlayerControls(
+                      controller: controller,
+                      isLoading: !isReady || controller == null,
+                      title: _media.title,
+                      isPlaying: value?.isPlaying ?? false,
+                      speed: _playbackSpeed,
+                      canGoPrevious: isReady && _currentEpisodeIndex > 0,
+                      canGoNext: isReady &&
+                          _currentEpisodeIndex < _episodes.length - 1,
+                      hasEpisodes: isReady && _episodes.length > 1,
+                      pictureInPictureAvailable: isReady,
+                      onClose: _closePlayer,
+                      onPlayPause: _togglePlayPause,
+                      onRewind: () => unawaited(
+                        _seekBy(const Duration(seconds: -10)),
+                      ),
+                      onForward: () => unawaited(
+                        _seekBy(const Duration(seconds: 10)),
+                      ),
+                      onPrevious: () => _selectRelativeEpisode(-1),
+                      onNext: () => _selectRelativeEpisode(1),
+                      onSpeedChanged: _setPlaybackSpeed,
+                      onOpenEpisodes: _openEpisodePanel,
+                      canSwitchSource: (widget.onSearchOtherSources != null ||
+                              widget.onSearchOtherSourcesProgressively !=
+                                  null) &&
+                          widget.onLoadAlternative != null,
+                      isSwitchingSource: _searchingOtherSources,
+                      onOpenSource: _openSourcePanel,
+                      isLandscape: _orientation == _PlayerOrientation.landscape,
+                      onOpenSystemPlayer: _openSystemPlayer,
+                      onToggleOrientation: _toggleOrientation,
+                      onPictureInPicture:
+                          isReady ? _openAppPictureInPicture : null,
+                      onControlsInteraction: _showControls,
+                      onToggleControls: _toggleControls,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
+    );
+  }
+}
+
+class _AppPictureInPictureSurface extends StatelessWidget {
+  const _AppPictureInPictureSurface({
+    required this.controller,
+    required this.title,
+    required this.controlsVisible,
+    required this.scale,
+    required this.offset,
+    required this.onScaleStart,
+    required this.onScaleUpdate,
+    required this.onDoubleTap,
+    required this.onToggleControls,
+    required this.onClose,
+    required this.onReturnToPlayer,
+    required this.onPlayPause,
+    required this.onRewind,
+    required this.onForward,
+  });
+
+  final VideoPlayerController controller;
+  final String title;
+  final bool controlsVisible;
+  final double scale;
+  final Offset? offset;
+  final GestureScaleStartCallback onScaleStart;
+  final GestureScaleUpdateCallback onScaleUpdate;
+  final VoidCallback onDoubleTap;
+  final VoidCallback onToggleControls;
+  final VoidCallback onClose;
+  final VoidCallback onReturnToPlayer;
+  final VoidCallback onPlayPause;
+  final VoidCallback onRewind;
+  final VoidCallback onForward;
+
+  @override
+  Widget build(BuildContext context) {
+    final value = controller.value;
+    final screenSize = MediaQuery.sizeOf(context);
+    final availableWidth = math.max(1.0, screenSize.width - 24);
+    final baseWidth = math.min(340.0, math.max(1.0, availableWidth));
+    final aspectRatio = value.aspectRatio > 0 ? value.aspectRatio : 16 / 9;
+    final baseSize = Size(baseWidth, baseWidth / aspectRatio);
+    final windowSize = Size(
+      baseSize.width * scale,
+      baseSize.height * scale,
+    );
+    final windowOffset = offset ??
+        Offset(
+          screenSize.width - windowSize.width - 16,
+          MediaQuery.paddingOf(context).top + 12,
+        );
+
+    // Keep the route's transparent area out of hit testing so taps can reach
+    // the page underneath the in-app picture-in-picture window.
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        Positioned(
+          left: windowOffset.dx,
+          top: windowOffset.dy,
+          width: windowSize.width,
+          height: windowSize.height,
+          child: Material(
+            color: Colors.black,
+            elevation: 14,
+            borderRadius: BorderRadius.circular(12),
+            clipBehavior: Clip.antiAlias,
+            child: GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onToggleControls,
+              onDoubleTap: onDoubleTap,
+              onScaleStart: onScaleStart,
+              onScaleUpdate: onScaleUpdate,
+              child: Stack(
+                fit: StackFit.expand,
+                children: [
+                  Center(
+                    child: AspectRatio(
+                      aspectRatio: aspectRatio,
+                      child: VideoPlayer(controller),
+                    ),
+                  ),
+                  AnimatedOpacity(
+                    duration: const Duration(milliseconds: 160),
+                    opacity: controlsVisible ? 1 : 0,
+                    child: IgnorePointer(
+                      ignoring: !controlsVisible,
+                      child: DecoratedBox(
+                        decoration: const BoxDecoration(
+                          gradient: LinearGradient(
+                            begin: Alignment.topCenter,
+                            end: Alignment.bottomCenter,
+                            colors: [
+                              Colors.black87,
+                              Colors.transparent,
+                              Colors.black87,
+                            ],
+                            stops: [0, .45, 1],
+                          ),
+                        ),
+                        child: Column(
+                          children: [
+                            Padding(
+                              padding: const EdgeInsets.fromLTRB(4, 2, 2, 0),
+                              child: Row(
+                                children: [
+                                  Expanded(
+                                    child: Text(
+                                      title,
+                                      maxLines: 1,
+                                      overflow: TextOverflow.ellipsis,
+                                      style: const TextStyle(
+                                        color: Colors.white,
+                                        fontSize: 12,
+                                        fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: '回到播放页面',
+                                    visualDensity: VisualDensity.compact,
+                                    color: Colors.white,
+                                    onPressed: onReturnToPlayer,
+                                    icon: const Icon(
+                                      Icons.open_in_full_rounded,
+                                      size: 18,
+                                    ),
+                                  ),
+                                  IconButton(
+                                    tooltip: '关闭悬浮播放',
+                                    visualDensity: VisualDensity.compact,
+                                    color: Colors.white,
+                                    onPressed: onClose,
+                                    icon: const Icon(
+                                      Icons.close_rounded,
+                                      size: 19,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            ),
+                            const Spacer(),
+                            Row(
+                              mainAxisAlignment: MainAxisAlignment.center,
+                              children: [
+                                IconButton(
+                                  tooltip: '快退 10 秒',
+                                  color: Colors.white,
+                                  onPressed: onRewind,
+                                  icon: const Icon(Icons.replay_10_rounded),
+                                ),
+                                IconButton(
+                                  tooltip: value.isPlaying ? '暂停' : '播放',
+                                  color: CineoColors.primary,
+                                  iconSize: 34,
+                                  onPressed: onPlayPause,
+                                  icon: Icon(
+                                    value.isPlaying
+                                        ? Icons.pause_circle_filled_rounded
+                                        : Icons.play_circle_fill_rounded,
+                                  ),
+                                ),
+                                IconButton(
+                                  tooltip: '快进 10 秒',
+                                  color: Colors.white,
+                                  onPressed: onForward,
+                                  icon: const Icon(Icons.forward_10_rounded),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 4),
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          ),
+        ),
+      ],
     );
   }
 }
@@ -811,30 +1468,99 @@ class _EpisodeBottomSheet extends StatefulWidget {
   State<_EpisodeBottomSheet> createState() => _EpisodeBottomSheetState();
 }
 
-class _PlayerSourceSheet extends StatelessWidget {
+class _PlayerSourceSheet extends StatefulWidget {
   const _PlayerSourceSheet({
-    required this.matches,
+    required this.currentMedia,
+    this.onSearch,
+    this.onSearchProgressively,
     required this.activeSourceId,
   });
 
-  final List<MediaItem> matches;
+  final MediaItem currentMedia;
+  final Future<List<MediaItem>> Function(MediaItem media)? onSearch;
+  final Stream<SourceSearchProgress> Function(MediaItem media)?
+      onSearchProgressively;
   final String? activeSourceId;
+
+  @override
+  State<_PlayerSourceSheet> createState() => _PlayerSourceSheetState();
+}
+
+class _PlayerSourceSheetState extends State<_PlayerSourceSheet> {
+  late final List<MediaItem> _matches = <MediaItem>[widget.currentMedia];
+  StreamSubscription<SourceSearchProgress>? _subscription;
+  int _searched = 0;
+  int _total = 0;
+  bool _loading = true;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    final progressiveFinder = widget.onSearchProgressively;
+    if (progressiveFinder != null) {
+      _subscription = progressiveFinder(widget.currentMedia).listen(
+        _applyProgress,
+        onError: (_) => _finish(failed: true),
+        onDone: _finish,
+      );
+    } else {
+      _loadLegacyResults();
+    }
+  }
+
+  Future<void> _loadLegacyResults() async {
+    try {
+      final matches = await widget.onSearch!(widget.currentMedia);
+      if (!mounted) return;
+      setState(() {
+        _matches.addAll(matches);
+        _loading = false;
+      });
+    } catch (_) {
+      _finish(failed: true);
+    }
+  }
+
+  void _applyProgress(SourceSearchProgress progress) {
+    if (!mounted) return;
+    setState(() {
+      _searched = progress.searched;
+      _total = progress.total;
+      _matches.addAll(progress.matches);
+      _loading = !progress.isComplete;
+    });
+  }
+
+  void _finish({bool failed = false}) {
+    if (!mounted) return;
+    setState(() {
+      _loading = false;
+      _failed = failed;
+    });
+  }
+
+  @override
+  void dispose() {
+    _subscription?.cancel();
+    super.dispose();
+  }
 
   @override
   Widget build(BuildContext context) {
     final sites = <String, MediaItem>{};
-    for (final media in matches) {
+    for (final media in _matches) {
       final sourceId = media.sourceId?.trim() ?? '';
       if (sourceId.isNotEmpty) sites.putIfAbsent(sourceId, () => media);
     }
     final ordered = sites.values.toList()
       ..sort((left, right) {
-        if (left.sourceId == activeSourceId) return -1;
-        if (right.sourceId == activeSourceId) return 1;
+        if (left.sourceId == widget.activeSourceId) return -1;
+        if (right.sourceId == widget.activeSourceId) return 1;
         return 0;
       });
     return SizedBox(
-      height: MediaQuery.sizeOf(context).height * .68,
+      height: MediaQuery.sizeOf(context).height * .76,
       child: SafeArea(
         top: false,
         child: Column(
@@ -843,7 +1569,7 @@ class _PlayerSourceSheet extends StatelessWidget {
             Padding(
               padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
               child: Text(
-                '切换资源站',
+                '选择资源站',
                 style: Theme.of(context).textTheme.titleLarge?.copyWith(
                       fontWeight: FontWeight.w800,
                     ),
@@ -852,10 +1578,56 @@ class _PlayerSourceSheet extends StatelessWidget {
             const Padding(
               padding: EdgeInsets.fromLTRB(20, 0, 20, 14),
               child: Text(
-                '将自动定位到相同集数；目标源未提供时播放其第一集。',
+                '切换后会自动定位到相同集数；目标源未提供时播放其第一集。',
                 style: TextStyle(color: CineoColors.textSecondary),
               ),
             ),
+            if (widget.onSearchProgressively != null)
+              Padding(
+                key: const ValueKey('player-source-search-progress'),
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 16),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    Row(
+                      children: [
+                        Text(
+                          '$_searched / $_total',
+                          style: const TextStyle(
+                            fontWeight: FontWeight.w800,
+                            color: CineoColors.textPrimary,
+                          ),
+                        ),
+                        const Spacer(),
+                        Text(
+                          _loading ? '正在查询普通源' : '查询完成',
+                          style: const TextStyle(
+                            color: CineoColors.textSecondary,
+                            fontSize: 12,
+                          ),
+                        ),
+                      ],
+                    ),
+                    const SizedBox(height: 8),
+                    LinearProgressIndicator(
+                      value: _total == 0
+                          ? (_loading ? null : 1)
+                          : _searched / _total,
+                      minHeight: 4,
+                      color: CineoColors.primary,
+                      backgroundColor: CineoColors.surfaceOverlay,
+                    ),
+                  ],
+                ),
+              ),
+            if (!_loading && ordered.length == 1)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 0, 20, 14),
+                child: Text(
+                  _failed ? '部分视频源查询失败，请稍后重试。' : '已查询所有普通视频源，暂未找到其他匹配内容。',
+                  style: const TextStyle(color: CineoColors.textSecondary),
+                ),
+              ),
             Expanded(
               child: ListView.separated(
                 padding: const EdgeInsets.fromLTRB(16, 4, 16, 28),
@@ -863,10 +1635,11 @@ class _PlayerSourceSheet extends StatelessWidget {
                 separatorBuilder: (_, __) => const SizedBox(height: 10),
                 itemBuilder: (context, index) {
                   final media = ordered[index];
-                  final selected = media.sourceId == activeSourceId;
+                  final selected = media.sourceId == widget.activeSourceId;
                   final sourceName = media.sourceName?.trim().isNotEmpty == true
                       ? media.sourceName!.trim()
                       : '资源站';
+                  final posterUrl = _posterUrlFor(media);
                   return Material(
                     color: selected
                         ? CineoColors.primaryContainer
@@ -879,14 +1652,18 @@ class _PlayerSourceSheet extends StatelessWidget {
                       child: Padding(
                         padding: const EdgeInsets.all(14),
                         child: Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-                            Icon(
-                              selected
-                                  ? Icons.check_circle_rounded
-                                  : Icons.video_library_outlined,
-                              color: selected
-                                  ? CineoColors.primary
-                                  : CineoColors.textSecondary,
+                            SizedBox(
+                              width: 56,
+                              height: 82,
+                              child: MediaImage(
+                                url: posterUrl,
+                                borderRadius: BorderRadius.circular(7),
+                                placeholderIcon: selected
+                                    ? Icons.check_circle_rounded
+                                    : Icons.video_library_outlined,
+                              ),
                             ),
                             const SizedBox(width: 12),
                             Expanded(
@@ -932,6 +1709,18 @@ class _PlayerSourceSheet extends StatelessWidget {
         ),
       ),
     );
+  }
+
+  String _posterUrlFor(MediaItem media) {
+    for (final candidate in <String>[
+      widget.currentMedia.posterUrl,
+      widget.currentMedia.backdropUrl,
+      media.posterUrl,
+      media.backdropUrl,
+    ]) {
+      if (candidate.trim().isNotEmpty) return candidate;
+    }
+    return '';
   }
 }
 
@@ -1157,6 +1946,7 @@ class _EpisodeBottomSheetState extends State<_EpisodeBottomSheet> {
 class _PlayerControls extends StatelessWidget {
   const _PlayerControls({
     required this.controller,
+    required this.isLoading,
     required this.title,
     required this.isPlaying,
     required this.speed,
@@ -1166,6 +1956,8 @@ class _PlayerControls extends StatelessWidget {
     required this.pictureInPictureAvailable,
     required this.onClose,
     required this.onPlayPause,
+    required this.onRewind,
+    required this.onForward,
     required this.onPrevious,
     required this.onNext,
     required this.onSpeedChanged,
@@ -1181,7 +1973,8 @@ class _PlayerControls extends StatelessWidget {
     required this.onToggleControls,
   });
 
-  final VideoPlayerController controller;
+  final VideoPlayerController? controller;
+  final bool isLoading;
   final String title;
   final bool isPlaying;
   final double speed;
@@ -1191,6 +1984,8 @@ class _PlayerControls extends StatelessWidget {
   final bool pictureInPictureAvailable;
   final VoidCallback onClose;
   final VoidCallback onPlayPause;
+  final VoidCallback onRewind;
+  final VoidCallback onForward;
   final VoidCallback onPrevious;
   final VoidCallback onNext;
   final ValueChanged<double> onSpeedChanged;
@@ -1207,11 +2002,12 @@ class _PlayerControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final playbackControlsEnabled = !isLoading && controller != null;
     return Listener(
       onPointerDown: (_) => onControlsInteraction(),
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onTap: onToggleControls,
+        onTap: isLoading ? null : onToggleControls,
         child: DecoratedBox(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -1264,7 +2060,9 @@ class _PlayerControls extends StatelessWidget {
                             ),
                           IconButton(
                             tooltip: '放大播放',
-                            onPressed: onOpenSystemPlayer,
+                            onPressed: playbackControlsEnabled
+                                ? onOpenSystemPlayer
+                                : null,
                             icon: const Icon(Icons.zoom_out_map_rounded),
                           ),
                           _PictureInPictureButton(
@@ -1285,16 +2083,26 @@ class _PlayerControls extends StatelessWidget {
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
+                            _PlayerSeekButton(
+                              tooltip: '快退 10 秒',
+                              icon: Icons.replay_10_rounded,
+                              onPressed:
+                                  playbackControlsEnabled ? onRewind : null,
+                            ),
                             IconButton(
                               tooltip: '上一集',
-                              onPressed: canGoPrevious ? onPrevious : null,
+                              onPressed:
+                                  playbackControlsEnabled && canGoPrevious
+                                      ? onPrevious
+                                      : null,
                               icon: const Icon(Icons.skip_previous_rounded),
                             ),
                             IconButton(
                               tooltip: isPlaying ? '暂停' : '播放',
                               iconSize: 54,
                               color: CineoColors.primary,
-                              onPressed: onPlayPause,
+                              onPressed:
+                                  playbackControlsEnabled ? onPlayPause : null,
                               icon: Icon(
                                 isPlaying
                                     ? Icons.pause_circle_filled_rounded
@@ -1303,28 +2111,47 @@ class _PlayerControls extends StatelessWidget {
                             ),
                             IconButton(
                               tooltip: '下一集',
-                              onPressed: canGoNext ? onNext : null,
+                              onPressed: playbackControlsEnabled && canGoNext
+                                  ? onNext
+                                  : null,
                               icon: const Icon(Icons.skip_next_rounded),
+                            ),
+                            _PlayerSeekButton(
+                              tooltip: '快进 10 秒',
+                              icon: Icons.forward_10_rounded,
+                              onPressed:
+                                  playbackControlsEnabled ? onForward : null,
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 18),
-                      VideoProgressIndicator(
-                        controller,
-                        allowScrubbing: true,
-                        colors: const VideoProgressColors(
-                          playedColor: CineoColors.primary,
-                          bufferedColor: Colors.white38,
-                          backgroundColor: Colors.white24,
+                      if (playbackControlsEnabled)
+                        VideoProgressIndicator(
+                          controller!,
+                          allowScrubbing: true,
+                          colors: const VideoProgressColors(
+                            playedColor: CineoColors.primary,
+                            bufferedColor: Colors.white38,
+                            backgroundColor: Colors.white24,
+                          ),
+                        )
+                      else
+                        const SizedBox(
+                          height: 4,
+                          child: LinearProgressIndicator(
+                            color: CineoColors.primary,
+                            backgroundColor: Colors.white24,
+                          ),
                         ),
-                      ),
                       Row(
                         children: [
                           Expanded(
                             child: Text(
-                              '${formatPlaybackDuration(controller.value.position)} / '
-                              '${formatPlaybackDuration(controller.value.duration)}',
+                              playbackControlsEnabled
+                                  ? '${formatPlaybackDuration(controller!.value.position)} / '
+                                      '${formatPlaybackDuration(controller!.value.duration)}'
+                                  : '加载中',
                               style: const TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
@@ -1334,7 +2161,8 @@ class _PlayerControls extends StatelessWidget {
                           PopupMenuButton<double>(
                             tooltip: '播放速度',
                             initialValue: speed,
-                            onSelected: onSpeedChanged,
+                            onSelected:
+                                playbackControlsEnabled ? onSpeedChanged : null,
                             itemBuilder: (context) => supportedPlaybackSpeeds
                                 .map(
                                   (value) => PopupMenuItem<double>(
@@ -1356,7 +2184,9 @@ class _PlayerControls extends StatelessWidget {
                           if (hasEpisodes)
                             IconButton(
                               tooltip: '打开选集',
-                              onPressed: onOpenEpisodes,
+                              onPressed: playbackControlsEnabled
+                                  ? onOpenEpisodes
+                                  : null,
                               icon: const Icon(Icons.list_alt_rounded),
                             ),
                           const SizedBox(width: 8),
@@ -1373,7 +2203,8 @@ class _PlayerControls extends StatelessWidget {
                 child: Center(
                   child: IconButton(
                     tooltip: isLandscape ? '竖屏播放' : '横屏播放',
-                    onPressed: onToggleOrientation,
+                    onPressed:
+                        playbackControlsEnabled ? onToggleOrientation : null,
                     icon: Icon(
                       isLandscape
                           ? Icons.stay_current_portrait_rounded
@@ -1383,6 +2214,38 @@ class _PlayerControls extends StatelessWidget {
                 ),
               ),
             ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _PlayerSeekButton extends StatelessWidget {
+  const _PlayerSeekButton({
+    required this.tooltip,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String tooltip;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    return Tooltip(
+      message: tooltip,
+      child: Material(
+        color: Colors.white.withOpacity(.1),
+        shape: const CircleBorder(),
+        child: InkWell(
+          customBorder: const CircleBorder(),
+          onTap: onPressed,
+          child: SizedBox(
+            width: 44,
+            height: 44,
+            child: Icon(icon, size: 24),
           ),
         ),
       ),
@@ -1402,7 +2265,7 @@ class _PictureInPictureButton extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return IconButton(
-      tooltip: available ? '直接进入画中画' : '画中画不可用',
+      tooltip: available ? '应用内画中画' : '画中画不可用',
       onPressed: available ? onPressed : null,
       icon: const Icon(Icons.picture_in_picture_alt),
     );

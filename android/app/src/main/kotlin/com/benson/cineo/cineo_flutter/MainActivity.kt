@@ -68,6 +68,18 @@ class MainActivity: FlutterActivity() {
         super.onDestroy()
     }
 
+    override fun onUserLeaveHint() {
+        super.onUserLeaveHint()
+        if (::pictureInPictureMethodChannel.isInitialized &&
+            !isInPictureInPictureMode
+        ) {
+            pictureInPictureMethodChannel.invokeMethod(
+                "pictureInPictureAutoEnterRequested",
+                null,
+            )
+        }
+    }
+
     private fun isPictureInPictureAvailable(): Boolean {
         return Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
             packageManager.hasSystemFeature(PackageManager.FEATURE_PICTURE_IN_PICTURE)

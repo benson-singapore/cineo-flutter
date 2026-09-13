@@ -36,8 +36,9 @@
   .preview-track { scrollbar-width: none; cursor: grab; }
   .preview-track::-webkit-scrollbar { display: none; }
   .preview-track.is-dragging { cursor: grabbing; scroll-snap-type: none; }
-  .preview-track.is-dragging .preview-slide { pointer-events: none; }
   .preview-slide img { user-select: none; -webkit-user-drag: none; }
+  .download-shot { min-width: 0; }
+  .download-modal-image { @apply block max-h-[78vh] w-auto max-w-[78vw] rounded-[1.7rem] border-[5px] border-[#292a2c] bg-[#050505] shadow-2xl shadow-black/70; }
   .button-arrow { @apply transition-transform duration-200 group-hover:translate-x-1; }
   .feature-grid > * {
     align-self: stretch;

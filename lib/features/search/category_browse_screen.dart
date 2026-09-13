@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../core/models/media.dart';
 import '../../core/models/media_source.dart';
@@ -14,6 +15,7 @@ class CategoryBrowseScreen extends StatefulWidget {
     required this.initialItems,
     required this.onOpenMedia,
     this.onLoad,
+    this.imageAspectRatio,
     this.coverMode = MediaCoverMode.portrait,
   });
 
@@ -21,6 +23,7 @@ class CategoryBrowseScreen extends StatefulWidget {
   final List<MediaItem> initialItems;
   final Future<void> Function(MediaItem) onOpenMedia;
   final Future<PagedMedia> Function(int page)? onLoad;
+  final double? imageAspectRatio;
   final MediaCoverMode coverMode;
 
   @override
@@ -199,20 +202,25 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
                               delegate: SliverChildBuilderDelegate(
                                 (context, index) => BrowseMediaCard(
                                   media: _items[index],
-                                  coverMode: widget.coverMode,
                                   onTap: () =>
                                       widget.onOpenMedia(_items[index]),
+                                  coverMode: widget.coverMode,
+                                  imageAspectRatio: widget.imageAspectRatio,
                                 ),
                                 childCount: _items.length,
                               ),
-                              gridDelegate:
-                                  SliverGridDelegateWithMaxCrossAxisExtent(
-                                maxCrossAxisExtent: 176,
-                                mainAxisSpacing: 18,
-                                crossAxisSpacing: 12,
-                                childAspectRatio:
-                                    widget.coverMode.gridChildAspectRatio,
-                              ),
+                              gridDelegate: widget.imageAspectRatio == null
+                                  ? SliverGridDelegateWithMaxCrossAxisExtent(
+                                      maxCrossAxisExtent: 176,
+                                      mainAxisSpacing: 18,
+                                      crossAxisSpacing: 12,
+                                      childAspectRatio:
+                                          widget.coverMode.gridChildAspectRatio,
+                                    )
+                                  : BrowseMediaGridDelegate(
+                                      imageAspectRatio:
+                                          widget.imageAspectRatio!,
+                                    ),
                             ),
                           ),
                         if (_loadingMore || _paginationError != null)
@@ -269,6 +277,41 @@ class _CategoryPaginationFooter extends StatelessWidget {
   }
 }
 
+class BrowseMediaGridDelegate extends SliverGridDelegate {
+  const BrowseMediaGridDelegate({required this.imageAspectRatio});
+
+  final double imageAspectRatio;
+
+  @override
+  SliverGridLayout getLayout(SliverConstraints constraints) {
+    const maxCrossAxisExtent = 176.0;
+    const crossAxisSpacing = 12.0;
+    const mainAxisSpacing = 18.0;
+    final crossAxisCount = ((constraints.crossAxisExtent + crossAxisSpacing) /
+            (maxCrossAxisExtent + crossAxisSpacing))
+        .ceil()
+        .clamp(1, 100);
+    final tileWidth = (constraints.crossAxisExtent -
+            crossAxisSpacing * (crossAxisCount - 1)) /
+        crossAxisCount;
+    final imageHeight = tileWidth / imageAspectRatio;
+    final tileHeight = imageHeight + 8 + 20 + 3 + 18;
+    return SliverGridRegularTileLayout(
+      crossAxisCount: crossAxisCount,
+      mainAxisStride: tileHeight + mainAxisSpacing,
+      crossAxisStride: tileWidth + crossAxisSpacing,
+      childMainAxisExtent: tileHeight,
+      childCrossAxisExtent: tileWidth,
+      reverseCrossAxis: axisDirectionIsReversed(constraints.crossAxisDirection),
+    );
+  }
+
+  @override
+  bool shouldRelayout(covariant BrowseMediaGridDelegate oldDelegate) {
+    return oldDelegate.imageAspectRatio != imageAspectRatio;
+  }
+}
+
 class BrowseMediaGrid extends StatelessWidget {
   const BrowseMediaGrid({
     super.key,
@@ -276,6 +319,7 @@ class BrowseMediaGrid extends StatelessWidget {
     required this.onOpenMedia,
     this.emptyTitle = '没有内容',
     this.emptyMessage = '暂时没有可展示的资源',
+    this.imageAspectRatio,
     this.coverMode = MediaCoverMode.portrait,
   });
 
@@ -283,6 +327,7 @@ class BrowseMediaGrid extends StatelessWidget {
   final Future<void> Function(MediaItem) onOpenMedia;
   final String emptyTitle;
   final String emptyMessage;
+  final double? imageAspectRatio;
   final MediaCoverMode coverMode;
 
   @override
@@ -296,17 +341,20 @@ class BrowseMediaGrid extends StatelessWidget {
     }
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
-      gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-        maxCrossAxisExtent: 176,
-        mainAxisSpacing: 18,
-        crossAxisSpacing: 12,
-        childAspectRatio: coverMode.gridChildAspectRatio,
-      ),
+      gridDelegate: imageAspectRatio == null
+          ? SliverGridDelegateWithMaxCrossAxisExtent(
+              maxCrossAxisExtent: 176,
+              mainAxisSpacing: 18,
+              crossAxisSpacing: 12,
+              childAspectRatio: coverMode.gridChildAspectRatio,
+            )
+          : BrowseMediaGridDelegate(imageAspectRatio: imageAspectRatio!),
       itemCount: items.length,
       itemBuilder: (context, index) => BrowseMediaCard(
         media: items[index],
-        coverMode: coverMode,
         onTap: () => onOpenMedia(items[index]),
+        coverMode: coverMode,
+        imageAspectRatio: imageAspectRatio,
       ),
     );
   }
@@ -317,11 +365,13 @@ class BrowseMediaCard extends StatefulWidget {
     super.key,
     required this.media,
     required this.onTap,
+    this.imageAspectRatio,
     this.coverMode = MediaCoverMode.portrait,
   });
 
   final MediaItem media;
   final Future<void> Function() onTap;
+  final double? imageAspectRatio;
   final MediaCoverMode coverMode;
 
   @override

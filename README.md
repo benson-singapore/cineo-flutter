@@ -33,10 +33,10 @@ Cineo 的产品思路和交互方向主要借鉴了 [KatelyaTV](https://github.c
 默认展示 4 张界面截图：
 
 <div align="center">
-  <img src="docs/pic/IMG_3493.jpg" width="180" alt="Cineo 首页预览">
-  <img src="docs/pic/IMG_3499.jpg" width="180" alt="Cineo 搜索预览">
-  <img src="docs/pic/IMG_3495.jpg" width="180" alt="Cineo 详情预览">
-  <img src="docs/pic/IMG_3496.jpg" width="180" alt="Cineo 播放预览">
+  <img src="docs/pic/app/IMG_3493.jpg" width="180" alt="Cineo 首页预览">
+  <img src="docs/pic/app/IMG_3499.jpg" width="180" alt="Cineo 搜索预览">
+  <img src="docs/pic/app/IMG_3495.jpg" width="180" alt="Cineo 详情预览">
+  <img src="docs/pic/app/IMG_3496.jpg" width="180" alt="Cineo 播放预览">
 </div>
 
 ### 功能特性
@@ -127,6 +127,12 @@ flutter build web
 | JSON API | HTTP(S) API 地址 | 按已实现的 MacCMS JSON 结构读取站点数据 |
 
 API 来源经过连通性测试后，才可以设置为默认视频源。默认来源负责首页、搜索和分类浏览；没有配置默认 API 来源时，应用会使用内置演示目录作为回退内容。
+
+#### 基础版资源站配置
+
+你可以下载 [KatelyaTV 基础版视频源配置](https://www.mediafire.com/file/upztrjc0g1ynbzy/config_isadult.json/file)。该配置包含 20+ 个 MacCMS 资源站，具体来源和配置说明请参考 [KatelyaTV](https://github.com/katelya77/KatelyaTV)。当前基础版配置包含：电影天堂、黑木耳、如意资源、暴风资源、天涯资源、非凡影视、360 资源、茅台资源、卧龙资源、极速资源、豆瓣资源、魔爪资源、魔都资源、最大资源、樱花资源、无尽资源、旺旺短剧、iKun 资源、量子资源站和小猫咪资源。
+
+下载配置后，可在应用的“视频源”页面导入，然后执行连通性测试、启用需要使用的来源并选择默认视频源。资源站地址、内容和可用性由第三方维护，可能随时变更；请仅配置和访问你有权使用的资源站及其内容。
 
 #### 导入资源站 JSON
 

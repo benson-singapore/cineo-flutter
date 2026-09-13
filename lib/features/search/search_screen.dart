@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 
 import '../../core/platform/adaptive_navigation.dart';
 import '../../core/models/media.dart';
@@ -20,12 +21,13 @@ class SearchScreen extends StatefulWidget {
     this.onBrowseCategory,
     this.categories = const [],
     this.initialCategory,
-    this.sourceRevision = 0,
     this.coverMode = MediaCoverMode.portrait,
     this.libraryMode = false,
     this.onOpenSearch,
+    this.onOpenMediaWithImageAspectRatio,
     this.scrollController,
     this.onScrollToTopVisibilityChanged,
+    this.sourceRevision = 0,
   });
 
   final List<MediaItem> items;
@@ -38,12 +40,14 @@ class SearchScreen extends StatefulWidget {
       onBrowseCategory;
   final List<UnifiedCategory> categories;
   final UnifiedCategory? initialCategory;
-  final int sourceRevision;
   final MediaCoverMode coverMode;
   final bool libraryMode;
   final VoidCallback? onOpenSearch;
+  final Future<void> Function(MediaItem media, double imageAspectRatio)?
+      onOpenMediaWithImageAspectRatio;
   final ScrollController? scrollController;
   final ValueChanged<bool>? onScrollToTopVisibilityChanged;
+  final int sourceRevision;
 
   @override
   State<SearchScreen> createState() => _SearchScreenState();
@@ -72,6 +76,7 @@ class _SearchScreenState extends State<SearchScreen>
   bool _showScrollToTop = false;
   final Map<String, _SubcategoryBrowseState> _subcategoryBrowse = {};
   late UnifiedMediaType _selectedType;
+  var _libraryImageRatio = _LibraryImageRatio.threeByFour;
 
   @override
   void initState() {
@@ -90,34 +95,30 @@ class _SearchScreenState extends State<SearchScreen>
   @override
   void didUpdateWidget(covariant SearchScreen oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.sourceRevision != widget.sourceRevision) {
-      _reloadAfterSourceChange();
+    if (!widget.libraryMode ||
+        oldWidget.sourceRevision == widget.sourceRevision) {
+      return;
     }
-  }
-
-  void _reloadAfterSourceChange() {
-    _subcategoryBrowse.clear();
-    final revision = ++_revision;
     setState(() {
+      _selectedType = UnifiedMediaType.all;
       _remoteResults = const [];
       _browseResults = const [];
-      _searchPage = 0;
+      _subcategoryBrowse.clear();
       _browsePage = 0;
-      _hasMoreSearch = false;
       _hasMoreBrowse = false;
-      _isSearching = _query.trim().isNotEmpty;
-      _isBrowsing = _query.trim().isEmpty;
+      _isBrowsing = false;
       _isLoadingMore = false;
       _errorMessage = null;
       _paginationError = null;
+      _revision++;
     });
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted || revision != _revision) return;
+      if (!mounted) return;
       final query = _query.trim();
       if (query.isEmpty) {
         _loadCurrentBrowse(force: true);
       } else {
-        _loadSearchPage(1, query, revision: revision);
+        _loadSearchPage(1, query, revision: _revision);
       }
     });
   }
@@ -228,6 +229,14 @@ class _SearchScreenState extends State<SearchScreen>
     }
     return !RegExp(r'综艺|真人秀|variety|show|动漫|动画|番剧|cartoon|anime')
         .hasMatch(text);
+  }
+
+  Future<void> _openMedia(MediaItem media) {
+    final callback = widget.onOpenMediaWithImageAspectRatio;
+    if (widget.libraryMode && callback != null) {
+      return callback(media, _libraryImageRatio.aspectRatio);
+    }
+    return widget.onOpenMedia(media);
   }
 
   Future<PagedMedia> _browsePageRequest(
@@ -514,6 +523,45 @@ class _SearchScreenState extends State<SearchScreen>
     _focusNode.requestFocus();
   }
 
+  Future<void> _selectLibraryImageRatio() async {
+    final selected = await showModalBottomSheet<_LibraryImageRatio>(
+      context: context,
+      showDragHandle: true,
+      builder: (context) => SafeArea(
+        child: SingleChildScrollView(
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Padding(
+                padding: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+                child: Align(
+                  alignment: Alignment.centerLeft,
+                  child: Text(
+                    '图片尺寸',
+                    style: Theme.of(context).textTheme.titleLarge?.copyWith(
+                          fontWeight: FontWeight.w800,
+                        ),
+                  ),
+                ),
+              ),
+              for (final ratio in _LibraryImageRatio.values)
+                RadioListTile<_LibraryImageRatio>(
+                  title: Text(ratio.label),
+                  value: ratio,
+                  groupValue: _libraryImageRatio,
+                  onChanged: (value) => Navigator.pop(context, value),
+                ),
+              const SizedBox(height: 8),
+            ],
+          ),
+        ),
+      ),
+    );
+    if (selected != null && mounted) {
+      setState(() => _libraryImageRatio = selected);
+    }
+  }
+
   Future<void> _refreshCurrent() {
     final query = _query.trim();
     if (query.isNotEmpty) {
@@ -537,6 +585,11 @@ class _SearchScreenState extends State<SearchScreen>
         title: Text(widget.libraryMode ? '片库' : '搜索'),
         actions: widget.libraryMode
             ? [
+                IconButton(
+                  onPressed: _selectLibraryImageRatio,
+                  tooltip: '图片尺寸：${_libraryImageRatio.label}',
+                  icon: const Icon(Icons.aspect_ratio_rounded),
+                ),
                 IconButton(
                   onPressed: widget.onOpenSearch,
                   tooltip: '搜索',
@@ -713,16 +766,11 @@ class _SearchScreenState extends State<SearchScreen>
               (context, index) => BrowseMediaCard(
                 media: browse[index],
                 coverMode: widget.coverMode,
-                onTap: () => widget.onOpenMedia(browse[index]),
+                onTap: () => _openMedia(browse[index]),
               ),
               childCount: browse.length,
             ),
-            gridDelegate: SliverGridDelegateWithMaxCrossAxisExtent(
-              maxCrossAxisExtent: 176,
-              mainAxisSpacing: 18,
-              crossAxisSpacing: 12,
-              childAspectRatio: widget.coverMode.gridChildAspectRatio,
-            ),
+            gridDelegate: _browseGridDelegate,
           ),
         ),
       if (_isLoadingMore || _paginationError != null)
@@ -733,6 +781,20 @@ class _SearchScreenState extends State<SearchScreen>
           onRetry: () => _loadBrowsePage(_browsePage + 1),
         )),
     ];
+  }
+
+  SliverGridDelegate get _browseGridDelegate {
+    if (widget.libraryMode) {
+      return _LibraryGridDelegate(
+        imageAspectRatio: _libraryImageRatio.aspectRatio,
+      );
+    }
+    return SliverGridDelegateWithMaxCrossAxisExtent(
+      maxCrossAxisExtent: 176,
+      mainAxisSpacing: 18,
+      crossAxisSpacing: 12,
+      childAspectRatio: widget.coverMode.gridChildAspectRatio,
+    );
   }
 
   List<Widget> _buildResults(String query) {
@@ -785,7 +847,7 @@ class _SearchScreenState extends State<SearchScreen>
           itemBuilder: (_, index) => _SearchResultTile(
             media: results[index],
             coverMode: widget.coverMode,
-            onTap: () => widget.onOpenMedia(results[index]),
+            onTap: () => _openMedia(results[index]),
           ),
         ),
       ),
@@ -819,8 +881,9 @@ class _SearchScreenState extends State<SearchScreen>
             category: subcategory,
             state: _subcategoryBrowse[_subcategoryKey(subcategory)] ??
                 const _SubcategoryBrowseState(loading: true),
-            onOpenMedia: widget.onOpenMedia,
+            onOpenMedia: _openMedia,
             coverMode: widget.coverMode,
+            imageAspectRatio: _libraryImageRatio.aspectRatio,
             onSeeAll: () => _openSubcategory(subcategory),
             onRetry: () => _loadSubcategoryBrowse(force: true),
           ),
@@ -838,12 +901,62 @@ class _SearchScreenState extends State<SearchScreen>
           title: category.name,
           initialItems: state?.items ?? const [],
           coverMode: widget.coverMode,
-          onOpenMedia: widget.onOpenMedia,
+          onOpenMedia: _openMedia,
           onLoad: (page) =>
               _browsePageRequest(category.sourceCategoryIds, page),
+          imageAspectRatio: _libraryImageRatio.aspectRatio,
         ),
       ),
     );
+  }
+}
+
+enum _LibraryImageRatio {
+  nineBySixteen('9:16', 9 / 16),
+  threeByFour('3:4', 3 / 4),
+  oneByOne('1:1', 1),
+  fourByThree('4:3', 4 / 3),
+  sixteenByNine('16:9', 16 / 9);
+
+  const _LibraryImageRatio(this.label, this.aspectRatio);
+
+  final String label;
+  final double aspectRatio;
+}
+
+class _LibraryGridDelegate extends SliverGridDelegate {
+  const _LibraryGridDelegate({required this.imageAspectRatio});
+
+  final double imageAspectRatio;
+
+  @override
+  SliverGridLayout getLayout(SliverConstraints constraints) {
+    const maxCrossAxisExtent = 176.0;
+    const crossAxisSpacing = 12.0;
+    const mainAxisSpacing = 18.0;
+    final crossAxisCount = ((constraints.crossAxisExtent + crossAxisSpacing) /
+            (maxCrossAxisExtent + crossAxisSpacing))
+        .ceil()
+        .clamp(1, 100);
+    final tileWidth = (constraints.crossAxisExtent -
+            crossAxisSpacing * (crossAxisCount - 1)) /
+        crossAxisCount;
+    final imageHeight = tileWidth / imageAspectRatio;
+    // Image plus title, metadata, and their vertical spacing.
+    final tileHeight = imageHeight + 8 + 20 + 3 + 18;
+    return SliverGridRegularTileLayout(
+      crossAxisCount: crossAxisCount,
+      mainAxisStride: tileHeight + mainAxisSpacing,
+      crossAxisStride: tileWidth + crossAxisSpacing,
+      childMainAxisExtent: tileHeight,
+      childCrossAxisExtent: tileWidth,
+      reverseCrossAxis: axisDirectionIsReversed(constraints.crossAxisDirection),
+    );
+  }
+
+  @override
+  bool shouldRelayout(covariant _LibraryGridDelegate oldDelegate) {
+    return oldDelegate.imageAspectRatio != imageAspectRatio;
   }
 }
 
@@ -864,21 +977,24 @@ class _SubcategoryRail extends StatelessWidget {
     required this.category,
     required this.state,
     required this.onOpenMedia,
+    required this.imageAspectRatio,
+    this.coverMode = MediaCoverMode.portrait,
     required this.onSeeAll,
     required this.onRetry,
-    this.coverMode = MediaCoverMode.portrait,
   });
 
   final UnifiedSubcategory category;
   final _SubcategoryBrowseState state;
   final Future<void> Function(MediaItem) onOpenMedia;
+  final double imageAspectRatio;
+  final MediaCoverMode coverMode;
   final VoidCallback onSeeAll;
   final VoidCallback onRetry;
-  final MediaCoverMode coverMode;
 
   @override
   Widget build(BuildContext context) {
     final items = state.items;
+    final railImageHeight = 142 / imageAspectRatio;
     return Padding(
       padding: const EdgeInsets.only(top: 18),
       child: Column(
@@ -934,7 +1050,7 @@ class _SubcategoryRail extends StatelessWidget {
             )
           else
             SizedBox(
-              height: coverMode == MediaCoverMode.portrait ? 322 : 268,
+              height: railImageHeight + 10 + 24 + 4 + 18 + 2,
               child: Stack(
                 children: [
                   ListView.separated(
@@ -944,8 +1060,9 @@ class _SubcategoryRail extends StatelessWidget {
                     separatorBuilder: (_, __) => const SizedBox(width: 12),
                     itemBuilder: (_, index) => MediaPosterCard(
                       media: items[index],
-                      coverMode: coverMode,
                       onTap: () => onOpenMedia(items[index]),
+                      coverMode: coverMode,
+                      imageAspectRatio: imageAspectRatio,
                     ),
                   ),
                   if (state.loading)
@@ -1081,7 +1198,7 @@ class _SearchResultTileState extends State<_SearchResultTile> {
           clipBehavior: Clip.antiAlias,
           child: Row(
             children: [
-              _Poster(url: widget.media.posterUrl, coverMode: widget.coverMode),
+              _Poster(url: widget.media.posterUrl),
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(14),
@@ -1135,19 +1252,15 @@ class _SearchResultTileState extends State<_SearchResultTile> {
 }
 
 class _Poster extends StatelessWidget {
-  const _Poster({
-    required this.url,
-    this.coverMode = MediaCoverMode.portrait,
-  });
+  const _Poster({required this.url});
 
   final String url;
-  final MediaCoverMode coverMode;
 
   @override
   Widget build(BuildContext context) {
     return SizedBox(
       width: 82,
-      height: coverMode == MediaCoverMode.landscape ? 64 : 116,
+      height: 116,
       child: Image.network(
         url,
         fit: BoxFit.cover,

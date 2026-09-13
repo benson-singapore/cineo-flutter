@@ -5,12 +5,15 @@ import 'package:flutter/material.dart';
 
 import 'core/models/media.dart';
 import 'core/models/media_source.dart';
+import 'core/models/download_models.dart';
 import 'core/models/home_category_rail.dart';
 import 'core/models/tmdb_media.dart';
 import 'core/platform/adaptive_navigation.dart';
 import 'core/platform/picture_in_picture.dart';
 import 'core/theme/cineo_theme.dart';
 import 'data/cache/tmdb_disk_cache.dart';
+import 'data/download/download_service.dart';
+import 'data/download/sqlite_download_task_store.dart';
 import 'data/remote/tmdb_client.dart';
 import 'data/repositories/local_media_repository.dart';
 import 'data/repositories/tmdb_metadata_repository.dart';
@@ -31,6 +34,7 @@ import 'features/settings/tmdb_disk_cache_controller.dart';
 import 'features/sources/source_list_screen.dart';
 import 'features/update/app_update_service.dart';
 import 'features/update/app_update_screen.dart';
+import 'features/download/download_screen.dart';
 
 void main() {
   WidgetsFlutterBinding.ensureInitialized();
@@ -44,13 +48,16 @@ class CineoApp extends StatefulWidget {
   State<CineoApp> createState() => _CineoAppState();
 }
 
-class _CineoAppState extends State<CineoApp> {
+class _CineoAppState extends State<CineoApp> with WidgetsBindingObserver {
   final _appLockController = AppLockController();
   final _adultSourceSettings = AdultSourceSettings();
   final _m3u8FilterSettings = M3u8FilterSettings();
   final _tmdbSettings = TMDBSettings();
   final _tmdbCache = TmdbDiskCache();
   final _updateService = AppUpdateService();
+  late final _downloadService = DownloadService(
+    taskStore: SqliteDownloadTaskStore(_repository),
+  );
   late final _tmdbCacheController = TmdbDiskCacheController(cache: _tmdbCache);
   late final _tmdbMetadata = TmdbMetadataRepository(
     cache: _tmdbCache,
@@ -62,19 +69,35 @@ class _CineoAppState extends State<CineoApp> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     unawaited(_adultSourceSettings.initialize());
     unawaited(_m3u8FilterSettings.initialize());
     unawaited(_tmdbSettings.initialize());
     unawaited(_tmdbCacheController.initialize());
     unawaited(_updateService.initialize());
+    unawaited(_downloadService.initialize());
   }
 
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     _appLockController.dispose();
     _updateService.dispose();
+    unawaited(_downloadService.dispose());
     unawaited(_repository.close());
     super.dispose();
+  }
+
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final backgrounded = state == AppLifecycleState.inactive ||
+        state == AppLifecycleState.paused ||
+        state == AppLifecycleState.hidden;
+    if (state == AppLifecycleState.resumed) {
+      unawaited(_downloadService.setBackgrounded(false));
+    } else if (backgrounded) {
+      unawaited(_downloadService.setBackgrounded(true));
+    }
   }
 
   @override
@@ -94,6 +117,7 @@ class _CineoAppState extends State<CineoApp> {
           tmdbMetadata: _tmdbMetadata,
           tmdbCacheController: _tmdbCacheController,
           updateService: _updateService,
+          downloadService: _downloadService,
         ),
       ),
     );
@@ -111,6 +135,7 @@ class CineoShell extends StatefulWidget {
     required this.tmdbMetadata,
     required this.tmdbCacheController,
     required this.updateService,
+    required this.downloadService,
   });
 
   final LocalMediaRepository repository;
@@ -121,6 +146,7 @@ class CineoShell extends StatefulWidget {
   final TmdbMetadataRepository tmdbMetadata;
   final TmdbDiskCacheController tmdbCacheController;
   final AppUpdateService updateService;
+  final DownloadService downloadService;
 
   @override
   State<CineoShell> createState() => _CineoShellState();
@@ -146,6 +172,7 @@ class _CineoShellState extends State<CineoShell> {
   bool _pictureInPictureAvailable = false;
   bool _showHomeScrollToTop = false;
   bool _showLibraryScrollToTop = false;
+  Future<void> _playbackProgressWrite = Future<void>.value();
   final _homeScrollController = ScrollController();
   final _libraryScrollController = ScrollController();
 
@@ -174,7 +201,7 @@ class _CineoShellState extends State<CineoShell> {
       final mode = await widget.repository.defaultSourceCoverMode();
       if (mounted) setState(() => _coverMode = mode);
     } catch (_) {
-      // Keep the portrait default when the source has no saved preference.
+      // Keep the portrait default when no source preference is available.
     }
   }
 
@@ -359,10 +386,15 @@ class _CineoShellState extends State<CineoShell> {
     await _refresh();
   }
 
+  Future<void> _openLibraryMedia(MediaItem media, double imageAspectRatio) {
+    return _openMedia(media, imageAspectRatio: imageAspectRatio);
+  }
+
   Future<void> _openMedia(
     MediaItem media, {
     MediaItem? preferenceAnchor,
     bool skipPreferredSource = false,
+    double? imageAspectRatio,
   }) async {
     final anchor = preferenceAnchor ?? media;
 
@@ -382,9 +414,12 @@ class _CineoShellState extends State<CineoShell> {
           favorite: false,
           repository: widget.repository,
           includeAdultHistory: _includeAdultHistory,
+          imageAspectRatio: imageAspectRatio ?? 2 / 3,
           onLoadWatchHistory: () => widget.repository.watchHistory(
             includeAdult: _includeAdultHistory,
           ),
+          downloadService: widget.downloadService,
+          m3u8FilterSettings: widget.m3u8FilterSettings,
           onLoadMediaDetails: (item) async {
             if (!skipPreferredSource) {
               final preferred = await widget.repository.preferredSourceFor(
@@ -400,21 +435,21 @@ class _CineoShellState extends State<CineoShell> {
             unawaited(widget.repository.setFavorite(favoriteMedia, isFavorite));
             unawaited(_refresh());
           },
-          onPlay: (playingMedia, option) =>
-              unawaited(_openPlayer(playingMedia, option)),
+          onPlay: _openPlayer,
           onLoadTmdbDetails:
               widget.tmdbSettings.configured ? _loadTmdbDetails : null,
           onLoadTmdbEnrichment:
               widget.tmdbSettings.configured ? _loadTmdbEnrichment : null,
           onSearchTmdbMatches: _searchTmdbMatches,
           onSelectTmdbMatch: (match) => _selectTmdbMatch(media, match),
-          onSearchOtherSources: (item) => widget.repository.searchOtherSources(
-            item,
-            includeAdult: widget.adultSourceSettings.showAdultSources,
-          ),
+          onSearchOtherSourcesProgressively:
+              widget.repository.searchOtherSourcesProgressively,
           onLoadAlternative: (alternative) async {
-            await widget.repository.savePreferredSource(anchor, alternative);
-            return _resolveMediaDetails(alternative);
+            final resolved = await _resolveMediaDetails(alternative);
+            await _playbackProgressWrite;
+            await widget.repository.mergeMediaHistory(resolved);
+            await widget.repository.savePreferredSource(anchor, resolved);
+            return resolved;
           },
         ),
       ),
@@ -587,7 +622,11 @@ class _CineoShellState extends State<CineoShell> {
     }
   }
 
-  Future<void> _openPlayer(MediaItem media, PlaybackOption option) async {
+  Future<void> _openPlayer(
+    MediaItem media,
+    PlaybackOption option, {
+    String? localTaskId,
+  }) async {
     final history = await widget.repository.watchHistory(
       includeAdult: _includeAdultHistory,
     );
@@ -610,11 +649,13 @@ class _CineoShellState extends State<CineoShell> {
     await Navigator.of(context).push<void>(
       adaptivePageRoute(
         context,
+        opaque: false,
         builder: (_) => PlayerScreen(
           media: media,
           option: option,
           m3u8FilterSettings: widget.m3u8FilterSettings,
-          episodes: lineEpisodes,
+          episodes:
+              localTaskId == null ? lineEpisodes : <PlaybackOption>[option],
           initialPosition:
               episodePositions[option.id] ?? moviePosition ?? Duration.zero,
           initialPositions: episodePositions,
@@ -622,21 +663,69 @@ class _CineoShellState extends State<CineoShell> {
           pictureInPictureAvailable: _pictureInPictureAvailable,
           onPictureInPicture:
               _pictureInPictureAvailable ? _enterPictureInPicture : null,
-          onProgressChanged: (playingMedia, progress) => unawaited(
-            widget.repository.saveProgress(progress, media: playingMedia),
-          ),
-          onSearchOtherSources: (item) => widget.repository.searchOtherSources(
-            item,
-            includeAdult: widget.adultSourceSettings.showAdultSources,
-          ),
+          onProgressChanged: _queuePlaybackProgress,
+          onSearchOtherSources: widget.repository.searchOtherSources,
+          onSearchOtherSourcesProgressively:
+              widget.repository.searchOtherSourcesProgressively,
           onLoadAlternative: (alternative) async {
-            await widget.repository.savePreferredSource(media, alternative);
-            return _resolveMediaDetails(alternative);
+            final resolved = await _resolveMediaDetails(alternative);
+            await _playbackProgressWrite;
+            await widget.repository.mergeMediaHistory(resolved);
+            await widget.repository.savePreferredSource(media, resolved);
+            return resolved;
           },
+          localSourceForOption: (candidate) async {
+            if (localTaskId != null) {
+              final taskSource = await widget.downloadService
+                  .completedPlaybackSourceForTask(localTaskId);
+              _debugLog(
+                'local_playback_lookup task=$localTaskId '
+                'candidate=${candidate.id} hit=${taskSource != null}',
+              );
+              return taskSource;
+            }
+            final cachedPlaylist =
+                await widget.downloadService.completedPlaybackUrlFor(
+              mediaId: media.id,
+              sourceUrl: candidate.url,
+            );
+            if (cachedPlaylist != null) return cachedPlaylist;
+            final filteredUrl = playbackUrlForOption(
+              candidate,
+              widget.m3u8FilterSettings.activeConfig,
+            );
+            if (filteredUrl == candidate.url) return null;
+            return widget.downloadService.completedPlaybackUrlFor(
+              mediaId: media.id,
+              sourceUrl: filteredUrl,
+            );
+          },
+          onLocalPlaybackError: (candidate, path, error) {
+            if (!mounted) return;
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('本地缓存无法播放')),
+            );
+          },
+          localOnly: localTaskId != null,
         ),
       ),
     );
     await _refresh();
+  }
+
+  Future<void> _queuePlaybackProgress(
+    MediaItem media,
+    WatchProgress progress,
+  ) {
+    _playbackProgressWrite =
+        _playbackProgressWrite.catchError((_) {}).then<void>((_) async {
+      try {
+        await widget.repository.saveProgress(progress, media: media);
+      } catch (_) {
+        // A transient local write failure must not interrupt playback.
+      }
+    });
+    return _playbackProgressWrite;
   }
 
   Future<bool> _enterPictureInPicture(PictureInPictureRequest request) =>
@@ -673,9 +762,8 @@ class _CineoShellState extends State<CineoShell> {
           history: _searchHistory,
           onSearch: (query) => unawaited(_recordSearch(query)),
           onOpenMedia: _openMedia,
-          categories: _categories,
-          sourceRevision: _sourceRevision,
           coverMode: _coverMode,
+          categories: _categories,
           onRemoteSearch: (query, categoryIds, page) =>
               widget.repository.searchDefaultSourcePage(
             query,
@@ -709,6 +797,7 @@ class _CineoShellState extends State<CineoShell> {
   }
 
   Future<void> _openSources() async {
+    var sourceChanged = false;
     await Navigator.of(context).push<void>(
       adaptivePageRoute(
         context,
@@ -716,9 +805,9 @@ class _CineoShellState extends State<CineoShell> {
           repository: widget.repository,
           adultSourceSettings: widget.adultSourceSettings,
           onDefaultSourceChanged: () {
+            sourceChanged = true;
             _sourceRevision++;
             _sourceChangedController.add(null);
-            unawaited(_refresh(preserveContent: false));
             unawaited(_loadCoverMode());
           },
         ),
@@ -726,6 +815,9 @@ class _CineoShellState extends State<CineoShell> {
     );
     await _refresh();
     await _loadCoverMode();
+    if (sourceChanged && mounted) {
+      setState(() => _sourceRevision++);
+    }
   }
 
   Future<void> _openAppLockSettings() async {
@@ -749,6 +841,8 @@ class _CineoShellState extends State<CineoShell> {
           appLockController: widget.appLockController,
           tmdbSettings: widget.tmdbSettings,
           tmdbCacheController: widget.tmdbCacheController,
+          downloadService: widget.downloadService,
+          onOpenDownloadManager: _openDownloadManager,
         ),
       ),
     );
@@ -761,6 +855,54 @@ class _CineoShellState extends State<CineoShell> {
         builder: (_) => AppUpdateScreen(updateService: widget.updateService),
       ),
     );
+  }
+
+  Future<void> _openDownloadManager() {
+    return Navigator.of(context).push<void>(
+      adaptivePageRoute(
+        context,
+        builder: (_) => DownloadManagerScreen(
+          service: widget.downloadService,
+          repository: widget.repository,
+          tmdbMetadata: widget.tmdbMetadata,
+          onPlayTask: _openDownloadedTask,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _openDownloadedTask(DownloadTask task) async {
+    var media = await widget.repository.getById(task.mediaId);
+    if (media == null) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('找不到缓存视频的媒体信息')),
+      );
+      return;
+    }
+    media = await _resolveMediaDetails(media);
+
+    final filterConfig = widget.m3u8FilterSettings.activeConfig;
+    PlaybackOption? option;
+    for (final candidate in media.playbackOptions) {
+      if (candidate.url == task.sourceUrl ||
+          playbackUrlForOption(candidate, filterConfig) == task.sourceUrl) {
+        option = candidate;
+        break;
+      }
+    }
+    option ??= PlaybackOption(
+      id: task.episodeId ?? task.id,
+      sourceId: media.sourceId ?? 'cached',
+      label: task.episodeNumber == null
+          ? media.title
+          : '第 ${task.episodeNumber} 集',
+      url: task.sourceUrl,
+      quality: media.playbackOptions.firstOrNull?.quality ?? '缓存',
+      isHls: task.sourceUrl.toLowerCase().contains('.m3u8'),
+    );
+
+    await _openPlayer(media, option, localTaskId: task.id);
   }
 
   @override
@@ -795,9 +937,8 @@ class _CineoShellState extends State<CineoShell> {
         history: _searchHistory,
         onSearch: (query) => unawaited(_recordSearch(query)),
         onOpenMedia: _openMedia,
-        categories: _categories,
-        sourceRevision: _sourceRevision,
         coverMode: _coverMode,
+        categories: _categories,
         onRemoteSearch: (query, categoryIds, page) =>
             widget.repository.searchDefaultSourcePage(
           query,
@@ -810,8 +951,10 @@ class _CineoShellState extends State<CineoShell> {
           page: page,
         ),
         libraryMode: true,
+        onOpenMediaWithImageAspectRatio: _openLibraryMedia,
         onOpenSearch: () => unawaited(_openSearch()),
         scrollController: _libraryScrollController,
+        sourceRevision: _sourceRevision,
         onScrollToTopVisibilityChanged: (visible) {
           if (mounted && visible != _showLibraryScrollToTop) {
             setState(() => _showLibraryScrollToTop = visible);
@@ -824,6 +967,7 @@ class _CineoShellState extends State<CineoShell> {
             unawaited(_openLibrary(LibraryContentMode.favorites)),
         onOpenHistory: () =>
             unawaited(_openLibrary(LibraryContentMode.history)),
+        onOpenDownloads: () => unawaited(_openDownloadManager()),
         onOpenSources: () => unawaited(_openSources()),
         onOpenAppLock: () => unawaited(_openAppLockSettings()),
         onLockNow: () => unawaited(widget.appLockController.lock()),

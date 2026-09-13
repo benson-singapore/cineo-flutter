@@ -14,8 +14,8 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
     private var startCompletion: ((Bool) -> Void)?
     private var readinessTimer: Timer?
     private var readinessAttempts = 0
-    private let maxReadinessAttempts = 40
-    private let readinessInterval: TimeInterval = 0.05
+    private let maxReadinessAttempts = 100
+    private let readinessInterval: TimeInterval = 0.1
 
     override private init() {
         super.init()
@@ -41,12 +41,14 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
 
         let playerLayer = AVPlayerLayer(player: player)
         playerLayer.videoGravity = .resizeAspect
-        // The layer must be attached to a visible view hierarchy for iOS to
-        // accept the PiP request. Keep it out of the Flutter UI while the
-        // native player is handed off to the PiP window.
-        let hostView = UIView(frame: CGRect(x: -1, y: -1, width: 1, height: 1))
+        // iOS requires the AVPlayerLayer to be attached to a visible view
+        // hierarchy before it can become a PiP source. A 1x1 off-screen layer
+        // can make isPictureInPicturePossible remain false indefinitely.
+        let hostView = UIView(frame: playerViewController.view.bounds)
         hostView.isUserInteractionEnabled = false
         hostView.alpha = 0.01
+        hostView.backgroundColor = .clear
+        hostView.autoresizingMask = [.flexibleWidth, .flexibleHeight]
         playerViewController.view.addSubview(hostView)
         playerLayer.frame = hostView.bounds
         hostView.layer.addSublayer(playerLayer)
@@ -97,36 +99,60 @@ class VideoPlayerPiPController: NSObject, AVPictureInPictureControllerDelegate {
         _ pipController: AVPictureInPictureController,
         player: AVPlayer
     ) {
-        guard pipController.isPictureInPicturePossible else {
-            readinessAttempts += 1
-            if readinessAttempts >= maxReadinessAttempts {
+        if let item = player.currentItem {
+            switch item.status {
+            case .failed:
                 finishStart(false)
                 cleanup()
                 return
+            case .unknown:
+                waitForReadiness(pipController, player: player)
+                return
+            case .readyToPlay:
+                break
+            @unknown default:
+                waitForReadiness(pipController, player: player)
+                return
             }
+        }
 
-            readinessTimer?.invalidate()
-            readinessTimer = Timer.scheduledTimer(
-                withTimeInterval: readinessInterval,
-                repeats: false
-            ) { [weak self, weak pipController, weak player] _ in
-                guard let self,
-                      let pipController,
-                      let player else {
-                    self?.finishStart(false)
-                    return
-                }
-                self.waitUntilPictureInPictureIsPossible(
-                    pipController,
-                    player: player
-                )
-            }
+        guard pipController.isPictureInPicturePossible else {
+            waitForReadiness(pipController, player: player)
             return
         }
 
         readinessTimer?.invalidate()
         readinessTimer = nil
         pipController.startPictureInPicture()
+    }
+
+    private func waitForReadiness(
+        _ pipController: AVPictureInPictureController,
+        player: AVPlayer
+    ) {
+        readinessAttempts += 1
+        if readinessAttempts >= maxReadinessAttempts {
+            finishStart(false)
+            cleanup()
+            return
+        }
+
+        readinessTimer?.invalidate()
+        readinessTimer = Timer.scheduledTimer(
+            withTimeInterval: readinessInterval,
+            repeats: false
+        ) { [weak self, weak pipController, weak player] _ in
+            guard let self,
+                  let pipController,
+                  let player else {
+                self?.finishStart(false)
+                return
+            }
+            self.waitUntilPictureInPictureIsPossible(
+                pipController,
+                player: player
+            )
+        }
     }
 
     private func finishStart(_ succeeded: Bool) {

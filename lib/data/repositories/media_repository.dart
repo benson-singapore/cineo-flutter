@@ -12,6 +12,7 @@ abstract class MediaRepository {
   Future<void> setFavorite(MediaItem media, bool isFavorite);
   Future<List<WatchProgress>> watchHistory({bool includeAdult = true});
   Future<void> saveProgress(WatchProgress progress, {MediaItem? media});
+  Future<void> mergeMediaHistory(MediaItem current);
   Future<MediaItem?> loadDetails(MediaItem item);
   Future<void> removeHistory(String mediaId);
   Future<void> clearHistory();
@@ -24,6 +25,7 @@ abstract class MediaRepository {
   Future<MediaSource?> defaultSource();
   Future<void> setDefaultSource(String id);
   Future<List<SourceGroupConfig>> getSourceGroupConfigs(String sourceId);
+  Future<List<SourceGroupConfig>> syncSourceGroupConfigs(String sourceId);
   Future<List<SourceGroupConfig>> refreshSourceGroupConfigs(
     String sourceId,
   ) async =>

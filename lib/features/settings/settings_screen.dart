@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 
 import '../../core/platform/adaptive_navigation.dart';
 import '../../core/theme/cineo_theme.dart';
+import '../../data/download/download_service.dart';
 import '../app_lock/app_lock_controller.dart';
 import '../app_lock/pin_verification_dialog.dart';
 import 'adult_source_settings.dart';
@@ -10,6 +11,7 @@ import 'm3u8_filter_settings_screen.dart';
 import 'tmdb_settings.dart';
 import 'tmdb_disk_cache_controller.dart';
 import 'tmdb_settings_screen.dart';
+import '../download/download_screen.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
@@ -18,6 +20,8 @@ class SettingsScreen extends StatefulWidget {
     required this.m3u8FilterSettings,
     required this.tmdbSettings,
     required this.tmdbCacheController,
+    required this.downloadService,
+    required this.onOpenDownloadManager,
     this.appLockController,
   });
 
@@ -25,6 +29,8 @@ class SettingsScreen extends StatefulWidget {
   final M3u8FilterSettings m3u8FilterSettings;
   final TMDBSettings tmdbSettings;
   final TmdbDiskCacheController tmdbCacheController;
+  final DownloadService downloadService;
+  final VoidCallback onOpenDownloadManager;
   final AppLockController? appLockController;
 
   @override
@@ -109,6 +115,34 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   ),
                   const SizedBox(height: 28),
                 ],
+                if (_matches('缓存下载 下载设置 并发 后台 缓存路径 存储')) ...[
+                  const _SettingsSectionLabel(title: '缓存下载'),
+                  _SettingsPanel(
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
+                      leading: const _SettingsIcon(
+                        icon: Icons.download_for_offline_outlined,
+                        color: Color(0xFF2AA889),
+                      ),
+                      title: const Text('下载设置'),
+                      subtitle: Text(
+                        '${widget.downloadService.settings.concurrency} 个任务同时下载 · '
+                        '${widget.downloadService.settings.allowBackground ? '允许后台下载' : '后台下载已关闭'}',
+                      ),
+                      trailing: const Icon(Icons.chevron_right_rounded,
+                          color: CineoColors.textSecondary),
+                      onTap: () => Navigator.of(context).push(
+                        adaptivePageRoute(
+                          context,
+                          builder: (_) => DownloadSettingsScreen(
+                            service: widget.downloadService,
+                          ),
+                        ),
+                      ),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                ],
                 if (_matches('播放体验 m3u8 M3U8 广告 过滤 代理 视频')) ...[
                   const _SettingsSectionLabel(title: '播放体验'),
                   _SettingsPanel(
@@ -186,6 +220,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool get _hasMatches =>
       _matches('媒体服务 tmdb 数据增强 海报 剧集 简介') ||
+      _matches('缓存下载 下载设置 并发 后台 缓存路径 存储') ||
       _matches('播放体验 m3u8 M3U8 广告 过滤 代理 视频') ||
       _matches('内容访问 成人 标记 视频源 显示 隐藏 播放历史');
 

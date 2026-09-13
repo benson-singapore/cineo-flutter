@@ -3,9 +3,10 @@ import 'dart:io';
 
 import 'package:cineo_flutter/core/models/media.dart';
 import 'package:cineo_flutter/core/models/media_source.dart';
-import 'package:cineo_flutter/core/models/source_group_config.dart';
 import 'package:cineo_flutter/core/models/home_category_rail.dart';
+import 'package:cineo_flutter/core/models/source_group_config.dart';
 import 'package:cineo_flutter/data/remote/mac_cms_client.dart';
+import 'package:cineo_flutter/data/remote/media_category_adapter.dart';
 import 'package:cineo_flutter/data/repositories/local_media_repository.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -135,6 +136,326 @@ void main() {
     expect(rails.single.items.single.posterUrl, cachedMedia.posterUrl);
   });
 
+  test('keeps successful home rails when another category request fails',
+      () async {
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+      macCmsClient: MacCmsClient(
+        maxAttempts: 1,
+        fetcher: (uri) async {
+          switch (uri.queryParameters['t']) {
+            case 'cn':
+              throw const HttpException('站点返回 HTTP 500');
+            case 'kr':
+              return jsonEncode({
+                'list': [
+                  {
+                    'vod_id': '18',
+                    'vod_name': '成功加载的韩剧',
+                    'type_id': 'kr',
+                    'type_name': '韩剧',
+                  },
+                ],
+              });
+            default:
+              return '{"list":[]}';
+          }
+        },
+      ),
+    );
+    const categories = [
+      UnifiedCategory(
+        type: UnifiedMediaType.series,
+        sourceCategoryIds: ['cn', 'kr'],
+        subcategories: [
+          UnifiedSubcategory(
+            id: 'cn',
+            name: '国产剧',
+            sourceCategoryIds: ['cn'],
+            matchText: '电视剧 国产剧',
+          ),
+          UnifiedSubcategory(
+            id: 'kr',
+            name: '韩剧',
+            sourceCategoryIds: ['kr'],
+            matchText: '电视剧 韩剧',
+          ),
+        ],
+      ),
+    ];
+
+    final rails = await repository.browseDefaultHomeCategoryRails(categories);
+
+    final domestic = rails.singleWhere((rail) => rail.title == '国产剧');
+    final korean = rails.singleWhere((rail) => rail.title == '韩剧');
+    expect(domestic.categoryIds, ['cn']);
+    expect(domestic.items, isEmpty);
+    expect(korean.categoryIds, ['kr']);
+    expect(korean.items.single.title, '成功加载的韩剧');
+  });
+
+  test('syncs source leaf groups without resetting saved visibility', () async {
+    var includeVariety = false;
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+      macCmsClient: MacCmsClient(
+        maxAttempts: 1,
+        fetcher: (uri) async {
+          if (uri.queryParameters['ac'] != 'list') return '{"list":[]}';
+          final categories = <Map<String, String>>[
+            {'type_id': '1', 'type_name': '连续剧', 'type_pid': '0'},
+            {'type_id': '13', 'type_name': '国产剧', 'type_pid': '1'},
+            {'type_id': '15', 'type_name': '韩剧', 'type_pid': '1'},
+          ];
+          if (includeVariety) {
+            categories.addAll([
+              {'type_id': '3', 'type_name': '综艺片', 'type_pid': '0'},
+              {'type_id': '25', 'type_name': '大陆综艺', 'type_pid': '3'},
+            ]);
+          }
+          return jsonEncode({'class': categories});
+        },
+      ),
+    );
+
+    final initial = await repository.syncSourceGroupConfigs('built-in-ruyi');
+    expect(initial.map((config) => config.categoryName), ['国产剧', '韩剧']);
+
+    await repository.toggleSourceGroupConfig('built-in-ruyi', '15', false);
+    includeVariety = true;
+
+    final refreshed = await repository.syncSourceGroupConfigs('built-in-ruyi');
+    expect(
+      refreshed.map((config) => config.categoryName).toSet(),
+      {'大陆综艺', '国产剧', '韩剧'},
+    );
+    expect(
+      refreshed.singleWhere((config) => config.categoryId == '15').isEnabled,
+      isFalse,
+    );
+    expect(
+      refreshed.singleWhere((config) => config.categoryId == '25').isEnabled,
+      isTrue,
+    );
+  });
+
+  test('syncs 360-style numeric category fields', () async {
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+      macCmsClient: MacCmsClient(
+        maxAttempts: 1,
+        fetcher: (uri) async => jsonEncode({
+          'class': [
+            {'type_id': 1, 'type_name': '电影', 'type_pid': 0},
+            {'type_id': 2, 'type_name': '动作片', 'type_pid': 1},
+            {'type_id': 13, 'type_name': '连续剧', 'type_pid': 0},
+            {'type_id': 14, 'type_name': '国产剧', 'type_pid': 13},
+            {'type_id': 15, 'type_name': '香港剧', 'type_pid': 13},
+            {'type_id': 16, 'type_name': '韩国剧', 'type_pid': 13},
+            {'type_id': 17, 'type_name': '欧美剧', 'type_pid': 13},
+          ],
+        }),
+      ),
+    );
+
+    final configs = await repository.syncSourceGroupConfigs('built-in-ruyi');
+
+    expect(
+      configs.map((config) => config.categoryName),
+      containsAll(['动作片', '国产剧', '香港剧', '韩国剧', '欧美剧']),
+    );
+    expect(
+        configs,
+        everyElement(predicate<SourceGroupConfig>(
+          (config) => config.isEnabled,
+        )));
+  });
+
+  test(
+      'returns an empty configuration for categories without recognized leaves',
+      () async {
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+      macCmsClient: MacCmsClient(
+        maxAttempts: 1,
+        fetcher: (uri) async => jsonEncode({
+          'class': [
+            {'type_id': 7, 'type_name': '体育', 'type_pid': 0},
+          ],
+        }),
+      ),
+    );
+
+    final configs = await repository.syncSourceGroupConfigs('built-in-ruyi');
+
+    expect(configs, isEmpty);
+  });
+
+  test('reads legacy group rows with numeric values stored as strings',
+      () async {
+    await repository.sources();
+    await repository.close();
+
+    final database = await databaseFactory.openDatabase(
+      '${tempDirectory.path}/cineo.db',
+      options: OpenDatabaseOptions(version: 9),
+    );
+    await database.insert('source_group_configs', {
+      'source_id': 'built-in-ruyi',
+      'category_id': '99',
+      'category_name': '历史分类',
+      'is_enabled': '1',
+      'created_at': '1700000000000',
+      'updated_at': '1700000001000',
+    });
+    await database.close();
+
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+    );
+    final configs = await repository.getSourceGroupConfigs('built-in-ruyi');
+    final legacy = configs.singleWhere((config) => config.categoryId == '99');
+
+    expect(legacy.categoryName, '历史分类');
+    expect(legacy.isEnabled, isTrue);
+    expect(
+      legacy.createdAt,
+      DateTime.fromMillisecondsSinceEpoch(1700000000000),
+    );
+  });
+
+  test('repairs an existing group table with legacy column names', () async {
+    await repository.sources();
+    await repository.close();
+
+    final database = await databaseFactory.openDatabase(
+      '${tempDirectory.path}/cineo.db',
+      options: OpenDatabaseOptions(version: 9),
+    );
+    await database.execute('DROP TABLE source_group_configs');
+    await database.execute('''
+      CREATE TABLE source_group_configs (
+        sourceId TEXT NOT NULL,
+        categoryId TEXT NOT NULL,
+        categoryName TEXT NOT NULL,
+        isEnabled TEXT NOT NULL,
+        createdAt TEXT NOT NULL,
+        updatedAt TEXT NOT NULL
+      )
+    ''');
+    await database.insert('source_group_configs', {
+      'sourceId': 'built-in-ruyi',
+      'categoryId': '14',
+      'categoryName': '国产剧',
+      'isEnabled': '0',
+      'createdAt': '1700000000000',
+      'updatedAt': '1700000001000',
+    });
+    await database.close();
+
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+      macCmsClient: MacCmsClient(
+        maxAttempts: 1,
+        fetcher: (uri) async => jsonEncode({
+          'class': [
+            {'type_id': 1, 'type_name': '连续剧', 'type_pid': 0},
+            {'type_id': 14, 'type_name': '国产剧', 'type_pid': 1},
+          ],
+        }),
+      ),
+    );
+
+    final configs = await repository.syncSourceGroupConfigs('built-in-ruyi');
+    final domestic = configs.singleWhere((config) => config.categoryId == '14');
+
+    expect(domestic.categoryName, '国产剧');
+    expect(domestic.isEnabled, isFalse);
+  });
+
+  test('filters categories and unqualified searches by enabled groups',
+      () async {
+    final requestedSearchCategories = <String?>[];
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+      macCmsClient: MacCmsClient(
+        maxAttempts: 1,
+        fetcher: (uri) async {
+          if (uri.queryParameters['ac'] == 'list') {
+            return jsonEncode({
+              'class': [
+                {'type_id': '1', 'type_name': '连续剧', 'type_pid': '0'},
+                {'type_id': '13', 'type_name': '国产剧', 'type_pid': '1'},
+                {'type_id': '15', 'type_name': '韩剧', 'type_pid': '1'},
+              ],
+            });
+          }
+          requestedSearchCategories.add(uri.queryParameters['t']);
+          return jsonEncode({
+            'list': [
+              {
+                'vod_id': uri.queryParameters['t'] ?? 'unfiltered',
+                'vod_name':
+                    uri.queryParameters['t'] == '13' ? '国产剧搜索结果' : '未分类搜索结果',
+                'type_id': uri.queryParameters['t'] ?? '',
+              },
+            ],
+          });
+        },
+      ),
+    );
+
+    await repository.syncSourceGroupConfigs('built-in-ruyi');
+    await repository.toggleSourceGroupConfig('built-in-ruyi', '15', false);
+
+    final categories = await repository.defaultSourceCategories();
+    final series = categories.singleWhere(
+      (category) => category.type == UnifiedMediaType.series,
+    );
+    expect(series.sourceCategoryIds, ['13']);
+    expect(series.subcategories.map((category) => category.id), ['13']);
+
+    final results = await repository.searchDefaultSourcePage('剧');
+    expect(results.items.single.categoryId, '13');
+    expect(requestedSearchCategories, ['13']);
+
+    await repository.toggleSourceGroupConfig('built-in-ruyi', '13', false);
+    requestedSearchCategories.clear();
+    final empty = await repository.searchDefaultSourcePage('剧');
+    expect(empty.items, isEmpty);
+    expect(requestedSearchCategories, isEmpty);
+  });
+
+  test('repairs a missing group table in a version 9 database', () async {
+    await repository.sources();
+    await repository.close();
+
+    final database = await databaseFactory.openDatabase(
+      '${tempDirectory.path}/cineo.db',
+      options: OpenDatabaseOptions(version: 9),
+    );
+    await database.execute('DROP TABLE source_group_configs');
+    final version = await database.rawQuery('PRAGMA user_version');
+    expect(version.single['user_version'], 9);
+    await database.close();
+
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+      macCmsClient: MacCmsClient(
+        maxAttempts: 1,
+        fetcher: (uri) async => jsonEncode({
+          'class': [
+            {'type_id': '1', 'type_name': '连续剧', 'type_pid': '0'},
+            {'type_id': '13', 'type_name': '国产剧', 'type_pid': '1'},
+          ],
+        }),
+      ),
+    );
+
+    final configs = await repository.syncSourceGroupConfigs('built-in-ruyi');
+    expect(configs.map((config) => config.categoryName), ['国产剧']);
+  });
+
   test('persists a display snapshot when remote playback progress is saved',
       () async {
     final progress = WatchProgress(
@@ -165,168 +486,87 @@ void main() {
     expect(history.single.episodeCount, 12);
   });
 
-  test('keeps local group state when the source returns no categories',
+  test('merges duplicate history records when switching resource sites',
       () async {
-    await repository.saveSourceGroupConfig(
-      SourceGroupConfig(
-        sourceId: 'built-in-ruyi',
-        categoryId: '16',
-        categoryName: '电视剧',
-        isEnabled: false,
-        createdAt: DateTime(2026, 1, 1),
-        updatedAt: DateTime(2026, 1, 1),
+    const oldMedia = MediaItem(
+      id: 'source-a:牧神记',
+      sourceId: 'source-a',
+      sourceName: '旧资源站',
+      remoteId: '42',
+      title: '牧神记',
+      description: '',
+      year: 2026,
+      kind: MediaKind.series,
+      posterUrl: 'https://example.test/mushenji.jpg',
+      backdropUrl: '',
+      genres: [],
+      rating: 0,
+      duration: Duration(minutes: 20),
+      playbackOptions: [
+        PlaybackOption(
+          id: 'source-a:42:0:0',
+          sourceId: 'source-a',
+          label: '线路 · 第1集',
+          url: 'https://old.example.test/1.m3u8',
+          quality: '线路',
+          isHls: true,
+        ),
+      ],
+    );
+    const currentMedia = MediaItem(
+      id: 'source-b:99',
+      sourceId: 'source-b',
+      sourceName: '新资源站',
+      remoteId: '99',
+      title: '牧神记',
+      description: '',
+      year: 2026,
+      kind: MediaKind.series,
+      posterUrl: 'https://example.test/mushenji.jpg',
+      backdropUrl: '',
+      genres: [],
+      rating: 0,
+      duration: Duration(minutes: 17),
+      playbackOptions: [
+        PlaybackOption(
+          id: 'source-b:99:0:0',
+          sourceId: 'source-b',
+          label: '线路 · 第1集',
+          url: 'https://new.example.test/1.m3u8',
+          quality: '线路',
+          isHls: true,
+        ),
+      ],
+    );
+
+    await repository.saveProgress(
+      WatchProgress(
+        mediaId: oldMedia.id,
+        episodeId: 'source-a:42:0:0',
+        episodeLabel: '第1集',
+        episodeNumber: 1,
+        episodeCount: 99,
+        position: const Duration(minutes: 7),
+        duration: const Duration(minutes: 20),
+        updatedAt: DateTime(2026, 8, 22),
       ),
+      media: oldMedia,
     );
 
-    await repository.close();
-    repository = LocalMediaRepository(
-      databasePath: '${tempDirectory.path}/cineo.db',
-      macCmsClient: MacCmsClient(fetcher: (_) async => '{}'),
-    );
+    await repository.mergeMediaHistory(currentMedia);
 
-    final refreshed =
-        await repository.refreshSourceGroupConfigs('built-in-ruyi');
-
-    expect(refreshed, hasLength(1));
-    expect(refreshed.single.categoryId, '16');
-    expect(refreshed.single.isEnabled, isFalse);
+    final history = await repository.watchHistory();
+    expect(history, hasLength(1));
+    expect(history.single.mediaId, currentMedia.id);
+    expect(history.single.episodeId, 'source-b:99:0:0');
+    expect(history.single.position, const Duration(minutes: 7));
     expect(
-      (await repository.getSourceGroupConfigs('built-in-ruyi'))
-          .single
-          .isEnabled,
-      isFalse,
-    );
-  });
-
-  test('leaves browse and search without explicit categories unfiltered',
-      () async {
-    final requestedUris = <Uri>[];
-    await repository.saveSourceGroupConfig(
-      SourceGroupConfig(
-        sourceId: 'built-in-ruyi',
-        categoryId: '16',
-        categoryName: '电视剧',
-        isEnabled: false,
-        createdAt: DateTime(2026, 1, 1),
-        updatedAt: DateTime(2026, 1, 1),
+      (await repository.watchHistory()).where(
+        (entry) => entry.mediaId == oldMedia.id,
       ),
+      isEmpty,
     );
-    await repository.close();
-    repository = LocalMediaRepository(
-      databasePath: '${tempDirectory.path}/cineo.db',
-      macCmsClient: MacCmsClient(
-        fetcher: (uri) async {
-          requestedUris.add(uri);
-          return jsonEncode({'list': []});
-        },
-      ),
-    );
-
-    await repository.browseDefaultSourcePage();
-    await repository.searchDefaultSourcePage('关键词');
-
-    expect(requestedUris, hasLength(2));
-    expect(requestedUris[0].queryParameters['t'], isNull);
-    expect(requestedUris[1].queryParameters['t'], isNull);
-    expect(requestedUris[1].queryParameters['wd'], '关键词');
-  });
-
-  test('filters explicit categories and returns an empty page when disabled',
-      () async {
-    final requestedUris = <Uri>[];
-    final createdAt = DateTime(2026, 1, 1);
-    await repository.saveSourceGroupConfig(
-      SourceGroupConfig(
-        sourceId: 'built-in-ruyi',
-        categoryId: '16',
-        categoryName: '电视剧',
-        isEnabled: false,
-        createdAt: createdAt,
-        updatedAt: createdAt,
-      ),
-    );
-    await repository.saveSourceGroupConfig(
-      SourceGroupConfig(
-        sourceId: 'built-in-ruyi',
-        categoryId: '17',
-        categoryName: '电影',
-        isEnabled: true,
-        createdAt: createdAt,
-        updatedAt: createdAt,
-      ),
-    );
-    await repository.close();
-    repository = LocalMediaRepository(
-      databasePath: '${tempDirectory.path}/cineo.db',
-      macCmsClient: MacCmsClient(
-        fetcher: (uri) async {
-          requestedUris.add(uri);
-          return jsonEncode({'list': []});
-        },
-      ),
-    );
-
-    final enabledPage = await repository.browseDefaultSourcePage(
-      categoryIds: ['16', '17'],
-    );
-    final disabledPage = await repository.searchDefaultSourcePage(
-      '关键词',
-      categoryIds: ['16'],
-    );
-
-    expect(enabledPage.items, isEmpty);
-    expect(requestedUris, hasLength(1));
-    expect(requestedUris.single.queryParameters['t'], '17');
-    expect(disabledPage.items, isEmpty);
-    expect(disabledPage.pageCount, 0);
-    expect(disabledPage.limit, 0);
-    expect(disabledPage.total, 0);
-    expect(disabledPage.hasMore, isFalse);
-  });
-
-  test('refreshes only source-native leaves and preserves matching state',
-      () async {
-    final createdAt = DateTime(2026, 1, 1);
-    await repository.saveSourceGroupConfig(
-      SourceGroupConfig(
-        sourceId: 'built-in-ruyi',
-        categoryId: '21',
-        categoryName: '旧名称',
-        isEnabled: false,
-        createdAt: createdAt,
-        updatedAt: createdAt,
-      ),
-    );
-    await repository.close();
-    repository = LocalMediaRepository(
-      databasePath: '${tempDirectory.path}/cineo.db',
-      macCmsClient: MacCmsClient(
-        fetcher: (uri) async {
-          if (uri.queryParameters['ac'] == 'list') {
-            return jsonEncode({
-              'class': [
-                {'type_id': '2', 'type_name': '电视剧'},
-                {'type_id': '21', 'type_name': '国产剧', 'type_pid': '2'},
-                {'type_id': '22', 'type_name': '日剧', 'type_pid': '2'},
-                {'type_id': '30', 'type_name': '综艺', 'type_pid': '31'},
-                {'type_id': '31', 'type_name': '节目', 'type_pid': '30'},
-              ],
-            });
-          }
-          return jsonEncode({'list': []});
-        },
-      ),
-    );
-
-    final refreshed =
-        await repository.refreshSourceGroupConfigs('built-in-ruyi');
-
-    expect(
-        refreshed.map((config) => config.categoryId), ['21', '22', '30', '31']);
-    expect(
-        refreshed.firstWhere((config) => config.categoryId == '21').isEnabled,
-        isFalse);
-    expect(refreshed.any((config) => config.categoryId == '2'), isFalse);
+    expect((await repository.getById(currentMedia.id))?.sourceId, 'source-b');
   });
 
   test('can hide playback history from adult sources', () async {
@@ -364,5 +604,55 @@ void main() {
 
     expect(await repository.watchHistory(includeAdult: false), isEmpty);
     expect(await repository.watchHistory(includeAdult: true), hasLength(1));
+  });
+
+  test('progressive source search reports progress and skips adult sources',
+      () async {
+    final requestedHosts = <String>[];
+    await repository.close();
+    repository = LocalMediaRepository(
+      databasePath: '${tempDirectory.path}/cineo.db',
+      macCmsClient: MacCmsClient(
+        maxAttempts: 1,
+        fetcher: (uri) async {
+          requestedHosts.add(uri.host);
+          return jsonEncode({
+            'list': [
+              {
+                'vod_id': '7',
+                'vod_name': '本地保存的剧集',
+              },
+            ],
+          });
+        },
+      ),
+    );
+    await repository.sources();
+    await repository.saveSource(const MediaSource(
+      id: 'regular-source',
+      name: '普通源',
+      type: MediaSourceType.macCmsApi,
+      baseUrl: 'https://regular.example.test/api.php/provide/vod',
+    ));
+    await repository.saveSource(const MediaSource(
+      id: 'adult-source',
+      name: '成人源',
+      type: MediaSourceType.macCmsApi,
+      baseUrl: 'https://adult.example.test/api.php/provide/vod',
+      isAdult: true,
+    ));
+
+    final updates =
+        await repository.searchOtherSourcesProgressively(media).toList();
+
+    expect(updates.map((update) => update.searched), [0, 1, 2]);
+    expect(updates.map((update) => update.total), [2, 2, 2]);
+    expect(updates.last.isComplete, isTrue);
+    expect(
+      updates.expand((update) => update.matches).map((item) => item.sourceId),
+      containsAll(['built-in-ruyi', 'regular-source']),
+    );
+    expect(requestedHosts, contains('regular.example.test'));
+    expect(requestedHosts, isNot(contains('adult.example.test')));
   });
 }
