@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/rendering.dart';
 
 import '../../core/models/media.dart';
+import '../../core/models/media_source.dart';
 import '../../core/models/paged_media.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../shared/widgets/media_image.dart';
@@ -15,6 +16,7 @@ class CategoryBrowseScreen extends StatefulWidget {
     required this.onOpenMedia,
     this.onLoad,
     this.imageAspectRatio,
+    this.coverMode = MediaCoverMode.portrait,
   });
 
   final String title;
@@ -22,6 +24,7 @@ class CategoryBrowseScreen extends StatefulWidget {
   final Future<void> Function(MediaItem) onOpenMedia;
   final Future<PagedMedia> Function(int page)? onLoad;
   final double? imageAspectRatio;
+  final MediaCoverMode coverMode;
 
   @override
   State<CategoryBrowseScreen> createState() => _CategoryBrowseScreenState();
@@ -201,17 +204,18 @@ class _CategoryBrowseScreenState extends State<CategoryBrowseScreen> {
                                   media: _items[index],
                                   onTap: () =>
                                       widget.onOpenMedia(_items[index]),
-                                  imageAspectRatio:
-                                      widget.imageAspectRatio ?? .69,
+                                  coverMode: widget.coverMode,
+                                  imageAspectRatio: widget.imageAspectRatio,
                                 ),
                                 childCount: _items.length,
                               ),
                               gridDelegate: widget.imageAspectRatio == null
-                                  ? const SliverGridDelegateWithMaxCrossAxisExtent(
+                                  ? SliverGridDelegateWithMaxCrossAxisExtent(
                                       maxCrossAxisExtent: 176,
                                       mainAxisSpacing: 18,
                                       crossAxisSpacing: 12,
-                                      childAspectRatio: .62,
+                                      childAspectRatio:
+                                          widget.coverMode.gridChildAspectRatio,
                                     )
                                   : BrowseMediaGridDelegate(
                                       imageAspectRatio:
@@ -316,6 +320,7 @@ class BrowseMediaGrid extends StatelessWidget {
     this.emptyTitle = '没有内容',
     this.emptyMessage = '暂时没有可展示的资源',
     this.imageAspectRatio,
+    this.coverMode = MediaCoverMode.portrait,
   });
 
   final List<MediaItem> items;
@@ -323,6 +328,7 @@ class BrowseMediaGrid extends StatelessWidget {
   final String emptyTitle;
   final String emptyMessage;
   final double? imageAspectRatio;
+  final MediaCoverMode coverMode;
 
   @override
   Widget build(BuildContext context) {
@@ -336,18 +342,19 @@ class BrowseMediaGrid extends StatelessWidget {
     return GridView.builder(
       padding: const EdgeInsets.fromLTRB(20, 16, 20, 32),
       gridDelegate: imageAspectRatio == null
-          ? const SliverGridDelegateWithMaxCrossAxisExtent(
+          ? SliverGridDelegateWithMaxCrossAxisExtent(
               maxCrossAxisExtent: 176,
               mainAxisSpacing: 18,
               crossAxisSpacing: 12,
-              childAspectRatio: .62,
+              childAspectRatio: coverMode.gridChildAspectRatio,
             )
           : BrowseMediaGridDelegate(imageAspectRatio: imageAspectRatio!),
       itemCount: items.length,
       itemBuilder: (context, index) => BrowseMediaCard(
         media: items[index],
         onTap: () => onOpenMedia(items[index]),
-        imageAspectRatio: imageAspectRatio ?? .69,
+        coverMode: coverMode,
+        imageAspectRatio: imageAspectRatio,
       ),
     );
   }
@@ -358,12 +365,14 @@ class BrowseMediaCard extends StatefulWidget {
     super.key,
     required this.media,
     required this.onTap,
-    this.imageAspectRatio = .69,
+    this.imageAspectRatio,
+    this.coverMode = MediaCoverMode.portrait,
   });
 
   final MediaItem media;
   final Future<void> Function() onTap;
-  final double imageAspectRatio;
+  final double? imageAspectRatio;
+  final MediaCoverMode coverMode;
 
   @override
   State<BrowseMediaCard> createState() => _BrowseMediaCardState();

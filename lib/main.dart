@@ -4,6 +4,7 @@ import 'dart:ui';
 import 'package:flutter/material.dart';
 
 import 'core/models/media.dart';
+import 'core/models/media_source.dart';
 import 'core/models/download_models.dart';
 import 'core/models/home_category_rail.dart';
 import 'core/models/tmdb_media.dart';
@@ -167,6 +168,7 @@ class _CineoShellState extends State<CineoShell> {
   int _selectedIndex = 0;
   int _refreshRevision = 0;
   int _sourceRevision = 0;
+  MediaCoverMode _coverMode = MediaCoverMode.portrait;
   bool _pictureInPictureAvailable = false;
   bool _showHomeScrollToTop = false;
   bool _showLibraryScrollToTop = false;
@@ -182,6 +184,7 @@ class _CineoShellState extends State<CineoShell> {
   void initState() {
     super.initState();
     _refresh();
+    unawaited(_loadCoverMode());
     unawaited(_loadPlatformCapabilities());
   }
 
@@ -191,6 +194,15 @@ class _CineoShellState extends State<CineoShell> {
     _libraryScrollController.dispose();
     _sourceChangedController.close();
     super.dispose();
+  }
+
+  Future<void> _loadCoverMode() async {
+    try {
+      final mode = await widget.repository.defaultSourceCoverMode();
+      if (mounted) setState(() => _coverMode = mode);
+    } catch (_) {
+      // Keep the portrait default when no source preference is available.
+    }
   }
 
   Future<void> _loadPlatformCapabilities() async {
@@ -729,6 +741,7 @@ class _CineoShellState extends State<CineoShell> {
         context,
         builder: (_) => CategoryBrowseScreen(
           title: title,
+          coverMode: _coverMode,
           initialItems: initialItems,
           onOpenMedia: _openMedia,
           onLoad: (page) => widget.repository.browseDefaultSourcePage(
@@ -749,6 +762,7 @@ class _CineoShellState extends State<CineoShell> {
           history: _searchHistory,
           onSearch: (query) => unawaited(_recordSearch(query)),
           onOpenMedia: _openMedia,
+          coverMode: _coverMode,
           categories: _categories,
           onRemoteSearch: (query, categoryIds, page) =>
               widget.repository.searchDefaultSourcePage(
@@ -792,12 +806,15 @@ class _CineoShellState extends State<CineoShell> {
           adultSourceSettings: widget.adultSourceSettings,
           onDefaultSourceChanged: () {
             sourceChanged = true;
+            _sourceRevision++;
             _sourceChangedController.add(null);
+            unawaited(_loadCoverMode());
           },
         ),
       ),
     );
     await _refresh();
+    await _loadCoverMode();
     if (sourceChanged && mounted) {
       setState(() => _sourceRevision++);
     }
@@ -897,6 +914,7 @@ class _CineoShellState extends State<CineoShell> {
         favorites: _favorites,
         progressByMediaId: _progressByMediaId,
         categoryRails: _homeCategoryRails,
+        coverMode: _coverMode,
         isLoading: _loading,
         isRefreshing: _refreshing,
         errorMessage: _errorMessage,
@@ -919,6 +937,7 @@ class _CineoShellState extends State<CineoShell> {
         history: _searchHistory,
         onSearch: (query) => unawaited(_recordSearch(query)),
         onOpenMedia: _openMedia,
+        coverMode: _coverMode,
         categories: _categories,
         onRemoteSearch: (query, categoryIds, page) =>
             widget.repository.searchDefaultSourcePage(

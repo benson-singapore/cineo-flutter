@@ -3,6 +3,7 @@ import 'package:flutter/rendering.dart';
 
 import '../../core/platform/adaptive_navigation.dart';
 import '../../core/models/media.dart';
+import '../../core/models/media_source.dart';
 import '../../core/models/paged_media.dart';
 import '../../core/theme/cineo_theme.dart';
 import '../../data/remote/media_category_adapter.dart';
@@ -20,6 +21,7 @@ class SearchScreen extends StatefulWidget {
     this.onBrowseCategory,
     this.categories = const [],
     this.initialCategory,
+    this.coverMode = MediaCoverMode.portrait,
     this.libraryMode = false,
     this.onOpenSearch,
     this.onOpenMediaWithImageAspectRatio,
@@ -38,6 +40,7 @@ class SearchScreen extends StatefulWidget {
       onBrowseCategory;
   final List<UnifiedCategory> categories;
   final UnifiedCategory? initialCategory;
+  final MediaCoverMode coverMode;
   final bool libraryMode;
   final VoidCallback? onOpenSearch;
   final Future<void> Function(MediaItem media, double imageAspectRatio)?
@@ -762,6 +765,7 @@ class _SearchScreenState extends State<SearchScreen>
             delegate: SliverChildBuilderDelegate(
               (context, index) => BrowseMediaCard(
                 media: browse[index],
+                coverMode: widget.coverMode,
                 onTap: () => _openMedia(browse[index]),
               ),
               childCount: browse.length,
@@ -785,11 +789,11 @@ class _SearchScreenState extends State<SearchScreen>
         imageAspectRatio: _libraryImageRatio.aspectRatio,
       );
     }
-    return const SliverGridDelegateWithMaxCrossAxisExtent(
+    return SliverGridDelegateWithMaxCrossAxisExtent(
       maxCrossAxisExtent: 176,
       mainAxisSpacing: 18,
       crossAxisSpacing: 12,
-      childAspectRatio: .62,
+      childAspectRatio: widget.coverMode.gridChildAspectRatio,
     );
   }
 
@@ -842,6 +846,7 @@ class _SearchScreenState extends State<SearchScreen>
           separatorBuilder: (_, __) => const SizedBox(height: 12),
           itemBuilder: (_, index) => _SearchResultTile(
             media: results[index],
+            coverMode: widget.coverMode,
             onTap: () => _openMedia(results[index]),
           ),
         ),
@@ -877,6 +882,7 @@ class _SearchScreenState extends State<SearchScreen>
             state: _subcategoryBrowse[_subcategoryKey(subcategory)] ??
                 const _SubcategoryBrowseState(loading: true),
             onOpenMedia: _openMedia,
+            coverMode: widget.coverMode,
             imageAspectRatio: _libraryImageRatio.aspectRatio,
             onSeeAll: () => _openSubcategory(subcategory),
             onRetry: () => _loadSubcategoryBrowse(force: true),
@@ -894,6 +900,7 @@ class _SearchScreenState extends State<SearchScreen>
         builder: (_) => CategoryBrowseScreen(
           title: category.name,
           initialItems: state?.items ?? const [],
+          coverMode: widget.coverMode,
           onOpenMedia: _openMedia,
           onLoad: (page) =>
               _browsePageRequest(category.sourceCategoryIds, page),
@@ -971,6 +978,7 @@ class _SubcategoryRail extends StatelessWidget {
     required this.state,
     required this.onOpenMedia,
     required this.imageAspectRatio,
+    this.coverMode = MediaCoverMode.portrait,
     required this.onSeeAll,
     required this.onRetry,
   });
@@ -979,6 +987,7 @@ class _SubcategoryRail extends StatelessWidget {
   final _SubcategoryBrowseState state;
   final Future<void> Function(MediaItem) onOpenMedia;
   final double imageAspectRatio;
+  final MediaCoverMode coverMode;
   final VoidCallback onSeeAll;
   final VoidCallback onRetry;
 
@@ -1052,6 +1061,7 @@ class _SubcategoryRail extends StatelessWidget {
                     itemBuilder: (_, index) => MediaPosterCard(
                       media: items[index],
                       onTap: () => onOpenMedia(items[index]),
+                      coverMode: coverMode,
                       imageAspectRatio: imageAspectRatio,
                     ),
                   ),
@@ -1143,10 +1153,15 @@ class _SearchField extends StatelessWidget {
 }
 
 class _SearchResultTile extends StatefulWidget {
-  const _SearchResultTile({required this.media, required this.onTap});
+  const _SearchResultTile({
+    required this.media,
+    required this.onTap,
+    this.coverMode = MediaCoverMode.portrait,
+  });
 
   final MediaItem media;
   final Future<void> Function() onTap;
+  final MediaCoverMode coverMode;
 
   @override
   State<_SearchResultTile> createState() => _SearchResultTileState();

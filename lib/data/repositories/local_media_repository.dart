@@ -52,7 +52,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     final database = await openDatabase(
       resolvedPath,
-      version: 11,
+      version: 12,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -88,7 +88,8 @@ class LocalMediaRepository implements MediaRepository {
             cache_ttl_seconds INTEGER,
             is_default INTEGER NOT NULL DEFAULT 0,
             last_latency_ms INTEGER,
-            is_favorite INTEGER NOT NULL DEFAULT 0
+            is_favorite INTEGER NOT NULL DEFAULT 0,
+            cover_mode INTEGER NOT NULL DEFAULT 0
           )
         ''');
         await database.execute('''
@@ -163,6 +164,18 @@ class LocalMediaRepository implements MediaRepository {
         }
         if (oldVersion < 10) await _createDownloadTables(database);
         if (oldVersion < 11) await _addDownloadPresentationColumns(database);
+        if (oldVersion < 12) {
+          final sourceColumns =
+              await database.rawQuery('PRAGMA table_info(sources)');
+          final hasCoverMode = sourceColumns.any(
+            (column) => column['name'] == 'cover_mode',
+          );
+          if (!hasCoverMode) {
+            await database.execute(
+              'ALTER TABLE sources ADD COLUMN cover_mode INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+        }
       },
     );
     // A previous build may have recorded version 9 without creating the
@@ -697,6 +710,122 @@ class LocalMediaRepository implements MediaRepository {
     return getSourceGroupConfigs(sourceId);
   }
 
+  /// Refreshes source-native leaf categories while preserving local settings.
+  /// An empty remote response is treated as unavailable, not as deletion.
+  @override
+  Future<List<SourceGroupConfig>> refreshSourceGroupConfigs(
+    String sourceId,
+  ) async {
+    final database = await _db;
+    final sourceRows = await database.query(
+      'sources',
+      where: 'id = ?',
+      whereArgs: [sourceId],
+      limit: 1,
+    );
+    if (sourceRows.isEmpty) throw StateError('未找到视频源');
+    final source = _sourceFromRow(sourceRows.single);
+    if (source.type != MediaSourceType.macCmsApi &&
+        source.type != MediaSourceType.jsonApi) {
+      throw StateError('该视频源不支持分类配置');
+    }
+
+    final remoteCategories = await _macCmsClient.categories(source);
+    final existing = await getSourceGroupConfigs(sourceId);
+    if (remoteCategories.isEmpty) return existing;
+
+    final leafCategories = _sourceNativeLeafCategories(remoteCategories);
+    final existingById = <String, SourceGroupConfig>{
+      for (final config in existing) config.categoryId: config,
+    };
+    final remoteIds = leafCategories.map((category) => category.id).toSet();
+    final now = DateTime.now();
+    final refreshed = <SourceGroupConfig>[];
+
+    await database.transaction((transaction) async {
+      for (final category in leafCategories) {
+        final previous = existingById[category.id];
+        final config = SourceGroupConfig(
+          sourceId: sourceId,
+          categoryId: category.id,
+          categoryName: category.name,
+          isEnabled: previous?.isEnabled ?? true,
+          createdAt: previous?.createdAt ?? now,
+          updatedAt: now,
+        );
+        await transaction.insert(
+          'source_group_configs',
+          {
+            'source_id': config.sourceId,
+            'category_id': config.categoryId,
+            'category_name': config.categoryName,
+            'is_enabled': config.isEnabled ? 1 : 0,
+            'created_at': config.createdAt.millisecondsSinceEpoch,
+            'updated_at': config.updatedAt.millisecondsSinceEpoch,
+          },
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+        refreshed.add(config);
+      }
+      for (final config in existing) {
+        if (!remoteIds.contains(config.categoryId)) {
+          await transaction.delete(
+            'source_group_configs',
+            where: 'source_id = ? AND category_id = ?',
+            whereArgs: [sourceId, config.categoryId],
+          );
+        }
+      }
+    });
+
+    refreshed.sort((a, b) => a.categoryName.compareTo(b.categoryName));
+    return refreshed;
+  }
+
+  List<RemoteCategory> _sourceNativeLeafCategories(
+    List<RemoteCategory> categories,
+  ) {
+    final byId = <String, RemoteCategory>{};
+    for (final category in categories) {
+      byId.putIfAbsent(category.id, () => category);
+    }
+    final childrenById = <String, Set<String>>{};
+    for (final category in categories) {
+      final parentId = category.parentId;
+      if (parentId == null || parentId.isEmpty || !byId.containsKey(parentId)) {
+        continue;
+      }
+      childrenById.putIfAbsent(parentId, () => <String>{}).add(category.id);
+    }
+    final cycleIds = <String>{};
+    for (final startId in byId.keys) {
+      final path = <String>[];
+      final positions = <String, int>{};
+      var currentId = startId;
+      while (byId.containsKey(currentId)) {
+        final cycleStart = positions[currentId];
+        if (cycleStart != null) {
+          cycleIds.addAll(path.skip(cycleStart));
+          break;
+        }
+        positions[currentId] = path.length;
+        path.add(currentId);
+        final parentId = byId[currentId]!.parentId;
+        if (parentId == null || parentId.isEmpty) break;
+        currentId = parentId;
+      }
+    }
+    final seen = <String>{};
+    return categories.where((category) {
+      final children = childrenById[category.id] ?? const <String>{};
+      final hasNonCycleChild =
+          children.any((childId) => !cycleIds.contains(childId));
+      return (children.isEmpty ||
+              (cycleIds.contains(category.id) && !hasNonCycleChild)) &&
+          seen.add(category.id);
+    }).toList(growable: false);
+  }
+
   /// Gets only the enabled category IDs for a source.
   /// Used for filtering API requests to show only enabled categories.
   @override
@@ -1086,6 +1215,36 @@ class LocalMediaRepository implements MediaRepository {
               page: page,
             )));
     return _combinePages(pages, page);
+  }
+
+  @override
+  Future<MediaCoverMode> getSourceCoverMode(String sourceId) async {
+    final rows = await (await _db).query(
+      'sources',
+      columns: ['cover_mode'],
+      where: 'id = ?',
+      whereArgs: [sourceId],
+      limit: 1,
+    );
+    if (rows.isEmpty) throw StateError('未找到视频源');
+    return _coverModeFromIndex(rows.single['cover_mode']);
+  }
+
+  @override
+  Future<void> setSourceCoverMode(String sourceId, MediaCoverMode mode) async {
+    final updated = await (await _db).update(
+      'sources',
+      {'cover_mode': mode.index},
+      where: 'id = ?',
+      whereArgs: [sourceId],
+    );
+    if (updated == 0) throw StateError('未找到视频源');
+  }
+
+  @override
+  Future<MediaCoverMode> defaultSourceCoverMode() async {
+    final source = await defaultSource();
+    return source?.coverMode ?? MediaCoverMode.portrait;
   }
 
   List<String> _normalizedCategoryIds(List<String> categoryIds) => categoryIds
@@ -1901,6 +2060,7 @@ class LocalMediaRepository implements MediaRepository {
       'is_default': source.isDefault ? 1 : 0,
       'last_latency_ms': source.lastLatencyMs,
       'is_favorite': source.isFavorite ? 1 : 0,
+      'cover_mode': source.coverMode.index,
     };
   }
 
@@ -1927,7 +2087,15 @@ class LocalMediaRepository implements MediaRepository {
       isDefault: (row['is_default'] as int? ?? 0) == 1,
       lastLatencyMs: row['last_latency_ms'] as int?,
       isFavorite: (row['is_favorite'] as int? ?? 0) == 1,
+      coverMode: _coverModeFromIndex(row['cover_mode']),
     );
+  }
+
+  MediaCoverMode _coverModeFromIndex(Object? value) {
+    final index = _safeParseInt(value);
+    return index >= 0 && index < MediaCoverMode.values.length
+        ? MediaCoverMode.values[index]
+        : MediaCoverMode.portrait;
   }
 
   SourceGroupConfig _groupConfigFromRow(Map<String, Object?> row) {
