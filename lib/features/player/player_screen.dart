@@ -1206,57 +1206,61 @@ class _PlayerScreenState extends State<PlayerScreen>
                     child: VideoPlayer(controller),
                   ),
                 ),
-              ),
-            if (_error == null && isReady && controller != null)
-              Positioned.fill(
-                child: GestureDetector(
-                  behavior: HitTestBehavior.translucent,
-                  onTap: _toggleControls,
-                  onVerticalDragUpdate: _handleVerticalDrag,
-                ),
-              ),
-            if (_error == null && isReady && controller != null)
-              IgnorePointer(
-                ignoring: !_controlsVisible,
-                child: AnimatedOpacity(
-                  duration: const Duration(milliseconds: 180),
-                  opacity: _controlsVisible ? 1 : 0,
-                  child: _PlayerControls(
-                    controller: controller,
-                    title: _media.title,
-                    isPlaying: value!.isPlaying,
-                    speed: _playbackSpeed,
-                    canGoPrevious: _currentEpisodeIndex > 0,
-                    canGoNext: _currentEpisodeIndex < _episodes.length - 1,
-                    hasEpisodes: _episodes.length > 1,
-                    pictureInPictureAvailable: true,
-                    onClose: () => Navigator.pop(context),
-                    onPlayPause: _togglePlayPause,
-                    onRewind: () => unawaited(
-                      _seekBy(const Duration(seconds: -10)),
-                    ),
-                    onForward: () => unawaited(
-                      _seekBy(const Duration(seconds: 10)),
-                    ),
-                    onPrevious: () => _selectRelativeEpisode(-1),
-                    onNext: () => _selectRelativeEpisode(1),
-                    onSpeedChanged: _setPlaybackSpeed,
-                    onOpenEpisodes: _openEpisodePanel,
-                    canSwitchSource: (widget.onSearchOtherSources != null ||
-                            widget.onSearchOtherSourcesProgressively != null) &&
-                        widget.onLoadAlternative != null,
-                    isSwitchingSource: _searchingOtherSources,
-                    onOpenSource: _openSourcePanel,
-                    isLandscape: _orientation == _PlayerOrientation.landscape,
-                    onOpenSystemPlayer: _openSystemPlayer,
-                    onToggleOrientation: _toggleOrientation,
-                    onPictureInPicture: _openAppPictureInPicture,
-                    onControlsInteraction: _showControls,
-                    onToggleControls: _toggleControls,
+              if (_error == null && isReady && controller != null)
+                Positioned.fill(
+                  child: GestureDetector(
+                    behavior: HitTestBehavior.translucent,
+                    onTap: _toggleControls,
+                    onVerticalDragUpdate: _handleVerticalDrag,
                   ),
                 ),
-              ),
-          ],
+              if (_error == null)
+                IgnorePointer(
+                  ignoring: !_controlsVisible,
+                  child: AnimatedOpacity(
+                    duration: const Duration(milliseconds: 180),
+                    opacity: _controlsVisible ? 1 : 0,
+                    child: _PlayerControls(
+                      controller: controller,
+                      isLoading: !isReady || controller == null,
+                      title: _media.title,
+                      isPlaying: value?.isPlaying ?? false,
+                      speed: _playbackSpeed,
+                      canGoPrevious: isReady && _currentEpisodeIndex > 0,
+                      canGoNext: isReady &&
+                          _currentEpisodeIndex < _episodes.length - 1,
+                      hasEpisodes: isReady && _episodes.length > 1,
+                      pictureInPictureAvailable: isReady,
+                      onClose: _closePlayer,
+                      onPlayPause: _togglePlayPause,
+                      onRewind: () => unawaited(
+                        _seekBy(const Duration(seconds: -10)),
+                      ),
+                      onForward: () => unawaited(
+                        _seekBy(const Duration(seconds: 10)),
+                      ),
+                      onPrevious: () => _selectRelativeEpisode(-1),
+                      onNext: () => _selectRelativeEpisode(1),
+                      onSpeedChanged: _setPlaybackSpeed,
+                      onOpenEpisodes: _openEpisodePanel,
+                      canSwitchSource: (widget.onSearchOtherSources != null ||
+                              widget.onSearchOtherSourcesProgressively !=
+                                  null) &&
+                          widget.onLoadAlternative != null,
+                      isSwitchingSource: _searchingOtherSources,
+                      onOpenSource: _openSourcePanel,
+                      isLandscape: _orientation == _PlayerOrientation.landscape,
+                      onOpenSystemPlayer: _openSystemPlayer,
+                      onToggleOrientation: _toggleOrientation,
+                      onPictureInPicture:
+                          isReady ? _openAppPictureInPicture : null,
+                      onControlsInteraction: _showControls,
+                      onToggleControls: _toggleControls,
+                    ),
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );
@@ -1924,6 +1928,7 @@ class _EpisodeBottomSheetState extends State<_EpisodeBottomSheet> {
 class _PlayerControls extends StatelessWidget {
   const _PlayerControls({
     required this.controller,
+    required this.isLoading,
     required this.title,
     required this.isPlaying,
     required this.speed,
@@ -1950,7 +1955,8 @@ class _PlayerControls extends StatelessWidget {
     required this.onToggleControls,
   });
 
-  final VideoPlayerController controller;
+  final VideoPlayerController? controller;
+  final bool isLoading;
   final String title;
   final bool isPlaying;
   final double speed;
@@ -1978,11 +1984,12 @@ class _PlayerControls extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final playbackControlsEnabled = !isLoading && controller != null;
     return Listener(
       onPointerDown: (_) => onControlsInteraction(),
       child: GestureDetector(
         behavior: HitTestBehavior.translucent,
-        onTap: onToggleControls,
+        onTap: isLoading ? null : onToggleControls,
         child: DecoratedBox(
           decoration: const BoxDecoration(
             gradient: LinearGradient(
@@ -2035,7 +2042,9 @@ class _PlayerControls extends StatelessWidget {
                             ),
                           IconButton(
                             tooltip: '放大播放',
-                            onPressed: onOpenSystemPlayer,
+                            onPressed: playbackControlsEnabled
+                                ? onOpenSystemPlayer
+                                : null,
                             icon: const Icon(Icons.zoom_out_map_rounded),
                           ),
                           _PictureInPictureButton(
@@ -2059,18 +2068,23 @@ class _PlayerControls extends StatelessWidget {
                             _PlayerSeekButton(
                               tooltip: '快退 10 秒',
                               icon: Icons.replay_10_rounded,
-                              onPressed: onRewind,
+                              onPressed:
+                                  playbackControlsEnabled ? onRewind : null,
                             ),
                             IconButton(
                               tooltip: '上一集',
-                              onPressed: canGoPrevious ? onPrevious : null,
+                              onPressed:
+                                  playbackControlsEnabled && canGoPrevious
+                                      ? onPrevious
+                                      : null,
                               icon: const Icon(Icons.skip_previous_rounded),
                             ),
                             IconButton(
                               tooltip: isPlaying ? '暂停' : '播放',
                               iconSize: 54,
                               color: CineoColors.primary,
-                              onPressed: onPlayPause,
+                              onPressed:
+                                  playbackControlsEnabled ? onPlayPause : null,
                               icon: Icon(
                                 isPlaying
                                     ? Icons.pause_circle_filled_rounded
@@ -2079,33 +2093,47 @@ class _PlayerControls extends StatelessWidget {
                             ),
                             IconButton(
                               tooltip: '下一集',
-                              onPressed: canGoNext ? onNext : null,
+                              onPressed: playbackControlsEnabled && canGoNext
+                                  ? onNext
+                                  : null,
                               icon: const Icon(Icons.skip_next_rounded),
                             ),
                             _PlayerSeekButton(
                               tooltip: '快进 10 秒',
                               icon: Icons.forward_10_rounded,
-                              onPressed: onForward,
+                              onPressed:
+                                  playbackControlsEnabled ? onForward : null,
                             ),
                           ],
                         ),
                       ),
                       const SizedBox(height: 18),
-                      VideoProgressIndicator(
-                        controller,
-                        allowScrubbing: true,
-                        colors: const VideoProgressColors(
-                          playedColor: CineoColors.primary,
-                          bufferedColor: Colors.white38,
-                          backgroundColor: Colors.white24,
+                      if (playbackControlsEnabled)
+                        VideoProgressIndicator(
+                          controller!,
+                          allowScrubbing: true,
+                          colors: const VideoProgressColors(
+                            playedColor: CineoColors.primary,
+                            bufferedColor: Colors.white38,
+                            backgroundColor: Colors.white24,
+                          ),
+                        )
+                      else
+                        const SizedBox(
+                          height: 4,
+                          child: LinearProgressIndicator(
+                            color: CineoColors.primary,
+                            backgroundColor: Colors.white24,
+                          ),
                         ),
-                      ),
                       Row(
                         children: [
                           Expanded(
                             child: Text(
-                              '${formatPlaybackDuration(controller.value.position)} / '
-                              '${formatPlaybackDuration(controller.value.duration)}',
+                              playbackControlsEnabled
+                                  ? '${formatPlaybackDuration(controller!.value.position)} / '
+                                      '${formatPlaybackDuration(controller!.value.duration)}'
+                                  : '加载中',
                               style: const TextStyle(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
@@ -2115,7 +2143,8 @@ class _PlayerControls extends StatelessWidget {
                           PopupMenuButton<double>(
                             tooltip: '播放速度',
                             initialValue: speed,
-                            onSelected: onSpeedChanged,
+                            onSelected:
+                                playbackControlsEnabled ? onSpeedChanged : null,
                             itemBuilder: (context) => supportedPlaybackSpeeds
                                 .map(
                                   (value) => PopupMenuItem<double>(
@@ -2137,7 +2166,9 @@ class _PlayerControls extends StatelessWidget {
                           if (hasEpisodes)
                             IconButton(
                               tooltip: '打开选集',
-                              onPressed: onOpenEpisodes,
+                              onPressed: playbackControlsEnabled
+                                  ? onOpenEpisodes
+                                  : null,
                               icon: const Icon(Icons.list_alt_rounded),
                             ),
                           const SizedBox(width: 8),
@@ -2154,7 +2185,8 @@ class _PlayerControls extends StatelessWidget {
                 child: Center(
                   child: IconButton(
                     tooltip: isLandscape ? '竖屏播放' : '横屏播放',
-                    onPressed: onToggleOrientation,
+                    onPressed:
+                        playbackControlsEnabled ? onToggleOrientation : null,
                     icon: Icon(
                       isLandscape
                           ? Icons.stay_current_portrait_rounded
@@ -2180,7 +2212,7 @@ class _PlayerSeekButton extends StatelessWidget {
 
   final String tooltip;
   final IconData icon;
-  final VoidCallback onPressed;
+  final VoidCallback? onPressed;
 
   @override
   Widget build(BuildContext context) {
