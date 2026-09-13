@@ -93,6 +93,7 @@ void main() {
     ValueChanged<PlaybackOption>? onPlay,
     String description = '测试简介',
     List<WatchProgress> watchHistory = const [],
+    Future<List<WatchProgress>> Function()? onLoadWatchHistory,
     double imageAspectRatio = 2 / 3,
     DownloadService? downloadService,
   }) {
@@ -105,6 +106,7 @@ void main() {
         onFavoriteChanged: (_, __) {},
         onPlay: (_, option) => (onPlay ?? (_) {})(option),
         imageAspectRatio: imageAspectRatio,
+        onLoadWatchHistory: onLoadWatchHistory,
         downloadService: downloadService,
       ),
     );
@@ -144,6 +146,60 @@ void main() {
     await _scrollDetailPage(tester);
     await tester.tap(find.byKey(const ValueKey('primary-play-button')));
     expect(played?.id, lineAEpisodeTwo.id);
+  });
+
+  testWidgets('refreshes episode progress after returning from the player',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    var history = <WatchProgress>[
+      WatchProgress(
+        mediaId: 'series',
+        episodeId: lineAEpisode.id,
+        episodeLabel: '第1集',
+        episodeNumber: 1,
+        episodeCount: 2,
+        position: const Duration(minutes: 1),
+        duration: const Duration(minutes: 20),
+        updatedAt: DateTime(2026, 1, 1),
+      ),
+    ];
+    var playerClosed = false;
+
+    await tester.pumpWidget(buildScreen(
+      watchHistory: history,
+      onLoadWatchHistory: () async => history,
+      onPlay: (_) {
+        playerClosed = true;
+        history = [
+          WatchProgress(
+            mediaId: 'series',
+            episodeId: lineAEpisode.id,
+            episodeLabel: '第1集',
+            episodeNumber: 1,
+            episodeCount: 2,
+            position: const Duration(minutes: 10, seconds: 8),
+            duration: const Duration(minutes: 19, seconds: 43),
+            updatedAt: DateTime(2026, 1, 2),
+          ),
+        ];
+      },
+    ));
+    await tester.pumpAndSettle();
+
+    await _scrollDetailPage(tester);
+    await tester.tap(find.byKey(const ValueKey('primary-play-button')));
+    await tester.pumpAndSettle();
+
+    expect(playerClosed, isTrue);
+    final progress = tester.widget<LinearProgressIndicator>(
+      find.descendant(
+        of: find.byKey(const ValueKey('episode-progress-episode-a-1')),
+        matching: find.byType(LinearProgressIndicator),
+      ),
+    );
+    expect(progress.value, closeTo(608 / 1183, 0.001));
   });
 
   testWidgets('shows the download button for HLS episodes and opens the sheet',

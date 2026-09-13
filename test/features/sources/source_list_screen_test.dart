@@ -42,6 +42,9 @@ class _FakeMediaRepository implements MediaRepository {
   }) async {}
 
   @override
+  Future<void> mergeMediaHistory(MediaItem current) async {}
+
+  @override
   Future<MediaItem?> loadDetails(MediaItem item) async => item;
 
   @override

@@ -149,7 +149,7 @@ class PlayerScreen extends StatefulWidget {
   final MediaItem media;
   final PlaybackOption option;
   final Duration initialPosition;
-  final void Function(MediaItem media, WatchProgress progress)
+  final Future<void> Function(MediaItem media, WatchProgress progress)
       onProgressChanged;
   final M3u8FilterSettings? m3u8FilterSettings;
   final String? episodeId;
@@ -221,6 +221,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   Offset? _appPictureInPictureStartOffset;
   Offset? _appPictureInPictureStartFocalPoint;
   double _appPictureInPictureStartScale = 1;
+  bool _isClosing = false;
 
   List<PlaybackOption> get _episodes {
     final activeQuality = _activeOption?.quality ?? widget.option.quality;
@@ -278,11 +279,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     PlaybackOption option, {
     bool initial = false,
     bool savePrevious = true,
+    Duration? positionOverride,
   }) async {
     final generation = ++_loadGeneration;
     final previousController = _controller;
     if (previousController != null) {
-      if (savePrevious) _save();
+      if (savePrevious) await _save();
       _controller = null;
       previousController.removeListener(_onControllerChanged);
       await previousController.dispose();
@@ -370,6 +372,7 @@ class _PlayerScreenState extends State<PlayerScreen>
             controller,
             option,
             initial: initial,
+            positionOverride: positionOverride,
           );
           return;
         } catch (error) {
@@ -446,6 +449,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     File file, {
     required bool initial,
     required int generation,
+    Duration? positionOverride,
   }) async {
     final controller = VideoPlayerController.file(
       file,
@@ -468,6 +472,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         controller,
         option,
         initial: initial,
+        positionOverride: positionOverride,
       );
       return true;
     } catch (error) {
@@ -496,6 +501,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     Uri uri, {
     required bool initial,
     required int generation,
+    Duration? positionOverride,
   }) async {
     final controller = VideoPlayerController.networkUrl(
       uri,
@@ -519,6 +525,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         controller,
         option,
         initial: initial,
+        positionOverride: positionOverride,
       );
       return true;
     } catch (error) {
@@ -541,8 +548,13 @@ class _PlayerScreenState extends State<PlayerScreen>
     VideoPlayerController controller,
     PlaybackOption option, {
     required bool initial,
+    Duration? positionOverride,
   }) async {
-    final requestedPosition = _positionFor(option, initial: initial);
+    // Resource switching must preserve the live position even when the new
+    // source uses a different PlaybackOption.id and the queued history write
+    // has not completed yet.
+    final requestedPosition =
+        positionOverride ?? _positionFor(option, initial: initial);
     if (requestedPosition > Duration.zero) {
       final maxPosition = controller.value.duration;
       await controller.seekTo(
@@ -551,7 +563,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     await controller.setPlaybackSpeed(_playbackSpeed);
     await controller.play();
-    _saveTimer ??= Timer.periodic(const Duration(seconds: 10), (_) => _save());
+    _saveTimer ??= Timer.periodic(const Duration(seconds: 10), (_) {
+      unawaited(_save());
+    });
     _scheduleControlsHide();
     _updatePictureInPictureControls();
     if (mounted) setState(() {});
@@ -662,7 +676,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
-  void _save() {
+  Future<void> _save() async {
     final controller = _controller;
     final option = _activeOption;
     if (controller == null ||
@@ -670,7 +684,7 @@ class _PlayerScreenState extends State<PlayerScreen>
         !controller.value.isInitialized) {
       return;
     }
-    widget.onProgressChanged(
+    await widget.onProgressChanged(
         _media,
         WatchProgress(
           mediaId: _media.id,
@@ -846,7 +860,9 @@ class _PlayerScreenState extends State<PlayerScreen>
     MediaItem alternative,
     Future<MediaItem?> Function(MediaItem media) loader,
   ) async {
-    _save();
+    final currentPosition =
+        _initializedController?.value.position ?? Duration.zero;
+    await _save();
     final loaded = await loader(alternative);
     if (!mounted || loaded == null) {
       _showMessage('切换资源站失败，请稍后重试');
@@ -859,7 +875,11 @@ class _PlayerScreenState extends State<PlayerScreen>
       return;
     }
     setState(() => _media = loaded);
-    await _loadOption(option, savePrevious: false);
+    await _loadOption(
+      option,
+      savePrevious: false,
+      positionOverride: currentPosition,
+    );
     if (mounted) _showMessage('已切换到${loaded.sourceName ?? '其他资源站'}');
   }
 

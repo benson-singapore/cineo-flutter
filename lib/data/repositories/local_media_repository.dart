@@ -389,6 +389,90 @@ class LocalMediaRepository implements MediaRepository {
   }
 
   @override
+  Future<void> mergeMediaHistory(MediaItem current) async {
+    final database = await _db;
+    await database.transaction((transaction) async {
+      await _saveMediaSnapshot(current, database: transaction);
+
+      final rows = await transaction.rawQuery('''
+        SELECT progress.*
+        FROM progress
+        LEFT JOIN media_snapshots
+          ON media_snapshots.media_id = progress.media_id
+        WHERE media_snapshots.title = ?
+          AND media_snapshots.kind = ?
+        ORDER BY progress.updated_at DESC
+      ''', [current.title, current.kind.index]);
+      if (rows.isEmpty) return;
+
+      final merged = <String, Map<String, Object?>>{};
+      for (final row in rows) {
+        final episodeId = _currentEpisodeId(
+          row['episode_id'] as String?,
+          _safeParseIntNullable(row['episode_number']),
+          row['episode_label'] as String?,
+          current,
+        );
+        final episodeKey = episodeId ?? '';
+        // Rows are newest first, so the first row wins when old source
+        // records already contain duplicates for the same episode.
+        merged.putIfAbsent(episodeKey, () {
+          return {
+            'progress_key': '${current.id}:$episodeKey',
+            'media_id': current.id,
+            'episode_id': episodeId,
+            'episode_label': row['episode_label'],
+            'episode_number': row['episode_number'],
+            'episode_count': row['episode_count'],
+            'position_ms': row['position_ms'],
+            'duration_ms': row['duration_ms'],
+            'updated_at': row['updated_at'],
+          };
+        });
+      }
+
+      final mediaIds = rows
+          .map((row) => row['media_id'] as String)
+          .toSet()
+          .toList(growable: false);
+      await transaction.delete(
+        'progress',
+        where: 'media_id IN (${List.filled(mediaIds.length, '?').join(',')})',
+        whereArgs: mediaIds,
+      );
+      for (final row in merged.values) {
+        await transaction.insert(
+          'progress',
+          row,
+          conflictAlgorithm: ConflictAlgorithm.replace,
+        );
+      }
+    });
+  }
+
+  String? _currentEpisodeId(
+    String? oldEpisodeId,
+    int? episodeNumber,
+    String? episodeLabel,
+    MediaItem current,
+  ) {
+    if (current.kind == MediaKind.movie) return null;
+    final number = episodeNumber ??
+        _episodeNumber(episodeLabel) ??
+        _episodeNumber(oldEpisodeId);
+    if (number == null) return oldEpisodeId;
+    for (final option in current.playbackOptions) {
+      if (_episodeNumber(option.label) == number) return option.id;
+    }
+    return oldEpisodeId;
+  }
+
+  int? _episodeNumber(String? value) {
+    final match = RegExp(r'第\s*0*(\d+)\s*集').firstMatch(value ?? '');
+    return int.tryParse(match?.group(1) ?? '');
+  }
+
+  @override
   Future<void> removeHistory(String mediaId) async {
     await (await _db).delete(
       'progress',

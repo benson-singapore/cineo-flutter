@@ -44,7 +44,7 @@ class MediaDetailsScreen extends StatefulWidget {
   final MediaItem media;
   final bool favorite;
   final void Function(MediaItem media, bool isFavorite) onFavoriteChanged;
-  final void Function(MediaItem media, PlaybackOption option) onPlay;
+  final FutureOr<void> Function(MediaItem media, PlaybackOption option) onPlay;
   final String? initialEpisodeId;
   final TmdbMediaDetails? initialTmdbDetails;
   final Future<bool> Function(String mediaId)? onLoadFavorite;
@@ -158,6 +158,22 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     if (tmdb.isNotEmpty) return tmdb;
     final source = _media.posterUrl.trim();
     return source.isNotEmpty ? source : _displayBackdrop;
+  }
+
+  MediaItem get _playbackMedia {
+    final poster = _tmdbDetails?.posterUrl.trim().isNotEmpty == true
+        ? _tmdbDetails!.posterUrl
+        : _media.posterUrl;
+    final backdrop = _tmdbDetails?.backdropUrl.trim().isNotEmpty == true
+        ? _tmdbDetails!.backdropUrl
+        : _media.backdropUrl;
+    if (poster == _media.posterUrl && backdrop == _media.backdropUrl) {
+      return _media;
+    }
+    return _media.copyWith(
+      posterUrl: poster,
+      backdropUrl: backdrop,
+    );
   }
 
   double? get _displayRating {
@@ -286,6 +302,12 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     } catch (_) {
       // Playback history is optional; the first available item remains usable.
     }
+  }
+
+  Future<void> _playOption(PlaybackOption option) async {
+    await widget.onPlay(_playbackMedia, option);
+    if (!mounted) return;
+    await _loadWatchHistoryAsync();
   }
 
   void _applyResumeSelection() {
@@ -624,7 +646,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           const SizedBox(height: 12),
           _PlaybackList(
             options: _activeOptions,
-            onPlay: (option) => widget.onPlay(_media, option),
+            onPlay: _playOption,
           ),
         ] else if (widget.repository != null) ...[
           const SizedBox(height: 28),
@@ -700,7 +722,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                   onTap: episode.playbackOption == null
                       ? null
                       : () {
-                          widget.onPlay(_media, episode.playbackOption!);
+                          unawaited(_playOption(episode.playbackOption!));
                         },
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
@@ -769,7 +791,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           tmdbSeason: _selectedTmdbSeason,
           fallbackPosterUrl: _media.posterUrl,
           progressByEpisodeId: _episodeProgress,
-          onPlay: (option) => widget.onPlay(_media, option),
+          onPlay: _playOption,
         ),
       ),
     );
@@ -784,7 +806,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       child: FilledButton.icon(
         onPressed: () {
           final option = _primaryPlaybackOption;
-          if (option != null) widget.onPlay(_media, option);
+          if (option != null) unawaited(_playOption(option));
         },
         icon: Icon(
           hasResume ? Icons.play_arrow_rounded : Icons.play_circle_fill_rounded,

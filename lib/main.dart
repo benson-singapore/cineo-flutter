@@ -170,6 +170,7 @@ class _CineoShellState extends State<CineoShell> {
   bool _pictureInPictureAvailable = false;
   bool _showHomeScrollToTop = false;
   bool _showLibraryScrollToTop = false;
+  Future<void> _playbackProgressWrite = Future<void>.value();
   final _homeScrollController = ScrollController();
   final _libraryScrollController = ScrollController();
 
@@ -422,8 +423,7 @@ class _CineoShellState extends State<CineoShell> {
             unawaited(widget.repository.setFavorite(favoriteMedia, isFavorite));
             unawaited(_refresh());
           },
-          onPlay: (playingMedia, option) =>
-              unawaited(_openPlayer(playingMedia, option)),
+          onPlay: _openPlayer,
           onLoadTmdbDetails:
               widget.tmdbSettings.configured ? _loadTmdbDetails : null,
           onLoadTmdbEnrichment:
@@ -433,8 +433,11 @@ class _CineoShellState extends State<CineoShell> {
           onSearchOtherSourcesProgressively:
               widget.repository.searchOtherSourcesProgressively,
           onLoadAlternative: (alternative) async {
-            await widget.repository.savePreferredSource(anchor, alternative);
-            return _resolveMediaDetails(alternative);
+            final resolved = await _resolveMediaDetails(alternative);
+            await _playbackProgressWrite;
+            await widget.repository.mergeMediaHistory(resolved);
+            await widget.repository.savePreferredSource(anchor, resolved);
+            return resolved;
           },
         ),
       ),
@@ -648,15 +651,16 @@ class _CineoShellState extends State<CineoShell> {
           pictureInPictureAvailable: _pictureInPictureAvailable,
           onPictureInPicture:
               _pictureInPictureAvailable ? _enterPictureInPicture : null,
-          onProgressChanged: (playingMedia, progress) => unawaited(
-            widget.repository.saveProgress(progress, media: playingMedia),
-          ),
+          onProgressChanged: _queuePlaybackProgress,
           onSearchOtherSources: widget.repository.searchOtherSources,
           onSearchOtherSourcesProgressively:
               widget.repository.searchOtherSourcesProgressively,
           onLoadAlternative: (alternative) async {
-            await widget.repository.savePreferredSource(media, alternative);
-            return _resolveMediaDetails(alternative);
+            final resolved = await _resolveMediaDetails(alternative);
+            await _playbackProgressWrite;
+            await widget.repository.mergeMediaHistory(resolved);
+            await widget.repository.savePreferredSource(media, resolved);
+            return resolved;
           },
           localSourceForOption: (candidate) async {
             if (localTaskId != null) {
@@ -695,6 +699,21 @@ class _CineoShellState extends State<CineoShell> {
       ),
     );
     await _refresh();
+  }
+
+  Future<void> _queuePlaybackProgress(
+    MediaItem media,
+    WatchProgress progress,
+  ) {
+    _playbackProgressWrite =
+        _playbackProgressWrite.catchError((_) {}).then<void>((_) async {
+      try {
+        await widget.repository.saveProgress(progress, media: media);
+      } catch (_) {
+        // A transient local write failure must not interrupt playback.
+      }
+    });
+    return _playbackProgressWrite;
   }
 
   Future<bool> _enterPictureInPicture(PictureInPictureRequest request) =>

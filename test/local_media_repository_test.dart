@@ -486,6 +486,89 @@ void main() {
     expect(history.single.episodeCount, 12);
   });
 
+  test('merges duplicate history records when switching resource sites',
+      () async {
+    const oldMedia = MediaItem(
+      id: 'source-a:牧神记',
+      sourceId: 'source-a',
+      sourceName: '旧资源站',
+      remoteId: '42',
+      title: '牧神记',
+      description: '',
+      year: 2026,
+      kind: MediaKind.series,
+      posterUrl: 'https://example.test/mushenji.jpg',
+      backdropUrl: '',
+      genres: [],
+      rating: 0,
+      duration: Duration(minutes: 20),
+      playbackOptions: [
+        PlaybackOption(
+          id: 'source-a:42:0:0',
+          sourceId: 'source-a',
+          label: '线路 · 第1集',
+          url: 'https://old.example.test/1.m3u8',
+          quality: '线路',
+          isHls: true,
+        ),
+      ],
+    );
+    const currentMedia = MediaItem(
+      id: 'source-b:99',
+      sourceId: 'source-b',
+      sourceName: '新资源站',
+      remoteId: '99',
+      title: '牧神记',
+      description: '',
+      year: 2026,
+      kind: MediaKind.series,
+      posterUrl: 'https://example.test/mushenji.jpg',
+      backdropUrl: '',
+      genres: [],
+      rating: 0,
+      duration: Duration(minutes: 17),
+      playbackOptions: [
+        PlaybackOption(
+          id: 'source-b:99:0:0',
+          sourceId: 'source-b',
+          label: '线路 · 第1集',
+          url: 'https://new.example.test/1.m3u8',
+          quality: '线路',
+          isHls: true,
+        ),
+      ],
+    );
+
+    await repository.saveProgress(
+      WatchProgress(
+        mediaId: oldMedia.id,
+        episodeId: 'source-a:42:0:0',
+        episodeLabel: '第1集',
+        episodeNumber: 1,
+        episodeCount: 99,
+        position: const Duration(minutes: 7),
+        duration: const Duration(minutes: 20),
+        updatedAt: DateTime(2026, 8, 22),
+      ),
+      media: oldMedia,
+    );
+
+    await repository.mergeMediaHistory(currentMedia);
+
+    final history = await repository.watchHistory();
+    expect(history, hasLength(1));
+    expect(history.single.mediaId, currentMedia.id);
+    expect(history.single.episodeId, 'source-b:99:0:0');
+    expect(history.single.position, const Duration(minutes: 7));
+    expect(
+      (await repository.watchHistory()).where(
+        (entry) => entry.mediaId == oldMedia.id,
+      ),
+      isEmpty,
+    );
+    expect((await repository.getById(currentMedia.id))?.sourceId, 'source-b');
+  });
+
   test('can hide playback history from adult sources', () async {
     await repository.saveSource(const MediaSource(
       id: 'adult-source',
