@@ -223,6 +223,8 @@ class _PlayerScreenState extends State<PlayerScreen>
   Offset? _appPictureInPictureStartFocalPoint;
   double _appPictureInPictureStartScale = 1;
   bool _isClosing = false;
+  Offset? _gestureIndicatorPosition;
+  String? _gestureIndicatorType; // 'brightness', 'volume', or null
 
   List<PlaybackOption> get _episodes {
     final activeQuality = _activeOption?.quality ?? widget.option.quality;
@@ -735,28 +737,60 @@ class _PlayerScreenState extends State<PlayerScreen>
     final screenSize = MediaQuery.sizeOf(context);
     final dragDistance = details.delta.dy;
 
-    // Left side: adjust brightness
-    if (details.globalPosition.dx < screenSize.width / 2) {
-      _adjustBrightness(-dragDistance / 100);
+    // Right side: adjust volume
+    if (details.globalPosition.dx > screenSize.width / 2) {
+      _adjustVolume(-dragDistance / 100, details.globalPosition);
     } else {
-      // Right side: adjust volume
-      _adjustVolume(-dragDistance / 100);
+      // Left side: adjust brightness
+      _adjustBrightness(-dragDistance / 100, details.globalPosition);
     }
   }
 
-  Future<void> _adjustBrightness(double delta) async {
-    final newBrightness = (_brightness + delta).clamp(0.1, 1.0);
-    if (mounted) setState(() => _brightness = newBrightness);
+  void _handleHorizontalDrag(DragUpdateDetails details) {
+    final dragDistance = details.delta.dx;
+    // Right swipe: forward, Left swipe: rewind
+    final seekOffset = Duration(seconds: (dragDistance / 10).round());
+    unawaited(_seekBy(seekOffset));
   }
 
-  Future<void> _adjustVolume(double delta) async {
+  Future<void> _adjustBrightness(double delta, Offset position) async {
+    final newBrightness = (_brightness + delta).clamp(0.1, 1.0);
+    if (mounted) {
+      setState(() {
+        _brightness = newBrightness;
+        _gestureIndicatorPosition = position;
+        _gestureIndicatorType = 'brightness';
+      });
+    }
+    _scheduleClearGestureIndicator();
+  }
+
+  Future<void> _adjustVolume(double delta, Offset position) async {
     final newVolume = (_volume + delta).clamp(0.0, 1.0);
-    if (mounted) setState(() => _volume = newVolume);
+    if (mounted) {
+      setState(() {
+        _volume = newVolume;
+        _gestureIndicatorPosition = position;
+        _gestureIndicatorType = 'volume';
+      });
+    }
 
     final controller = _initializedController;
     if (controller != null) {
       await controller.setVolume(newVolume);
     }
+    _scheduleClearGestureIndicator();
+  }
+
+  void _scheduleClearGestureIndicator() {
+    Future.delayed(const Duration(milliseconds: 500), () {
+      if (mounted) {
+        setState(() {
+          _gestureIndicatorType = null;
+          _gestureIndicatorPosition = null;
+        });
+      }
+    });
   }
 
   Future<void> _togglePlayPause() async {
@@ -1213,6 +1247,16 @@ class _PlayerScreenState extends State<PlayerScreen>
                     behavior: HitTestBehavior.translucent,
                     onTap: _toggleControls,
                     onVerticalDragUpdate: _handleVerticalDrag,
+                    onHorizontalDragUpdate: _handleHorizontalDrag,
+                  ),
+                ),
+              if (_gestureIndicatorType != null && _gestureIndicatorPosition != null)
+                Positioned(
+                  left: _gestureIndicatorPosition!.dx - 40,
+                  top: _gestureIndicatorPosition!.dy - 40,
+                  child: _GestureIndicator(
+                    type: _gestureIndicatorType!,
+                    value: _gestureIndicatorType == 'brightness' ? _brightness : _volume,
                   ),
                 ),
               if (_error == null)
@@ -2298,4 +2342,65 @@ class _PlayerFailure extends StatelessWidget {
           ),
         ),
       );
+}
+
+class _GestureIndicator extends StatelessWidget {
+  const _GestureIndicator({
+    required this.type,
+    required this.value,
+  });
+
+  final String type;
+  final double value;
+
+  @override
+  Widget build(BuildContext context) {
+    final icon = type == 'brightness'
+        ? Icons.brightness_6_rounded
+        : Icons.volume_up_rounded;
+    final label = type == 'brightness' ? '亮度' : '音量';
+
+    return Container(
+      width: 80,
+      height: 80,
+      decoration: BoxDecoration(
+        color: Colors.black87,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          Icon(
+            icon,
+            color: Colors.white,
+            size: 32,
+          ),
+          const SizedBox(height: 8),
+          SizedBox(
+            width: 60,
+            height: 4,
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(2),
+              child: LinearProgressIndicator(
+                value: value,
+                backgroundColor: Colors.white24,
+                valueColor: const AlwaysStoppedAnimation<Color>(
+                  CineoColors.primary,
+                ),
+              ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(
+            '${(value * 100).toStringAsFixed(0)}%',
+            style: const TextStyle(
+              color: Colors.white,
+              fontSize: 10,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
 }
