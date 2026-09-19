@@ -696,85 +696,24 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     if (episodes.isEmpty) {
       return const _InlineEmpty(message: '当前季暂无可播放剧集');
     }
-    final preview = episodes.take(6).toList();
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         SizedBox(
           height: 184,
-          child: ListView.separated(
-            scrollDirection: Axis.horizontal,
-            itemCount: preview.length,
-            separatorBuilder: (_, __) => const SizedBox(width: 10),
-            itemBuilder: (context, index) {
-              final episode = preview[index];
-              final tmdbEpisode = _tmdbEpisodeFor(episode);
-              final image = tmdbEpisode?.stillUrl.trim().isNotEmpty == true
-                  ? tmdbEpisode!.stillUrl
-                  : (_tmdbDetails?.posterUrl.trim().isNotEmpty == true
-                      ? _tmdbDetails!.posterUrl
-                      : _media.posterUrl);
-              return SizedBox(
-                width: 220,
-                child: InkWell(
-                  key: ValueKey('preview-${episode.id}'),
-                  borderRadius: BorderRadius.circular(8),
-                  onTap: episode.playbackOption == null
-                      ? null
-                      : () {
-                          unawaited(_playOption(episode.playbackOption!));
-                        },
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      AspectRatio(
-                        key: ValueKey('preview-image-${episode.id}'),
-                        aspectRatio: 16 / 9,
-                        child: Stack(
-                          fit: StackFit.expand,
-                          children: [
-                            MediaImage(
-                              url: image,
-                              borderRadius: BorderRadius.circular(8),
-                              placeholderIcon: Icons.live_tv_outlined,
-                            ),
-                            _EpisodeProgressOverlay(
-                              key: ValueKey('episode-progress-${episode.id}'),
-                              progress: _progressForEpisode(episode),
-                            ),
-                            Positioned(
-                              left: 8,
-                              bottom: 8,
-                              child: DecoratedBox(
-                                decoration: BoxDecoration(
-                                  color: Colors.black.withOpacity(.75),
-                                  borderRadius: BorderRadius.circular(4),
-                                ),
-                                child: Padding(
-                                  padding: const EdgeInsets.symmetric(
-                                      horizontal: 6, vertical: 3),
-                                  child: Text('第 ${episode.number} 集',
-                                      style: const TextStyle(fontSize: 11)),
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                      const SizedBox(height: 6),
-                      Text(
-                        tmdbEpisode?.name.trim().isNotEmpty == true
-                            ? tmdbEpisode!.name
-                            : '第 ${episode.number} 集',
-                        maxLines: 1,
-                        overflow: TextOverflow.ellipsis,
-                        style: const TextStyle(fontWeight: FontWeight.w600),
-                      ),
-                    ],
-                  ),
-                ),
-              );
+          child: _EpisodeScrollView(
+            episodes: episodes,
+            latestWatchProgress: _latestWatchProgress,
+            tmdbDetails: _tmdbDetails,
+            media: _media,
+            onPlay: (episode) {
+              if (episode.playbackOption != null) {
+                unawaited(_playOption(episode.playbackOption!));
+              }
             },
+            progressByEpisodeId: _episodeProgress,
+            tmdbEpisodeFor: _tmdbEpisodeFor,
           ),
         ),
       ],
@@ -2047,6 +1986,146 @@ class _TmdbMatchTile extends StatelessWidget {
           ],
         ),
       ),
+    );
+  }
+}
+
+class _EpisodeScrollView extends StatefulWidget {
+  const _EpisodeScrollView({
+    required this.episodes,
+    required this.latestWatchProgress,
+    required this.tmdbDetails,
+    required this.media,
+    required this.onPlay,
+    required this.progressByEpisodeId,
+    required this.tmdbEpisodeFor,
+  });
+
+  final List<Episode> episodes;
+  final WatchProgress? latestWatchProgress;
+  final TmdbMediaDetails? tmdbDetails;
+  final MediaItem media;
+  final Function(Episode) onPlay;
+  final Map<String, WatchProgress> progressByEpisodeId;
+  final TmdbEpisodeMetadata? Function(Episode) tmdbEpisodeFor;
+
+  @override
+  State<_EpisodeScrollView> createState() => _EpisodeScrollViewState();
+}
+
+class _EpisodeScrollViewState extends State<_EpisodeScrollView> {
+  late ScrollController _scrollController;
+
+  @override
+  void initState() {
+    super.initState();
+    _scrollController = ScrollController();
+    WidgetsBinding.instance.addPostFrameCallback(_scrollToLatestEpisode);
+  }
+
+  void _scrollToLatestEpisode(_) {
+    if (widget.latestWatchProgress == null) return;
+
+    final progress = widget.latestWatchProgress;
+    final currentEpisodeIndex = widget.episodes.indexWhere((ep) =>
+        ep.id == progress?.episodeId ||
+        ep.playbackOption?.id == progress?.episodeId);
+
+    if (currentEpisodeIndex == -1) return;
+
+    const itemWidth = 220.0;
+    const spacing = 10.0;
+    final targetOffset = currentEpisodeIndex * (itemWidth + spacing);
+
+    _scrollController.animateTo(
+      targetOffset,
+      duration: const Duration(milliseconds: 600),
+      curve: Curves.easeInOut,
+    );
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return ListView.separated(
+      controller: _scrollController,
+      scrollDirection: Axis.horizontal,
+      itemCount: widget.episodes.length,
+      separatorBuilder: (_, __) => const SizedBox(width: 10),
+      itemBuilder: (context, index) {
+        final episode = widget.episodes[index];
+        final tmdbEpisode = widget.tmdbEpisodeFor(episode);
+        final image = tmdbEpisode?.stillUrl.trim().isNotEmpty == true
+            ? tmdbEpisode!.stillUrl
+            : (widget.tmdbDetails?.posterUrl.trim().isNotEmpty == true
+                ? widget.tmdbDetails!.posterUrl
+                : widget.media.posterUrl);
+        final progress = widget.progressByEpisodeId[episode.id];
+
+        return SizedBox(
+          width: 220,
+          child: InkWell(
+            key: ValueKey('preview-${episode.id}'),
+            borderRadius: BorderRadius.circular(8),
+            onTap: episode.playbackOption == null
+                ? null
+                : () => widget.onPlay(episode),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                AspectRatio(
+                  key: ValueKey('preview-image-${episode.id}'),
+                  aspectRatio: 16 / 9,
+                  child: Stack(
+                    fit: StackFit.expand,
+                    children: [
+                      MediaImage(
+                        url: image,
+                        borderRadius: BorderRadius.circular(8),
+                        placeholderIcon: Icons.live_tv_outlined,
+                      ),
+                      _EpisodeProgressOverlay(
+                        key: ValueKey('episode-progress-${episode.id}'),
+                        progress: progress,
+                      ),
+                      Positioned(
+                        left: 8,
+                        bottom: 8,
+                        child: DecoratedBox(
+                          decoration: BoxDecoration(
+                            color: Colors.black.withOpacity(.75),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 6, vertical: 3),
+                            child: Text('第 ${episode.number} 集',
+                                style: const TextStyle(fontSize: 11)),
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  tmdbEpisode?.name.trim().isNotEmpty == true
+                      ? tmdbEpisode!.name
+                      : '第 ${episode.number} 集',
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(fontWeight: FontWeight.w600),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
     );
   }
 }
