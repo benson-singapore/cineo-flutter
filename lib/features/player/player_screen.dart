@@ -225,6 +225,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool _isClosing = false;
   Offset? _gestureIndicatorPosition;
   String? _gestureIndicatorType; // 'brightness', 'volume', or null
+  bool _autoRotateEnabled = true;
 
   List<PlaybackOption> get _episodes {
     final activeQuality = _activeOption?.quality ?? widget.option.quality;
@@ -261,7 +262,43 @@ class _PlayerScreenState extends State<PlayerScreen>
       onAutoEnter: _handleAutomaticPictureInPictureRequest,
       onModeChanged: _handlePictureInPictureModeChanged,
     ));
+    _setupAutoRotate();
     _loadOption(widget.option, initial: true);
+  }
+
+  void _setupAutoRotate() {
+    // Enable auto-rotation and listen to device orientation changes
+    unawaited(SystemChrome.setPreferredOrientations(
+      const <DeviceOrientation>[
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
+    ));
+
+    // Schedule first orientation check
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      _checkOrientationChange();
+    });
+  }
+
+  void _checkOrientationChange() {
+    if (!mounted || !_autoRotateEnabled) return;
+
+    final currentOrientation = MediaQuery.of(context).orientation;
+    final isCurrentlyLandscape = _orientation == _PlayerOrientation.landscape;
+    final shouldBeLandscape = currentOrientation == Orientation.landscape;
+
+    if (isCurrentlyLandscape != shouldBeLandscape) {
+      setState(() {
+        _orientation = shouldBeLandscape
+            ? _PlayerOrientation.landscape
+            : _PlayerOrientation.portrait;
+      });
+    }
+
+    // Schedule next check
+    Future.delayed(const Duration(milliseconds: 500), _checkOrientationChange);
   }
 
   Duration _positionFor(PlaybackOption option, {required bool initial}) {
@@ -1121,6 +1158,7 @@ class _PlayerScreenState extends State<PlayerScreen>
 
   Future<void> _toggleOrientation() async {
     final landscape = _orientation == _PlayerOrientation.landscape;
+    _autoRotateEnabled = false;
     await SystemChrome.setPreferredOrientations(
       landscape
           ? const <DeviceOrientation>[DeviceOrientation.portraitUp]
@@ -1150,6 +1188,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     _loadGeneration++;
     _saveTimer?.cancel();
     _controlsHideTimer?.cancel();
+    _autoRotateEnabled = false;
     unawaited(_pictureInPicture.setEventHandlers());
     if (_isInPictureInPicture) {
       unawaited(_pictureInPicture.stop());
