@@ -52,7 +52,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     final database = await openDatabase(
       resolvedPath,
-      version: 12,
+      version: 14,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -70,7 +70,8 @@ class LocalMediaRepository implements MediaRepository {
             episode_count INTEGER,
             position_ms INTEGER NOT NULL,
             duration_ms INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            is_hidden INTEGER NOT NULL DEFAULT 0
           )
         ''');
         await database.execute('''
@@ -173,6 +174,30 @@ class LocalMediaRepository implements MediaRepository {
           if (!hasCoverMode) {
             await database.execute(
               'ALTER TABLE sources ADD COLUMN cover_mode INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+        }
+        if (oldVersion < 13) {
+          final progressColumns =
+              await database.rawQuery('PRAGMA table_info(progress)');
+          final hasIsHidden = progressColumns.any(
+            (column) => column['name'] == 'is_hidden',
+          );
+          if (!hasIsHidden) {
+            await database.execute(
+              'ALTER TABLE progress ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+        }
+        if (oldVersion < 14) {
+          final progressColumns =
+              await database.rawQuery('PRAGMA table_info(progress)');
+          final hasIsHidden = progressColumns.any(
+            (column) => column['name'] == 'is_hidden',
+          );
+          if (!hasIsHidden) {
+            await database.execute(
+              'ALTER TABLE progress ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0',
             );
           }
         }
@@ -396,6 +421,7 @@ class LocalMediaRepository implements MediaRepository {
         'position_ms': progress.position.inMilliseconds,
         'duration_ms': progress.duration.inMilliseconds,
         'updated_at': progress.updatedAt.millisecondsSinceEpoch,
+        'is_hidden': progress.isHidden ? 1 : 0,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
     );
@@ -440,6 +466,7 @@ class LocalMediaRepository implements MediaRepository {
             'position_ms': row['position_ms'],
             'duration_ms': row['duration_ms'],
             'updated_at': row['updated_at'],
+            'is_hidden': (row['is_hidden'] as int?) == 1 ? 1 : 0,
           };
         });
       }
@@ -2041,6 +2068,7 @@ class LocalMediaRepository implements MediaRepository {
       position: Duration(milliseconds: _safeParseInt(row['position_ms'])),
       duration: Duration(milliseconds: _safeParseInt(row['duration_ms'])),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
+      isHidden: (row['is_hidden'] as int?) == 1,
     );
   }
 

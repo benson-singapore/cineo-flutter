@@ -125,6 +125,7 @@ class WatchProgress {
     this.episodeLabel,
     this.episodeNumber,
     this.episodeCount,
+    this.isHidden = false,
   });
 
   final String mediaId;
@@ -135,10 +136,35 @@ class WatchProgress {
   final Duration position;
   final Duration duration;
   final DateTime updatedAt;
+  final bool isHidden;
 
   double get fraction => duration.inMilliseconds == 0
       ? 0
       : (position.inMilliseconds / duration.inMilliseconds).clamp(0, 1);
 
   bool get isComplete => fraction >= .95;
+
+  WatchProgress copyWith({
+    String? mediaId,
+    String? episodeId,
+    String? episodeLabel,
+    int? episodeNumber,
+    int? episodeCount,
+    Duration? position,
+    Duration? duration,
+    DateTime? updatedAt,
+    bool? isHidden,
+  }) {
+    return WatchProgress(
+      mediaId: mediaId ?? this.mediaId,
+      episodeId: episodeId ?? this.episodeId,
+      episodeLabel: episodeLabel ?? this.episodeLabel,
+      episodeNumber: episodeNumber ?? this.episodeNumber,
+      episodeCount: episodeCount ?? this.episodeCount,
+      position: position ?? this.position,
+      duration: duration ?? this.duration,
+      updatedAt: updatedAt ?? this.updatedAt,
+      isHidden: isHidden ?? this.isHidden,
+    );
+  }
 }

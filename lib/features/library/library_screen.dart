@@ -38,6 +38,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
   bool _loading = true;
   Object? _error;
   StreamSubscription<void>? _sourceChangedSubscription;
+  bool _showHiddenHistory = false;
 
   @override
   void initState() {
@@ -130,6 +131,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _load();
   }
 
+  Future<void> _toggleHistoryHidden(String mediaId) async {
+    try {
+      final entry = _history.firstWhere((e) => e.media.id == mediaId);
+      final updatedProgress = entry.progress.copyWith(
+        isHidden: !entry.progress.isHidden,
+      );
+      await widget.repository.saveProgress(updatedProgress, media: entry.media);
+      await _load();
+    } catch (_) {
+      // Entry not found
+    }
+  }
+
   Future<void> _removeFavorite(MediaItem media) async {
     try {
       await widget.repository.setFavorite(media, false);
@@ -210,6 +224,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
       position: progress.position,
       duration: progress.duration,
       updatedAt: progress.updatedAt,
+      isHidden: progress.isHidden,
     );
     if (resolvedProgress.episodeNumber != progress.episodeNumber ||
         resolvedProgress.episodeCount != progress.episodeCount ||
@@ -243,6 +258,12 @@ class _LibraryScreenState extends State<LibraryScreen> {
           widget.mode == LibraryContentMode.favorites ? '我的收藏' : '播放历史',
         ),
         actions: [
+          if (widget.mode == LibraryContentMode.history)
+            IconButton(
+              tooltip: _showHiddenHistory ? '查看未隐藏记录' : '查看已隐藏记录',
+              onPressed: () => setState(() => _showHiddenHistory = !_showHiddenHistory),
+              icon: Icon(_showHiddenHistory ? Icons.visibility_off_rounded : Icons.visibility_rounded),
+            ),
           if (widget.mode == LibraryContentMode.history && _history.isNotEmpty)
             IconButton(
               tooltip: '清空播放历史',
@@ -270,11 +291,19 @@ class _LibraryScreenState extends State<LibraryScreen> {
                       coverMode: _coverMode,
                     )
                   : _HistoryList(
-                      entries: _history,
+                      entries: _filterHistory(),
                       onTap: widget.onMediaTap,
                       onDelete: _removeHistory,
+                      onToggleHidden: _toggleHistoryHidden,
                     ),
     );
+  }
+
+  List<_HistoryEntry> _filterHistory() {
+    if (_showHiddenHistory) {
+      return _history.where((e) => e.progress.isHidden).toList();
+    }
+    return _history.where((e) => !e.progress.isHidden).toList();
   }
 }
 
@@ -321,11 +350,12 @@ class _MediaGrid extends StatelessWidget {
 
 class _HistoryList extends StatelessWidget {
   const _HistoryList(
-      {required this.entries, this.onTap, required this.onDelete});
+      {required this.entries, this.onTap, required this.onDelete, this.onToggleHidden});
 
   final List<_HistoryEntry> entries;
   final Future<void> Function(MediaItem)? onTap;
   final ValueChanged<String> onDelete;
+  final ValueChanged<String>? onToggleHidden;
 
   @override
   Widget build(BuildContext context) {
@@ -342,6 +372,7 @@ class _HistoryList extends StatelessWidget {
           entry: entry,
           onTap: onTap == null ? null : () => onTap!(entry.media),
           onDelete: () => onDelete(entry.media.id),
+          onToggleHidden: onToggleHidden == null ? null : () => onToggleHidden!(entry.media.id),
         );
       },
     );
@@ -456,11 +487,12 @@ class _MediaTileState extends State<_MediaTile> {
 }
 
 class _HistoryTile extends StatefulWidget {
-  const _HistoryTile({required this.entry, this.onTap, required this.onDelete});
+  const _HistoryTile({required this.entry, this.onTap, required this.onDelete, this.onToggleHidden});
 
   final _HistoryEntry entry;
   final Future<void> Function()? onTap;
   final VoidCallback onDelete;
+  final VoidCallback? onToggleHidden;
 
   @override
   State<_HistoryTile> createState() => _HistoryTileState();
@@ -538,10 +570,27 @@ class _HistoryTileState extends State<_HistoryTile> {
                       ],
                     ),
                   ),
-                  IconButton(
-                    tooltip: '删除此记录',
-                    onPressed: widget.onDelete,
-                    icon: const Icon(Icons.delete_outline_rounded),
+                  Column(
+                    mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                    children: [
+                      if (widget.onToggleHidden != null)
+                        IconButton(
+                          tooltip: widget.entry.progress.isHidden ? '显示' : '隐藏',
+                          onPressed: widget.onToggleHidden,
+                          icon: Icon(widget.entry.progress.isHidden ? Icons.visibility_off_rounded : Icons.visibility_rounded),
+                          constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+                          padding: EdgeInsets.zero,
+                          iconSize: 20,
+                        ),
+                      IconButton(
+                        tooltip: '删除此记录',
+                        onPressed: widget.onDelete,
+                        icon: const Icon(Icons.delete_outline_rounded),
+                        constraints: const BoxConstraints.tightFor(width: 40, height: 40),
+                        padding: EdgeInsets.zero,
+                        iconSize: 20,
+                      ),
+                    ],
                   ),
                 ],
               ),

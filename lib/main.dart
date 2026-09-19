@@ -350,7 +350,18 @@ class _CineoShellState extends State<CineoShell> {
   void _applyLocalHomeState(_LocalHomeState state) {
     _homeCategoryRails = state.rails;
     _items = state.rails.expand((rail) => rail.items).toList(growable: false);
-    _continueWatching = state.continueWatching;
+    _continueWatching = state.continueWatching.where((item) {
+      final progress = state.progress.firstWhere(
+        (p) => p.mediaId == item.id,
+        orElse: () => WatchProgress(
+          mediaId: item.id,
+          position: Duration.zero,
+          duration: Duration.zero,
+          updatedAt: DateTime.now(),
+        ),
+      );
+      return !progress.isHidden;
+    }).toList();
     _favorites = state.favorites;
     _progressByMediaId = {
       for (final entry in state.progress) entry.mediaId: entry.fraction,
