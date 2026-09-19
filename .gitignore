@@ -46,3 +46,6 @@ app.*.map.json
 /android/key.properties
 *.keystore
 *.jks
+
+# Local debug database
+*.db
