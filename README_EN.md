@@ -7,6 +7,14 @@
 </div>
 
 <div align="center">
+  <img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" />
+  <img alt="Dart" src="https://img.shields.io/badge/Dart-3.1.5-0175C2?logo=dart&logoColor=white" />
+  <img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue" />
+  <img alt="Platform" src="https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20Web-green" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.4-16a34a" />
+</div>
+
+<div align="center">
   <a href="README.md">中文说明</a>
 </div>
 
@@ -65,16 +73,32 @@ The README intentionally shows four representative screenshots:
 
 ## Tech stack
 
-- Flutter / Dart
-- Material 3
-- `sqflite` for local media state, sources, favorites, and watch history
-- `shared_preferences` for non-sensitive preferences
-- `flutter_secure_storage` for app-lock verification data and the TMDB token
-- `video_player` for video playback
-- `flutter_markdown` for rendering release notes in the app
-- `package_info_plus` for reading the current app version
-- `path_provider` for the TMDB cache directory
-- `url_launcher` for opening external links
+**Framework & Language:**
+- Flutter 3.x / Dart 3.1.5
+- Material Design 3
+
+**Database & Storage:**
+- `sqflite` 2.3.0 — SQLite for local media state, sources, favorites, and watch history
+- `shared_preferences` 2.2.2 — Non-sensitive user preferences
+- `flutter_secure_storage` 9.0.0 — Secure storage for app-lock data and TMDB tokens
+
+**Media & Playback:**
+- `video_player` 2.7.2 — HLS and MP4 video playback
+- `flutter_markdown` 0.6.18 — In-app markdown rendering for release notes
+
+**HTTP & Networking:**
+- `http` 1.1.0 — HTTP client for API requests
+- `url_launcher` 6.2.4 — External link handling
+
+**Platform & System:**
+- `package_info_plus` 4.2.0 — App version and build info
+- `path_provider` 2.1.3 — Platform-specific cache and support directories
+- `crypto` 3.0.3 — PBKDF2 hashing for app-lock PIN verification
+- `provider` 6.0.5 — State management and dependency injection
+
+**Development & Testing:**
+- `flutter_lints` 2.0.3 — Dart static analysis
+- `sqflite_common_ffi` 2.3.0 — SQLite FFI support for desktop testing
 
 ## Requirements
 

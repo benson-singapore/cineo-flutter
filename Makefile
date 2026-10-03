@@ -1,6 +1,7 @@
 SHELL := /bin/bash
 
 # 公开版本号；内部构建号单独维护。
+# 注：版本号更新时，使用 make version 或 make bump-* 命令会自动同步 README 中的版本 badge
 VERSION := 1.3.4
 BUILD_NUMBER := 11
 BRANCH ?= main

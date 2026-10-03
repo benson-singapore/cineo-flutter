@@ -3,6 +3,8 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 PUBSPEC="${ROOT_DIR}/pubspec.yaml"
+README_EN="${ROOT_DIR}/README_EN.md"
+README_CN="${ROOT_DIR}/README.md"
 
 usage() {
   echo "Usage: $0 --version X.Y.Z[+BUILD] | --bump major|minor|patch [--build-number N]" >&2
@@ -85,4 +87,11 @@ if count != 1:
 pubspec.write_text(updated)
 PY
 
+# Update version badge in README files
+VERSION_BADGE="https://img.shields.io/badge/version-${version_name}-16a34a"
+sed -i.bak "s|https://img\.shields\.io/badge/version-[^-]*-16a34a|${VERSION_BADGE}|g" "${README_EN}" && rm -f "${README_EN}.bak"
+sed -i.bak "s|https://img\.shields\.io/badge/version-[^-]*-16a34a|${VERSION_BADGE}|g" "${README_CN}" && rm -f "${README_CN}.bak"
+
 echo "Updated ${PUBSPEC} to ${version_name}+${version_build}"
+echo "Updated version badge in ${README_EN}"
+echo "Updated version badge in ${README_CN}"

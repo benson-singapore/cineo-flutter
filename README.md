@@ -7,6 +7,14 @@
 </div>
 
 <div align="center">
+  <img alt="Flutter" src="https://img.shields.io/badge/Flutter-3.x-02569B?logo=flutter&logoColor=white" />
+  <img alt="Dart" src="https://img.shields.io/badge/Dart-3.1.5-0175C2?logo=dart&logoColor=white" />
+  <img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue" />
+  <img alt="Platform" src="https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20Web-green" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.4-16a34a" />
+</div>
+
+<div align="center">
   <a href="README_EN.md">English</a>
 </div>
 
@@ -67,16 +75,32 @@ Cineo 的产品思路和交互方向主要借鉴了 [KatelyaTV](https://github.c
 
 ### 技术栈
 
-- Flutter / Dart
-- Material 3
-- `sqflite`：本地媒体状态、视频源、收藏和观看记录
-- `shared_preferences`：非敏感的偏好设置
-- `flutter_secure_storage`：应用锁验证信息和 TMDB Token
-- `video_player`：视频播放
-- `flutter_markdown`：应用内渲染版本日志
-- `package_info_plus`：读取当前应用版本
-- `path_provider`：TMDB 缓存目录
-- `url_launcher`：外部链接打开
+**框架与语言：**
+- Flutter 3.x / Dart 3.1.5
+- Material Design 3
+
+**数据库与存储：**
+- `sqflite` 2.3.0 — SQLite 本地数据库，存储媒体状态、视频源、收藏和观看记录
+- `shared_preferences` 2.2.2 — 非敏感偏好设置
+- `flutter_secure_storage` 9.0.0 — 安全存储应用锁数据和 TMDB Token
+
+**媒体与播放：**
+- `video_player` 2.7.2 — HLS 和 MP4 视频播放
+- `flutter_markdown` 0.6.18 — 应用内 Markdown 渲染（用于版本日志）
+
+**HTTP 与网络：**
+- `http` 1.1.0 — HTTP 客户端
+- `url_launcher` 6.2.4 — 外部链接打开
+
+**平台与系统：**
+- `package_info_plus` 4.2.0 — 应用版本和构建信息
+- `path_provider` 2.1.3 — 平台特定的缓存和支持目录
+- `crypto` 3.0.3 — PBKDF2 哈希（用于应用锁 PIN 验证）
+- `provider` 6.0.5 — 状态管理和依赖注入
+
+**开发与测试：**
+- `flutter_lints` 2.0.3 — Dart 静态分析检查
+- `sqflite_common_ffi` 2.3.0 — SQLite FFI 支持（用于桌面测试）
 
 ### 环境要求
 
