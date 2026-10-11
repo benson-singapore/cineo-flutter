@@ -138,6 +138,7 @@ class PlayerScreen extends StatefulWidget {
     this.initialPositions = const <String, Duration>{},
     this.initialPositionForEpisode,
     this.onPictureInPicture,
+    this.onAppPictureInPictureChanged,
     this.pictureInPictureAvailable = false,
     this.onSearchOtherSources,
     this.onSearchOtherSourcesProgressively,
@@ -170,6 +171,7 @@ class PlayerScreen extends StatefulWidget {
   /// not expose a portable Flutter PiP API.
   final Future<bool> Function(PictureInPictureRequest request)?
       onPictureInPicture;
+  final ValueChanged<bool>? onAppPictureInPictureChanged;
   final bool pictureInPictureAvailable;
   final Future<List<MediaItem>> Function(MediaItem media)? onSearchOtherSources;
   final Stream<SourceSearchProgress> Function(MediaItem media)?
@@ -216,6 +218,7 @@ class _PlayerScreenState extends State<PlayerScreen>
   bool _isInPictureInPicture = false;
   bool _pictureInPictureRequestInFlight = false;
   bool _isInAppPictureInPicture = false;
+  OverlayEntry? _appPictureInPictureOverlay;
   bool _appPictureInPictureControlsVisible = true;
   double _appPictureInPictureScale = 1;
   Offset? _appPictureInPictureOffset;
@@ -626,6 +629,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     // The listener also fires as the position advances, so rebuild the time
     // labels together with the progress indicator.
     setState(() {});
+    _appPictureInPictureOverlay?.markNeedsBuild();
   }
 
   PictureInPictureRequest? _pictureInPictureRequest() {
@@ -1032,9 +1036,17 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
-  void _openAppPictureInPicture() {
+  Future<void> _openAppPictureInPicture() async {
     final controller = _initializedController;
     if (controller == null) return;
+    // The player route stays alive while the compact window exposes the page
+    // beneath it. Restore portrait before showing that page so it is not left
+    // with the full-player landscape constraints.
+    _autoRotateEnabled = false;
+    await SystemChrome.setPreferredOrientations(
+      const <DeviceOrientation>[DeviceOrientation.portraitUp],
+    );
+    if (!mounted) return;
     final size = MediaQuery.sizeOf(context);
     final windowSize = _appPictureInPictureSize(size, controller.value);
     final padding = MediaQuery.paddingOf(context);
@@ -1047,13 +1059,51 @@ class _PlayerScreenState extends State<PlayerScreen>
       ),
     );
     _appPictureInPictureControlsVisible = true;
-    setState(() => _isInAppPictureInPicture = true);
+    setState(() {
+      _orientation = _PlayerOrientation.portrait;
+      _isInAppPictureInPicture = true;
+    });
+    widget.onAppPictureInPictureChanged?.call(true);
+    _showAppPictureInPictureOverlay();
     _showControls();
+  }
+
+  void _showAppPictureInPictureOverlay() {
+    _removeAppPictureInPictureOverlay();
+    final overlay = Navigator.of(context, rootNavigator: true).overlay;
+    if (overlay == null) return;
+    _appPictureInPictureOverlay = OverlayEntry(
+      builder: (_) => _AppPictureInPictureSurface(
+        controller: _controller!,
+        title: _media.title,
+        speed: _playbackSpeed,
+        controlsVisible: _appPictureInPictureControlsVisible,
+        scale: _appPictureInPictureScale,
+        offset: _appPictureInPictureOffset,
+        onScaleStart: _onAppPictureInPictureScaleStart,
+        onScaleUpdate: _onAppPictureInPictureScaleUpdate,
+        onDoubleTap: _onAppPictureInPictureDoubleTap,
+        onToggleControls: _toggleAppPictureInPictureControls,
+        onClose: _closeAppPictureInPicture,
+        onReturnToPlayer: _returnToPlayerFromAppPictureInPicture,
+        onPlayPause: _togglePlayPause,
+        onSpeedChanged: _setPlaybackSpeed,
+        onRewind: () => unawaited(_seekBy(const Duration(seconds: -10))),
+        onForward: () => unawaited(_seekBy(const Duration(seconds: 10))),
+      ),
+    );
+    overlay.insert(_appPictureInPictureOverlay!);
+  }
+
+  void _removeAppPictureInPictureOverlay() {
+    _appPictureInPictureOverlay?.remove();
+    _appPictureInPictureOverlay = null;
   }
 
   Future<void> _closePlayer() async {
     if (_isClosing) return;
     _isClosing = true;
+    widget.onAppPictureInPictureChanged?.call(false);
     _saveTimer?.cancel();
     try {
       await _save();
@@ -1063,14 +1113,25 @@ class _PlayerScreenState extends State<PlayerScreen>
   }
 
   Future<void> _closeAppPictureInPicture() async {
+    _removeAppPictureInPictureOverlay();
     await _closePlayer();
   }
 
   void _returnToPlayerFromAppPictureInPicture() {
+    _removeAppPictureInPictureOverlay();
+    widget.onAppPictureInPictureChanged?.call(false);
     setState(() {
       _isInAppPictureInPicture = false;
       _appPictureInPictureControlsVisible = true;
     });
+    _autoRotateEnabled = true;
+    unawaited(SystemChrome.setPreferredOrientations(
+      const <DeviceOrientation>[
+        DeviceOrientation.portraitUp,
+        DeviceOrientation.landscapeLeft,
+        DeviceOrientation.landscapeRight,
+      ],
+    ));
     _showControls();
   }
 
@@ -1189,6 +1250,8 @@ class _PlayerScreenState extends State<PlayerScreen>
     _saveTimer?.cancel();
     _controlsHideTimer?.cancel();
     _autoRotateEnabled = false;
+    _removeAppPictureInPictureOverlay();
+    widget.onAppPictureInPictureChanged?.call(false);
     unawaited(_pictureInPicture.setEventHandlers());
     if (_isInPictureInPicture) {
       unawaited(_pictureInPicture.stop());
@@ -1210,21 +1273,12 @@ class _PlayerScreenState extends State<PlayerScreen>
     final isReady = value?.isInitialized == true;
 
     if (_isInAppPictureInPicture && controller != null) {
-      return _AppPictureInPictureSurface(
-        controller: controller,
-        title: _media.title,
-        controlsVisible: _appPictureInPictureControlsVisible,
-        scale: _appPictureInPictureScale,
-        offset: _appPictureInPictureOffset,
-        onScaleStart: _onAppPictureInPictureScaleStart,
-        onScaleUpdate: _onAppPictureInPictureScaleUpdate,
-        onDoubleTap: _onAppPictureInPictureDoubleTap,
-        onToggleControls: _toggleAppPictureInPictureControls,
-        onClose: _closeAppPictureInPicture,
-        onReturnToPlayer: _returnToPlayerFromAppPictureInPicture,
-        onPlayPause: _togglePlayPause,
-        onRewind: () => unawaited(_seekBy(const Duration(seconds: -10))),
-        onForward: () => unawaited(_seekBy(const Duration(seconds: 10))),
+      // The transparent player route is above the detail page while the
+      // window is in the root overlay. On iOS, an edge-swipe would otherwise
+      // pop this route instead of the visible detail page and dispose PiP.
+      return WillPopScope(
+        onWillPop: () async => false,
+        child: const IgnorePointer(child: SizedBox.expand()),
       );
     }
 
@@ -1289,13 +1343,16 @@ class _PlayerScreenState extends State<PlayerScreen>
                     onHorizontalDragUpdate: _handleHorizontalDrag,
                   ),
                 ),
-              if (_gestureIndicatorType != null && _gestureIndicatorPosition != null)
+              if (_gestureIndicatorType != null &&
+                  _gestureIndicatorPosition != null)
                 Positioned(
                   left: _gestureIndicatorPosition!.dx - 40,
                   top: _gestureIndicatorPosition!.dy - 40,
                   child: _GestureIndicator(
                     type: _gestureIndicatorType!,
-                    value: _gestureIndicatorType == 'brightness' ? _brightness : _volume,
+                    value: _gestureIndicatorType == 'brightness'
+                        ? _brightness
+                        : _volume,
                   ),
                 ),
               if (_error == null)
@@ -1336,8 +1393,9 @@ class _PlayerScreenState extends State<PlayerScreen>
                       isLandscape: _orientation == _PlayerOrientation.landscape,
                       onOpenSystemPlayer: _openSystemPlayer,
                       onToggleOrientation: _toggleOrientation,
-                      onPictureInPicture:
-                          isReady ? _openAppPictureInPicture : null,
+                      onPictureInPicture: isReady
+                          ? () => unawaited(_openAppPictureInPicture())
+                          : null,
                       onControlsInteraction: _showControls,
                       onToggleControls: _toggleControls,
                     ),
@@ -1355,6 +1413,7 @@ class _AppPictureInPictureSurface extends StatelessWidget {
   const _AppPictureInPictureSurface({
     required this.controller,
     required this.title,
+    required this.speed,
     required this.controlsVisible,
     required this.scale,
     required this.offset,
@@ -1365,12 +1424,14 @@ class _AppPictureInPictureSurface extends StatelessWidget {
     required this.onClose,
     required this.onReturnToPlayer,
     required this.onPlayPause,
+    required this.onSpeedChanged,
     required this.onRewind,
     required this.onForward,
   });
 
   final VideoPlayerController controller;
   final String title;
+  final double speed;
   final bool controlsVisible;
   final double scale;
   final Offset? offset;
@@ -1381,6 +1442,7 @@ class _AppPictureInPictureSurface extends StatelessWidget {
   final VoidCallback onClose;
   final VoidCallback onReturnToPlayer;
   final VoidCallback onPlayPause;
+  final ValueChanged<double> onSpeedChanged;
   final VoidCallback onRewind;
   final VoidCallback onForward;
 
@@ -1465,6 +1527,34 @@ class _AppPictureInPictureSurface extends StatelessWidget {
                                         color: Colors.white,
                                         fontSize: 12,
                                         fontWeight: FontWeight.w700,
+                                      ),
+                                    ),
+                                  ),
+                                  PopupMenuButton<double>(
+                                    tooltip: '播放速度',
+                                    initialValue: speed,
+                                    onSelected: onSpeedChanged,
+                                    itemBuilder: (context) =>
+                                        supportedPlaybackSpeeds
+                                            .map((value) =>
+                                                CheckedPopupMenuItem<double>(
+                                                  value: value,
+                                                  checked: value == speed,
+                                                  child: Text('${value}x'),
+                                                ))
+                                            .toList(),
+                                    child: SizedBox(
+                                      width: 44,
+                                      height: 40,
+                                      child: Center(
+                                        child: Text(
+                                          '${speed}x',
+                                          style: const TextStyle(
+                                            color: Colors.white,
+                                            fontSize: 12,
+                                            fontWeight: FontWeight.w700,
+                                          ),
+                                        ),
                                       ),
                                     ),
                                   ),

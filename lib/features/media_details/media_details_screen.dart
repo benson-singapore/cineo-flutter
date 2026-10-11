@@ -502,6 +502,18 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     );
   }
 
+  void _leaveDetails() {
+    final navigator = Navigator.of(context);
+    final route = ModalRoute.of(context);
+    if (route != null && !route.isCurrent) {
+      // The transparent in-app PiP player sits above this page. Remove this
+      // route directly so the player and its video controller keep running.
+      navigator.removeRoute(route);
+    } else {
+      navigator.maybePop();
+    }
+  }
+
   Widget _buildHero(BuildContext context, MediaItem media) {
     return LayoutBuilder(
       builder: (context, constraints) {
@@ -526,7 +538,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
                     child: IconButton(
                       tooltip: '返回',
                       color: Colors.white,
-                      onPressed: () => Navigator.of(context).maybePop(),
+                      onPressed: _leaveDetails,
                       icon: const Icon(Icons.arrow_back_ios_new_rounded),
                     ),
                   ),

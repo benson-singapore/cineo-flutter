@@ -658,70 +658,87 @@ class _CineoShellState extends State<CineoShell> {
         .where((candidate) => candidate.quality.trim() == lineName)
         .toList(growable: false);
     if (!mounted) return;
-    await Navigator.of(context).push<void>(
-      adaptivePageRoute(
-        context,
-        opaque: false,
-        builder: (_) => PlayerScreen(
-          media: media,
-          option: option,
-          m3u8FilterSettings: widget.m3u8FilterSettings,
-          episodes:
-              localTaskId == null ? lineEpisodes : <PlaybackOption>[option],
-          initialPosition:
-              episodePositions[option.id] ?? moviePosition ?? Duration.zero,
-          initialPositions: episodePositions,
-          episodeId: option.id,
-          pictureInPictureAvailable: _pictureInPictureAvailable,
-          onPictureInPicture:
-              _pictureInPictureAvailable ? _enterPictureInPicture : null,
-          onProgressChanged: _queuePlaybackProgress,
-          onSearchOtherSources: widget.repository.searchOtherSources,
-          onSearchOtherSourcesProgressively:
-              widget.repository.searchOtherSourcesProgressively,
-          onLoadAlternative: (alternative) async {
-            final resolved = await _resolveMediaDetails(alternative);
-            await _playbackProgressWrite;
-            await widget.repository.mergeMediaHistory(resolved);
-            await widget.repository.savePreferredSource(media, resolved);
-            return resolved;
-          },
-          localSourceForOption: (candidate) async {
-            if (localTaskId != null) {
-              final taskSource = await widget.downloadService
-                  .completedPlaybackSourceForTask(localTaskId);
-              _debugLog(
-                'local_playback_lookup task=$localTaskId '
-                'candidate=${candidate.id} hit=${taskSource != null}',
-              );
-              return taskSource;
-            }
-            final cachedPlaylist =
-                await widget.downloadService.completedPlaybackUrlFor(
-              mediaId: media.id,
-              sourceUrl: candidate.url,
+    final preventPlayerPop = ValueNotifier<bool>(false);
+    var removedDetailForPictureInPicture = false;
+    late final Route<void> playerRoute;
+    playerRoute = adaptivePageRoute<void>(
+      context,
+      opaque: false,
+      preventPop: preventPlayerPop,
+      onPopPrevented: () {
+        if (removedDetailForPictureInPicture) return;
+        removedDetailForPictureInPicture = true;
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          final navigator = playerRoute.navigator;
+          if (navigator != null && !playerRoute.isFirst) {
+            navigator.removeRouteBelow(playerRoute);
+          }
+        });
+      },
+      builder: (_) => PlayerScreen(
+        media: media,
+        option: option,
+        m3u8FilterSettings: widget.m3u8FilterSettings,
+        episodes: localTaskId == null ? lineEpisodes : <PlaybackOption>[option],
+        initialPosition:
+            episodePositions[option.id] ?? moviePosition ?? Duration.zero,
+        initialPositions: episodePositions,
+        episodeId: option.id,
+        pictureInPictureAvailable: _pictureInPictureAvailable,
+        onPictureInPicture:
+            _pictureInPictureAvailable ? _enterPictureInPicture : null,
+        onAppPictureInPictureChanged: (isActive) =>
+            preventPlayerPop.value = isActive,
+        onProgressChanged: _queuePlaybackProgress,
+        onSearchOtherSources: widget.repository.searchOtherSources,
+        onSearchOtherSourcesProgressively:
+            widget.repository.searchOtherSourcesProgressively,
+        onLoadAlternative: (alternative) async {
+          final resolved = await _resolveMediaDetails(alternative);
+          await _playbackProgressWrite;
+          await widget.repository.mergeMediaHistory(resolved);
+          await widget.repository.savePreferredSource(media, resolved);
+          return resolved;
+        },
+        localSourceForOption: (candidate) async {
+          if (localTaskId != null) {
+            final taskSource = await widget.downloadService
+                .completedPlaybackSourceForTask(localTaskId);
+            _debugLog(
+              'local_playback_lookup task=$localTaskId '
+              'candidate=${candidate.id} hit=${taskSource != null}',
             );
-            if (cachedPlaylist != null) return cachedPlaylist;
-            final filteredUrl = playbackUrlForOption(
-              candidate,
-              widget.m3u8FilterSettings.activeConfig,
-            );
-            if (filteredUrl == candidate.url) return null;
-            return widget.downloadService.completedPlaybackUrlFor(
-              mediaId: media.id,
-              sourceUrl: filteredUrl,
-            );
-          },
-          onLocalPlaybackError: (candidate, path, error) {
-            if (!mounted) return;
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(content: Text('本地缓存无法播放')),
-            );
-          },
-          localOnly: localTaskId != null,
-        ),
+            return taskSource;
+          }
+          final cachedPlaylist =
+              await widget.downloadService.completedPlaybackUrlFor(
+            mediaId: media.id,
+            sourceUrl: candidate.url,
+          );
+          if (cachedPlaylist != null) return cachedPlaylist;
+          final filteredUrl = playbackUrlForOption(
+            candidate,
+            widget.m3u8FilterSettings.activeConfig,
+          );
+          if (filteredUrl == candidate.url) return null;
+          return widget.downloadService.completedPlaybackUrlFor(
+            mediaId: media.id,
+            sourceUrl: filteredUrl,
+          );
+        },
+        onLocalPlaybackError: (candidate, path, error) {
+          if (!mounted) return;
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(content: Text('本地缓存无法播放')),
+          );
+        },
+        localOnly: localTaskId != null,
       ),
     );
+    await Navigator.of(context).push<void>(
+      playerRoute,
+    );
+    preventPlayerPop.dispose();
     await _refresh();
   }
 
