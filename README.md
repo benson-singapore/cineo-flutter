@@ -11,7 +11,7 @@
   <img alt="Dart" src="https://img.shields.io/badge/Dart-3.1.5-0175C2?logo=dart&logoColor=white" />
   <img alt="License" src="https://img.shields.io/badge/License-Apache%202.0-blue" />
   <img alt="Platform" src="https://img.shields.io/badge/Platform-Android%20%7C%20iOS%20%7C%20Web-green" />
-  <img alt="Version" src="https://img.shields.io/badge/version-1.3.4-16a34a" />
+  <img alt="Version" src="https://img.shields.io/badge/version-1.3.5-16a34a" />
 </div>
 
 <div align="center">
