@@ -302,11 +302,18 @@ class _CineoShellState extends State<CineoShell> {
     final byId = <String, MediaItem>{
       for (final item in historyMedia.whereType<MediaItem>()) item.id: item,
     };
-    final continueWatching = [
-      for (final entry in progress)
-        if (!entry.isComplete && byId[entry.mediaId] != null)
-          byId[entry.mediaId]!,
-    ];
+    final continueWatching = <MediaItem>[];
+    final continuedTitles = <String>{};
+    for (final entry in progress) {
+      final media = byId[entry.mediaId];
+      if (entry.isComplete || media == null) continue;
+
+      // Progress is stored per episode, while the home rail represents a
+      // title. Keep the newest unfinished episode for each title, matching
+      // the grouping used by the playback history screen.
+      final titleKey = '${media.kind.name}:${media.title.trim().toLowerCase()}';
+      if (continuedTitles.add(titleKey)) continueWatching.add(media);
+    }
     if (continueWatching.isNotEmpty) {
       try {
         final details = await widget.tmdbMetadata.loadCachedForMedia(
