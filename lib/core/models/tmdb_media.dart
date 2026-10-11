@@ -13,6 +13,7 @@ class TmdbMediaMatch {
     required this.posterUrl,
     required this.backdropUrl,
     required this.rating,
+    this.matchedSeason,
   });
 
   final int id;
@@ -24,6 +25,9 @@ class TmdbMediaMatch {
   final String posterUrl;
   final String backdropUrl;
   final double rating;
+
+  /// TMDB season assigned to a separately listed source title.
+  final int? matchedSeason;
 }
 
 class TmdbMediaDetails extends TmdbMediaMatch {
@@ -37,6 +41,7 @@ class TmdbMediaDetails extends TmdbMediaMatch {
     required super.posterUrl,
     required super.backdropUrl,
     required super.rating,
+    super.matchedSeason,
     required this.runtime,
     this.seasons = const [],
     this.cast = const [],

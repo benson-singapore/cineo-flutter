@@ -15,6 +15,7 @@ class TmdbCacheModelCodec {
       'poster_url': value.posterUrl,
       'backdrop_url': value.backdropUrl,
       'rating': value.rating,
+      'matched_season': value.matchedSeason,
     };
   }
 
@@ -29,6 +30,7 @@ class TmdbCacheModelCodec {
       posterUrl: _asString(json['poster_url']),
       backdropUrl: _asString(json['backdrop_url']),
       rating: _asDouble(json['rating']),
+      matchedSeason: _asNullableInt(json['matched_season']),
     );
   }
 
@@ -55,6 +57,7 @@ class TmdbCacheModelCodec {
       posterUrl: _asString(json['poster_url']),
       backdropUrl: _asString(json['backdrop_url']),
       rating: _asDouble(json['rating']),
+      matchedSeason: _asNullableInt(json['matched_season']),
       runtime: _asNullableInt(json['runtime']),
       seasons: seasons is List
           ? seasons

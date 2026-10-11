@@ -31,6 +31,7 @@ class MediaDetailsScreen extends StatefulWidget {
     this.onLoadTmdbDetails,
     this.onLoadTmdbEnrichment,
     this.onSearchTmdbMatches,
+    this.onLoadTmdbMatchDetails,
     this.onSelectTmdbMatch,
     this.repository,
     this.includeAdultHistory = false,
@@ -58,6 +59,8 @@ class MediaDetailsScreen extends StatefulWidget {
       onLoadTmdbEnrichment;
   final Future<List<TmdbMediaMatch>> Function(
       String query, TmdbMediaType? type, int? year)? onSearchTmdbMatches;
+  final Future<TmdbMediaDetails?> Function(TmdbMediaMatch match)?
+      onLoadTmdbMatchDetails;
   final Future<TmdbMediaDetails?> Function(TmdbMediaMatch match)?
       onSelectTmdbMatch;
   final dynamic repository;
@@ -137,12 +140,18 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     return values.toList()..sort();
   }
 
-  String get _displayTitle => _tmdbDetails?.title.trim().isNotEmpty == true
-      ? _tmdbDetails!.title
-      : _media.title;
+  String get _displayTitle {
+    final title = _tmdbDetails?.title.trim().isNotEmpty == true
+        ? _tmdbDetails!.title
+        : _media.title;
+    final season = _tmdbDetails?.matchedSeason;
+    return season == null ? title : '$title · 第$season季';
+  }
 
-  String get _displayDescription =>
-      _tmdbDetails?.overview.trim().isNotEmpty == true
+  String get _displayDescription => _tmdbDetails?.matchedSeason != null &&
+          _selectedTmdbSeason?.overview.trim().isNotEmpty == true
+      ? _selectedTmdbSeason!.overview
+      : _tmdbDetails?.overview.trim().isNotEmpty == true
           ? _tmdbDetails!.overview
           : _media.description;
 
@@ -154,6 +163,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   }
 
   String get _displayPoster {
+    if (_tmdbDetails?.matchedSeason != null) {
+      final seasonPoster = _selectedTmdbSeason?.posterUrl.trim() ?? '';
+      if (seasonPoster.isNotEmpty) return seasonPoster;
+    }
     final tmdb = _tmdbDetails?.posterUrl.trim() ?? '';
     if (tmdb.isNotEmpty) return tmdb;
     final source = _media.posterUrl.trim();
@@ -161,9 +174,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   }
 
   MediaItem get _playbackMedia {
-    final poster = _tmdbDetails?.posterUrl.trim().isNotEmpty == true
-        ? _tmdbDetails!.posterUrl
-        : _media.posterUrl;
+    final poster = _displayPoster;
     final backdrop = _tmdbDetails?.backdropUrl.trim().isNotEmpty == true
         ? _tmdbDetails!.backdropUrl
         : _media.backdropUrl;
@@ -181,20 +192,14 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     return rating != null && rating > 0 ? rating : null;
   }
 
-  int get _displayYear => _tmdbDetails?.year ?? _media.year;
+  int get _displayYear => _tmdbDetails?.matchedSeason != null && _media.year > 0
+      ? _media.year
+      : _tmdbDetails?.year ?? _media.year;
 
-  List<int> get _availableSeasons {
-    final values = <int>{..._sourceSeasons};
-    for (final season
-        in _tmdbDetails?.seasons ?? const <TmdbSeasonMetadata>[]) {
-      if (season.seasonNumber > 0) values.add(season.seasonNumber);
-    }
-    final result = values.toList()..sort();
-    return result;
-  }
+  List<int> get _availableSeasons => _sourceSeasons;
 
   TmdbSeasonMetadata? get _selectedTmdbSeason {
-    final season = _selectedSeason;
+    final season = _tmdbDetails?.matchedSeason ?? _selectedSeason;
     if (season == null) return null;
     for (final item in _tmdbDetails?.seasons ?? const <TmdbSeasonMetadata>[]) {
       if (item.seasonNumber == season) return item;
@@ -352,8 +357,8 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
         if (_selectedSourceName == null && _sourceOptions.isNotEmpty) {
           _selectedSourceName = _lineName(_sourceOptions.first);
         }
-        if (_selectedSeason == null && _sourceSeasons.isNotEmpty) {
-          _selectedSeason = _sourceSeasons.first;
+        if (!_sourceSeasons.contains(_selectedSeason)) {
+          _selectedSeason = _sourceSeasons.firstOrNull;
         }
       });
     } catch (error) {
@@ -431,12 +436,15 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
     final match = await showDialog<TmdbMediaMatch>(
       context: context,
       builder: (_) => _ManualTmdbMatchDialog(
-        initialQuery: _displayTitle,
-        initialYear: _displayYear > 0 ? _displayYear : null,
+        initialQuery: _tmdbDetails?.title.trim().isNotEmpty == true
+            ? _tmdbDetails!.title
+            : _media.title,
+        initialSeason: _tmdbDetails?.matchedSeason,
         initialType: _media.kind == MediaKind.series
             ? TmdbMediaType.tv
             : TmdbMediaType.movie,
         onSearch: search,
+        onLoadDetails: widget.onLoadTmdbMatchDetails,
       ),
     );
     if (match == null || !mounted) return;
@@ -453,6 +461,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       }
       setState(() {
         _tmdbDetails = details;
+        if (details.matchedSeason != null &&
+            !_sourceSeasons.contains(_selectedSeason)) {
+          _selectedSeason = _sourceSeasons.firstOrNull;
+        }
         if (_selectedSeason == null && _availableSeasons.isNotEmpty) {
           _selectedSeason = _availableSeasons.first;
         }
@@ -630,7 +642,8 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           const SizedBox(height: 28),
           _buildEpisodesHeader(context),
           const SizedBox(height: 12),
-          if (_availableSeasons.length > 1) ...[
+          if (_tmdbDetails?.matchedSeason == null &&
+              _availableSeasons.length > 1) ...[
             _SeasonSelector(
               seasons: _availableSeasons,
               selectedSeason: _selectedSeason,
@@ -705,8 +718,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           child: _EpisodeScrollView(
             episodes: episodes,
             latestWatchProgress: _latestWatchProgress,
-            tmdbDetails: _tmdbDetails,
-            media: _media,
+            fallbackPosterUrl: _displayPoster,
             onPlay: (episode) {
               if (episode.playbackOption != null) {
                 unawaited(_playOption(episode.playbackOption!));
@@ -728,7 +740,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
           media: _media,
           episodes: _activeEpisodes,
           tmdbSeason: _selectedTmdbSeason,
-          fallbackPosterUrl: _media.posterUrl,
+          fallbackPosterUrl: _displayPoster,
           progressByEpisodeId: _episodeProgress,
           onPlay: _playOption,
         ),
@@ -1726,16 +1738,18 @@ class _SourceSiteCard extends StatelessWidget {
 class _ManualTmdbMatchDialog extends StatefulWidget {
   const _ManualTmdbMatchDialog({
     required this.initialQuery,
-    required this.initialYear,
+    required this.initialSeason,
     required this.initialType,
     required this.onSearch,
+    required this.onLoadDetails,
   });
 
   final String initialQuery;
-  final int? initialYear;
+  final int? initialSeason;
   final TmdbMediaType initialType;
   final Future<List<TmdbMediaMatch>> Function(
       String query, TmdbMediaType? type, int? year) onSearch;
+  final Future<TmdbMediaDetails?> Function(TmdbMediaMatch match)? onLoadDetails;
 
   @override
   State<_ManualTmdbMatchDialog> createState() => _ManualTmdbMatchDialogState();
@@ -1744,19 +1758,83 @@ class _ManualTmdbMatchDialog extends StatefulWidget {
 class _ManualTmdbMatchDialogState extends State<_ManualTmdbMatchDialog> {
   late final TextEditingController _queryController =
       TextEditingController(text: widget.initialQuery);
-  late final TextEditingController _yearController = TextEditingController(
-      text: widget.initialYear == null ? '' : '${widget.initialYear}');
+  late final TextEditingController _yearController = TextEditingController();
   late TmdbMediaType _type = widget.initialType;
   List<TmdbMediaMatch> _matches = const [];
+  TmdbMediaMatch? _selectedMatch;
+  TmdbMediaDetails? _selectedDetails;
+  int? _selectedSeason;
+  bool _loadingSeasons = false;
+  int _selectionRequest = 0;
   bool _loading = false;
   String? _errorMessage;
   bool _hasSearched = false;
+
+  bool get _canConfirm =>
+      _selectedMatch != null &&
+      !_loading &&
+      !_loadingSeasons &&
+      (_selectedMatch!.mediaType != TmdbMediaType.tv ||
+          widget.onLoadDetails == null ||
+          _selectedDetails != null);
 
   @override
   void dispose() {
     _queryController.dispose();
     _yearController.dispose();
     super.dispose();
+  }
+
+  Future<void> _selectMatch(TmdbMediaMatch match) async {
+    final request = ++_selectionRequest;
+    setState(() {
+      _selectedMatch = match;
+      _selectedDetails = null;
+      _selectedSeason = null;
+      _loadingSeasons =
+          match.mediaType == TmdbMediaType.tv && widget.onLoadDetails != null;
+      _errorMessage = null;
+    });
+    if (!_loadingSeasons) return;
+    try {
+      final details = await widget.onLoadDetails!(match);
+      if (!mounted || request != _selectionRequest) return;
+      setState(() {
+        _selectedDetails = details;
+        _selectedSeason = details?.seasons.any(
+                  (season) => season.seasonNumber == widget.initialSeason,
+                ) ==
+                true
+            ? widget.initialSeason
+            : null;
+        if (details == null) _errorMessage = '无法加载该剧集的季数，请重试';
+      });
+    } catch (_) {
+      if (!mounted || request != _selectionRequest) return;
+      setState(() => _errorMessage = '无法加载该剧集的季数，请重试');
+    } finally {
+      if (mounted && request == _selectionRequest) {
+        setState(() => _loadingSeasons = false);
+      }
+    }
+  }
+
+  void _confirmMatch() {
+    final match = _selectedMatch;
+    if (match == null) return;
+    Navigator.of(context).pop(TmdbMediaMatch(
+      id: match.id,
+      mediaType: match.mediaType,
+      title: match.title,
+      originalTitle: match.originalTitle,
+      overview: match.overview,
+      year: match.year,
+      posterUrl: match.posterUrl,
+      backdropUrl: match.backdropUrl,
+      rating: match.rating,
+      matchedSeason:
+          match.mediaType == TmdbMediaType.tv ? _selectedSeason : null,
+    ));
   }
 
   Future<void> _search() async {
@@ -1777,6 +1855,11 @@ class _ManualTmdbMatchDialogState extends State<_ManualTmdbMatchDialog> {
       _loading = true;
       _errorMessage = null;
       _hasSearched = true;
+      _selectedMatch = null;
+      _selectedDetails = null;
+      _selectedSeason = null;
+      _selectionRequest++;
+      _loadingSeasons = false;
     });
     try {
       final matches = await widget.onSearch(query, _type, year);
@@ -1837,7 +1920,18 @@ class _ManualTmdbMatchDialogState extends State<_ManualTmdbMatchDialog> {
                       onChanged: _loading
                           ? null
                           : (value) {
-                              if (value != null) setState(() => _type = value);
+                              if (value != null) {
+                                setState(() {
+                                  _type = value;
+                                  _matches = const [];
+                                  _selectedMatch = null;
+                                  _selectedDetails = null;
+                                  _selectedSeason = null;
+                                  _loadingSeasons = false;
+                                  _hasSearched = false;
+                                  _selectionRequest++;
+                                });
+                              }
                             },
                     ),
                   ),
@@ -1878,6 +1972,45 @@ class _ManualTmdbMatchDialogState extends State<_ManualTmdbMatchDialog> {
                 const SizedBox(height: 14),
                 const LinearProgressIndicator(minHeight: 2),
               ],
+              if (_selectedMatch?.mediaType == TmdbMediaType.tv) ...[
+                const SizedBox(height: 12),
+                if (_loadingSeasons)
+                  const LinearProgressIndicator(minHeight: 2)
+                else if (_selectedDetails != null) ...[
+                  Builder(builder: (context) {
+                    final seasons = _selectedDetails!.seasons
+                        .where((season) => season.seasonNumber > 0)
+                        .toList()
+                      ..sort(
+                          (a, b) => a.seasonNumber.compareTo(b.seasonNumber));
+                    if (seasons.isEmpty) {
+                      return const Text('TMDB 暂无季数信息',
+                          style: TextStyle(color: CineoColors.textSecondary));
+                    }
+                    return DropdownButtonFormField<int>(
+                      value: _selectedSeason ?? 0,
+                      decoration: const InputDecoration(
+                        labelText: '对应 TMDB 季数',
+                        prefixIcon: Icon(Icons.layers_outlined),
+                      ),
+                      items: [
+                        const DropdownMenuItem(
+                          value: 0,
+                          child: Text('不指定季数'),
+                        ),
+                        ...seasons.map((season) => DropdownMenuItem(
+                              value: season.seasonNumber,
+                              child: Text(season.name.trim().isEmpty
+                                  ? '第${season.seasonNumber}季'
+                                  : '第${season.seasonNumber}季 · ${season.name}'),
+                            )),
+                      ],
+                      onChanged: (value) => setState(
+                          () => _selectedSeason = value == 0 ? null : value),
+                    );
+                  }),
+                ],
+              ],
               if (!_loading &&
                   _hasSearched &&
                   _matches.isEmpty &&
@@ -1903,7 +2036,9 @@ class _ManualTmdbMatchDialogState extends State<_ManualTmdbMatchDialog> {
                       final match = _matches[index];
                       return _TmdbMatchTile(
                         match: match,
-                        onTap: () => Navigator.of(context).pop(match),
+                        selected: _selectedMatch?.id == match.id &&
+                            _selectedMatch?.mediaType == match.mediaType,
+                        onTap: () => _selectMatch(match),
                       );
                     },
                   ),
@@ -1918,15 +2053,24 @@ class _ManualTmdbMatchDialogState extends State<_ManualTmdbMatchDialog> {
           onPressed: _loading ? null : () => Navigator.of(context).pop(),
           child: const Text('取消'),
         ),
+        FilledButton(
+          onPressed: _canConfirm ? _confirmMatch : null,
+          child: const Text('确认匹配'),
+        ),
       ],
     );
   }
 }
 
 class _TmdbMatchTile extends StatelessWidget {
-  const _TmdbMatchTile({required this.match, required this.onTap});
+  const _TmdbMatchTile({
+    required this.match,
+    required this.selected,
+    required this.onTap,
+  });
 
   final TmdbMediaMatch match;
+  final bool selected;
   final VoidCallback onTap;
 
   @override
@@ -1942,8 +2086,13 @@ class _TmdbMatchTile extends StatelessWidget {
     return InkWell(
       onTap: onTap,
       borderRadius: BorderRadius.circular(8),
-      child: Padding(
-        padding: const EdgeInsets.symmetric(vertical: 10),
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 8),
+        decoration: BoxDecoration(
+          color: selected ? CineoColors.primary.withOpacity(.08) : null,
+          borderRadius: BorderRadius.circular(8),
+          border: selected ? Border.all(color: CineoColors.primary) : null,
+        ),
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
@@ -1982,7 +2131,12 @@ class _TmdbMatchTile extends StatelessWidget {
                 ],
               ),
             ),
-            const Icon(Icons.chevron_right_rounded),
+            Icon(
+              selected
+                  ? Icons.check_circle_rounded
+                  : Icons.chevron_right_rounded,
+              color: selected ? CineoColors.primary : null,
+            ),
           ],
         ),
       ),
@@ -1994,8 +2148,7 @@ class _EpisodeScrollView extends StatefulWidget {
   const _EpisodeScrollView({
     required this.episodes,
     required this.latestWatchProgress,
-    required this.tmdbDetails,
-    required this.media,
+    required this.fallbackPosterUrl,
     required this.onPlay,
     required this.progressByEpisodeId,
     required this.tmdbEpisodeFor,
@@ -2003,8 +2156,7 @@ class _EpisodeScrollView extends StatefulWidget {
 
   final List<Episode> episodes;
   final WatchProgress? latestWatchProgress;
-  final TmdbMediaDetails? tmdbDetails;
-  final MediaItem media;
+  final String fallbackPosterUrl;
   final Function(Episode) onPlay;
   final Map<String, WatchProgress> progressByEpisodeId;
   final TmdbEpisodeMetadata? Function(Episode) tmdbEpisodeFor;
@@ -2062,9 +2214,7 @@ class _EpisodeScrollViewState extends State<_EpisodeScrollView> {
         final tmdbEpisode = widget.tmdbEpisodeFor(episode);
         final image = tmdbEpisode?.stillUrl.trim().isNotEmpty == true
             ? tmdbEpisode!.stillUrl
-            : (widget.tmdbDetails?.posterUrl.trim().isNotEmpty == true
-                ? widget.tmdbDetails!.posterUrl
-                : widget.media.posterUrl);
+            : widget.fallbackPosterUrl;
         final progress = widget.progressByEpisodeId[episode.id];
 
         return SizedBox(

@@ -146,6 +146,7 @@ class TmdbClient {
       posterUrl: details.posterUrl,
       backdropUrl: details.backdropUrl,
       rating: details.rating,
+      matchedSeason: details.matchedSeason,
       runtime: details.runtime,
       seasons: results[1] as List<TmdbSeasonMetadata>,
       cast: _castFromCredits(results[0] as Map<String, dynamic>),
@@ -241,6 +242,7 @@ class TmdbClient {
             ? match.backdropUrl
             : _imageUrl(raw['backdrop_path'], size: 'w780'),
         rating: _number(raw['vote_average']) ?? match.rating,
+        matchedSeason: match.matchedSeason,
         runtime: _int(raw['runtime']),
         genres: _genreNames(raw['genres']),
         releaseDate: _text(raw['release_date']),
@@ -261,6 +263,7 @@ class TmdbClient {
           ? match.backdropUrl
           : _imageUrl(raw['backdrop_path'], size: 'w780'),
       rating: _number(raw['vote_average']) ?? match.rating,
+      matchedSeason: match.matchedSeason,
       runtime: _firstRuntime(raw['episode_run_time']),
       seasons: _seasonSkeletons(raw),
       genres: _genreNames(raw['genres']),

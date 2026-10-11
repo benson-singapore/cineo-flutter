@@ -112,6 +112,12 @@ class TmdbMetadataRepository {
     return client.search(query, type: type, year: year);
   }
 
+  /// Loads season choices for the match dialog without changing the saved match.
+  Future<TmdbMediaDetails?> loadMatchDetails(TmdbMediaMatch match) async {
+    final client = await _client();
+    return client?.getDetails(match);
+  }
+
   Future<TmdbMediaDetails?> selectForMedia(
     MediaItem media,
     TmdbMediaMatch match,
@@ -120,6 +126,12 @@ class TmdbMetadataRepository {
     if (client == null) return null;
     final details = await client.getDetails(match);
     if (details == null) return null;
+    if (match.matchedSeason != null &&
+        !details.seasons.any(
+          (season) => season.seasonNumber == match.matchedSeason,
+        )) {
+      return null;
+    }
     await _cache.setOverride(cineoMediaId: media.id, match: match);
     return _storeAndLocalize(media.id, details);
   }
@@ -155,6 +167,7 @@ class TmdbMetadataRepository {
       posterUrl: match.posterUrl,
       backdropUrl: match.backdropUrl,
       rating: match.rating,
+      matchedSeason: match.matchedSeason,
       runtime: null,
       level: TmdbDetailsLevel.preview,
     );
@@ -206,6 +219,7 @@ class TmdbMetadataRepository {
       posterUrl: await local(details.posterUrl),
       backdropUrl: await local(details.backdropUrl),
       rating: details.rating,
+      matchedSeason: details.matchedSeason,
       runtime: details.runtime,
       seasons: seasons,
       cast: await Future.wait(
@@ -241,6 +255,7 @@ class TmdbMetadataRepository {
       posterUrl: await local(details.posterUrl),
       backdropUrl: await local(details.backdropUrl),
       rating: details.rating,
+      matchedSeason: details.matchedSeason,
       runtime: details.runtime,
       seasons: details.seasons,
       cast: details.cast,

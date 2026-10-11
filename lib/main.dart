@@ -452,6 +452,7 @@ class _CineoShellState extends State<CineoShell> {
           onLoadTmdbEnrichment:
               widget.tmdbSettings.configured ? _loadTmdbEnrichment : null,
           onSearchTmdbMatches: _searchTmdbMatches,
+          onLoadTmdbMatchDetails: widget.tmdbMetadata.loadMatchDetails,
           onSelectTmdbMatch: (match) => _selectTmdbMatch(media, match),
           onSearchOtherSourcesProgressively:
               widget.repository.searchOtherSourcesProgressively,
