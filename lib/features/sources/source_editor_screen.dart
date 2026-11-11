@@ -159,8 +159,9 @@ class _SourceEditorScreenState extends State<SourceEditorScreen> {
                       final uri = Uri.tryParse(value?.trim() ?? '');
                       if (uri == null ||
                           !{'http', 'https'}
-                              .contains(uri.scheme.toLowerCase())) {
-                        return '请输入 http 或 https 地址';
+                              .contains(uri.scheme.toLowerCase()) ||
+                          uri.host.isEmpty) {
+                        return '请输入有效的 http 或 https 地址';
                       }
                       if (_type == MediaSourceType.direct &&
                           !(uri.path.toLowerCase().endsWith('.m3u8') ||
