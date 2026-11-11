@@ -1,0 +1,65 @@
+{
+  "algorithm": "hubSourceKey-v1",
+  "metadata": {
+    "command": "python3 -c '<stdlib urllib.parse + hashlib implementation of the HubSyncKeys.kt canonicalization below>'",
+    "canonicalization": "Trim input; parse URI; normalize dot segments; lowercase scheme and host; remove http:80/https:443; remove all trailing slash characters from raw path; omit empty path; split raw query on &, discard empty items, sort remaining raw items lexicographically and join with &, omit fragment and userinfo; SHA-256 of canonical UTF-8 bytes, lowercase hex. Reject missing scheme/host or malformed URL.",
+    "implementation_reference": "/Users/benson/Documents/app/cineo-tv-os/app/src/main/java/com/nova/tv/HubSyncKeys.kt::hubSourceKey"
+  },
+  "vectors": [
+    {
+      "name": "host-case",
+      "input_url": "https://Example.COM/vod",
+      "canonical": "https://example.com/vod",
+      "expected_source_key": "e4b772d0ab1484429deb8ca2fa81921a4f48c8a9dda9703fdfc53e748ff15083"
+    },
+    {
+      "name": "default-port",
+      "input_url": "https://example.com:443/vod",
+      "canonical": "https://example.com/vod",
+      "expected_source_key": "e4b772d0ab1484429deb8ca2fa81921a4f48c8a9dda9703fdfc53e748ff15083"
+    },
+    {
+      "name": "trailing-slashes",
+      "input_url": "https://example.com/vod///",
+      "canonical": "https://example.com/vod",
+      "expected_source_key": "e4b772d0ab1484429deb8ca2fa81921a4f48c8a9dda9703fdfc53e748ff15083"
+    },
+    {
+      "name": "query-order",
+      "input_url": "https://example.com/vod?z=9&a=1&b=2",
+      "canonical": "https://example.com/vod?a=1&b=2&z=9",
+      "expected_source_key": "4e393051217ccb297e62fce3794b6b47325dbb3403a103af091d6739eb7ec7d8"
+    },
+    {
+      "name": "fragment",
+      "input_url": "https://example.com/vod#section",
+      "canonical": "https://example.com/vod",
+      "expected_source_key": "e4b772d0ab1484429deb8ca2fa81921a4f48c8a9dda9703fdfc53e748ff15083"
+    },
+    {
+      "name": "userinfo",
+      "input_url": "https://alice:secret@example.com/vod",
+      "canonical": "https://example.com/vod",
+      "expected_source_key": "e4b772d0ab1484429deb8ca2fa81921a4f48c8a9dda9703fdfc53e748ff15083"
+    },
+    {
+      "name": "ipv6",
+      "input_url": "https://[2001:DB8::1]:8443/vod/",
+      "canonical": "https://[2001:db8::1]:8443/vod",
+      "expected_source_key": "7a8206745af1b838fe1b2454c8ac765572fb103d752e9d31e53fa4f665d8293c"
+    },
+    {
+      "name": "invalid-relative",
+      "input_url": "not-a-url",
+      "canonical": null,
+      "expected_source_key": null,
+      "error": "invalid URL"
+    },
+    {
+      "name": "http-default-port",
+      "input_url": "http://Example.com:80/api?b=2&a=1",
+      "canonical": "http://example.com/api?a=1&b=2",
+      "expected_source_key": "f540c99a26771576f0d78858dbb226876e1fe812d46ebfc96b583df1af472367"
+    }
+  ]
+}

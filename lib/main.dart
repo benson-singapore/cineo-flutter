@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:ui';
 
 import 'package:flutter/material.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 import 'core/models/media.dart';
 import 'core/models/media_source.dart';
@@ -15,6 +16,10 @@ import 'data/cache/tmdb_disk_cache.dart';
 import 'data/download/download_service.dart';
 import 'data/download/sqlite_download_task_store.dart';
 import 'data/remote/tmdb_client.dart';
+import 'data/hub/hub_sync_api.dart';
+import 'data/hub/hub_sync_engine.dart';
+import 'data/hub/hub_sync_policy.dart';
+import 'data/hub/hub_sync_trigger_coordinator.dart';
 import 'data/repositories/local_media_repository.dart';
 import 'data/repositories/tmdb_metadata_repository.dart';
 import 'data/remote/media_category_adapter.dart';
@@ -63,8 +68,35 @@ class _CineoAppState extends State<CineoApp> with WidgetsBindingObserver {
     cache: _tmdbCache,
     readToken: _tmdbSettings.readTokenForRequest,
     retention: () => Duration(days: _tmdbCacheController.retentionDays),
+    clientFactory: (token) => TmdbClient(
+      bearerToken: token,
+      language: _tmdbSettings.cloudLanguage,
+      includeAdult: _tmdbSettings.cloudIncludeAdult,
+    ),
   );
   final _repository = createDemoLocalMediaRepository();
+  final _hubCredentials = HubDeviceCredentials();
+  late final _hubSyncEngine = HubSyncEngine(
+    repository: _repository,
+    api: HubSyncApi(credentials: _hubCredentials),
+    onCloudSettings: (settings) {
+      final prefs =
+          (settings['preferences'] as Map?)?.cast<String, Object?>() ??
+              const {};
+      return _tmdbSettings.applyCloudSettings(
+        tmdbKey: settings['tmdb_key'] as String?,
+        language: prefs['tmdb_language'] as String? ?? 'zh-CN',
+        includeAdult: prefs['include_adult'] == true,
+      );
+    },
+    onCloudSettingsCleared: _tmdbSettings.clearCloudSettings,
+  );
+  late final _hubSyncTriggers = HubSyncTriggerCoordinator(
+    pushFavorite: _hubSyncEngine.queueFavorite,
+    pushProgress: _hubSyncEngine.pushProgress,
+    pushOutbox: () => _hubSyncEngine.pushOutbox(trigger: 'auto_progress'),
+    intervalSeconds: () => 10,
+  );
 
   @override
   void initState() {
@@ -81,6 +113,7 @@ class _CineoAppState extends State<CineoApp> with WidgetsBindingObserver {
   @override
   void dispose() {
     WidgetsBinding.instance.removeObserver(this);
+    _hubSyncTriggers.dispose();
     _appLockController.dispose();
     _updateService.dispose();
     unawaited(_downloadService.dispose());
@@ -95,8 +128,10 @@ class _CineoAppState extends State<CineoApp> with WidgetsBindingObserver {
         state == AppLifecycleState.hidden;
     if (state == AppLifecycleState.resumed) {
       unawaited(_downloadService.setBackgrounded(false));
+      _hubSyncTriggers.onLifecycleResumed();
     } else if (backgrounded) {
       unawaited(_downloadService.setBackgrounded(true));
+      _hubSyncTriggers.onLifecycleBackgrounded();
     }
   }
 
@@ -118,6 +153,8 @@ class _CineoAppState extends State<CineoApp> with WidgetsBindingObserver {
           tmdbCacheController: _tmdbCacheController,
           updateService: _updateService,
           downloadService: _downloadService,
+          hubSyncEngine: _hubSyncEngine,
+          hubSyncTriggers: _hubSyncTriggers,
         ),
       ),
     );
@@ -136,6 +173,8 @@ class CineoShell extends StatefulWidget {
     required this.tmdbCacheController,
     required this.updateService,
     required this.downloadService,
+    required this.hubSyncEngine,
+    required this.hubSyncTriggers,
   });
 
   final LocalMediaRepository repository;
@@ -147,6 +186,8 @@ class CineoShell extends StatefulWidget {
   final TmdbDiskCacheController tmdbCacheController;
   final AppUpdateService updateService;
   final DownloadService downloadService;
+  final HubSyncEngine hubSyncEngine;
+  final HubSyncTriggerCoordinator hubSyncTriggers;
 
   @override
   State<CineoShell> createState() => _CineoShellState();
@@ -183,6 +224,9 @@ class _CineoShellState extends State<CineoShell> {
   @override
   void initState() {
     super.initState();
+    unawaited(widget.hubSyncEngine
+        .pullAndApply(trigger: 'launch_pull')
+        .catchError((_) {}));
     _refresh();
     unawaited(_loadCoverMode());
     unawaited(_loadPlatformCapabilities());
@@ -450,7 +494,7 @@ class _CineoShellState extends State<CineoShell> {
           },
           onLoadFavorite: widget.repository.isFavorite,
           onFavoriteChanged: (favoriteMedia, isFavorite) {
-            unawaited(widget.repository.setFavorite(favoriteMedia, isFavorite));
+            _queueFavoriteChange(favoriteMedia, isFavorite);
             unawaited(_refresh());
           },
           onPlay: _openPlayer,
@@ -697,6 +741,8 @@ class _CineoShellState extends State<CineoShell> {
         onAppPictureInPictureChanged: (isActive) =>
             preventPlayerPop.value = isActive,
         onProgressChanged: _queuePlaybackProgress,
+        onProgressFlush: (media, progress) =>
+            widget.hubSyncTriggers.flushProgress(media, progress),
         onSearchOtherSources: widget.repository.searchOtherSources,
         onSearchOtherSourcesProgressively:
             widget.repository.searchOtherSourcesProgressively,
@@ -749,6 +795,11 @@ class _CineoShellState extends State<CineoShell> {
     await _refresh();
   }
 
+  void _queueFavoriteChange(MediaItem media, bool isFavorite) {
+    unawaited(widget.repository.setFavorite(media, isFavorite));
+    widget.hubSyncTriggers.favoriteChanged(media, isFavorite);
+  }
+
   Future<void> _queuePlaybackProgress(
     MediaItem media,
     WatchProgress progress,
@@ -757,6 +808,12 @@ class _CineoShellState extends State<CineoShell> {
         _playbackProgressWrite.catchError((_) {}).then<void>((_) async {
       try {
         await widget.repository.saveProgress(progress, media: media);
+        final preferences = await SharedPreferences.getInstance();
+        final interval = normalizeProgressPushInterval(
+          preferences.getInt('hub_progress_push_interval'),
+        );
+        widget.hubSyncTriggers.updateInterval(interval);
+        widget.hubSyncTriggers.trackProgress(media, progress);
       } catch (_) {
         // A transient local write failure must not interrupt playback.
       }
@@ -879,6 +936,8 @@ class _CineoShellState extends State<CineoShell> {
           tmdbCacheController: widget.tmdbCacheController,
           downloadService: widget.downloadService,
           onOpenDownloadManager: _openDownloadManager,
+          hubSyncEngine: widget.hubSyncEngine,
+          repository: widget.repository,
         ),
       ),
     );

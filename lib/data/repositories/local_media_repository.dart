@@ -52,7 +52,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     final database = await openDatabase(
       resolvedPath,
-      version: 14,
+      version: 15,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -111,6 +111,7 @@ class LocalMediaRepository implements MediaRepository {
         await _createHomeCategoryCacheTable(database);
         await _createSourceGroupConfigTable(database);
         await _createDownloadTables(database);
+        await _createHubTables(database);
       },
       onUpgrade: (database, oldVersion, newVersion) async {
         if (oldVersion < 2) {
@@ -201,6 +202,7 @@ class LocalMediaRepository implements MediaRepository {
             );
           }
         }
+        if (oldVersion < 15) await _createHubTables(database);
       },
     );
     // A previous build may have recorded version 9 without creating the
@@ -218,6 +220,8 @@ class LocalMediaRepository implements MediaRepository {
     if (rows.isNotEmpty) return;
     await database.insert('sources', _sourceToRow(_builtInRuyiSource));
   }
+
+  Future<Database> get hubDatabase => _db;
 
   Future<Database> get _db => _database;
 
@@ -1736,6 +1740,27 @@ class LocalMediaRepository implements MediaRepository {
   }
 
   bool get _databaseInitialized => true;
+
+  Future<void> _createHubTables(DatabaseExecutor database) async {
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS hub_outbox (
+        entity TEXT NOT NULL,
+        record_key TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        deleted INTEGER NOT NULL DEFAULT 0,
+        payload_json TEXT,
+        attempts INTEGER NOT NULL DEFAULT 0,
+        next_attempt_at INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY(entity, record_key)
+      )
+    ''');
+    await database.execute('''
+      CREATE TABLE IF NOT EXISTS hub_sync_state (
+        state_key TEXT PRIMARY KEY,
+        value TEXT NOT NULL
+      )
+    ''');
+  }
 
   Future<void> _createMediaSnapshotsTable(DatabaseExecutor database) {
     return database.execute('''

@@ -132,6 +132,7 @@ class PlayerScreen extends StatefulWidget {
     required this.option,
     required this.initialPosition,
     required this.onProgressChanged,
+    this.onProgressFlush,
     this.m3u8FilterSettings,
     this.episodeId,
     this.episodes = const <PlaybackOption>[],
@@ -153,6 +154,8 @@ class PlayerScreen extends StatefulWidget {
   final Duration initialPosition;
   final Future<void> Function(MediaItem media, WatchProgress progress)
       onProgressChanged;
+  final Future<void> Function(MediaItem media, WatchProgress progress)?
+      onProgressFlush;
   final M3u8FilterSettings? m3u8FilterSettings;
   final String? episodeId;
 
@@ -606,7 +609,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
     await controller.setPlaybackSpeed(_playbackSpeed);
     await controller.play();
-    _saveTimer ??= Timer.periodic(const Duration(seconds: 10), (_) {
+    _saveTimer ??= Timer.periodic(const Duration(seconds: 5), (_) {
       unawaited(_save());
     });
     _scheduleControlsHide();
@@ -720,7 +723,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     }
   }
 
-  Future<void> _save() async {
+  Future<void> _save({bool flush = false}) async {
     final controller = _controller;
     final option = _activeOption;
     if (controller == null ||
@@ -728,21 +731,18 @@ class _PlayerScreenState extends State<PlayerScreen>
         !controller.value.isInitialized) {
       return;
     }
-    await widget.onProgressChanged(
-        _media,
-        WatchProgress(
-          mediaId: _media.id,
-          // A newly selected option must write under its own id; otherwise a
-          // caller's initial episodeId would make every switched episode share
-          // one history record.
-          episodeId: option.id,
-          episodeLabel: episodeDisplayLabel(option),
-          episodeNumber: _currentEpisodeIndex + 1,
-          episodeCount: _episodes.length,
-          position: controller.value.position,
-          duration: controller.value.duration,
-          updatedAt: DateTime.now(),
-        ));
+    final progress = WatchProgress(
+      mediaId: _media.id,
+      episodeId: option.id,
+      episodeLabel: episodeDisplayLabel(option),
+      episodeNumber: _currentEpisodeIndex + 1,
+      episodeCount: _episodes.length,
+      position: controller.value.position,
+      duration: controller.value.duration,
+      updatedAt: DateTime.now(),
+    );
+    await widget.onProgressChanged(_media, progress);
+    if (flush) await widget.onProgressFlush?.call(_media, progress);
   }
 
   void _toggleControls() {
@@ -839,6 +839,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (controller == null) return;
     if (controller.value.isPlaying) {
       await controller.pause();
+      await _save(flush: true);
       _showControls();
     } else {
       await controller.play();
@@ -1106,7 +1107,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     widget.onAppPictureInPictureChanged?.call(false);
     _saveTimer?.cancel();
     try {
-      await _save();
+      await _save(flush: true);
     } finally {
       if (mounted) Navigator.of(context).pop();
     }
@@ -1256,7 +1257,7 @@ class _PlayerScreenState extends State<PlayerScreen>
     if (_isInPictureInPicture) {
       unawaited(_pictureInPicture.stop());
     }
-    if (!_isClosing) unawaited(_save());
+    if (!_isClosing) unawaited(_save(flush: true));
     unawaited(SystemChrome.setPreferredOrientations(DeviceOrientation.values));
     final controller = _controller;
     if (controller != null) {

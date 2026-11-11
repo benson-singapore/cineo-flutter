@@ -2,6 +2,9 @@ import 'package:flutter/material.dart';
 
 import '../../core/platform/adaptive_navigation.dart';
 import '../../core/theme/cineo_theme.dart';
+import '../../data/hub/hub_sync_engine.dart';
+import 'hub_sync_settings_screen.dart';
+import '../../data/repositories/local_media_repository.dart';
 import '../../data/download/download_service.dart';
 import '../app_lock/app_lock_controller.dart';
 import '../app_lock/pin_verification_dialog.dart';
@@ -23,6 +26,8 @@ class SettingsScreen extends StatefulWidget {
     required this.downloadService,
     required this.onOpenDownloadManager,
     this.appLockController,
+    this.hubSyncEngine,
+    this.repository,
   });
 
   final AdultSourceSettings adultSourceSettings;
@@ -32,6 +37,8 @@ class SettingsScreen extends StatefulWidget {
   final DownloadService downloadService;
   final VoidCallback onOpenDownloadManager;
   final AppLockController? appLockController;
+  final HubSyncEngine? hubSyncEngine;
+  final LocalMediaRepository? repository;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -89,6 +96,31 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   },
                 ),
                 const SizedBox(height: 28),
+                if (widget.hubSyncEngine != null &&
+                    widget.repository != null &&
+                    _matches('云端同步 Hub PIN 绑定 历史 收藏 站点')) ...[
+                  const _SettingsSectionLabel(title: '数据同步'),
+                  _SettingsPanel(
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
+                      leading: const _SettingsIcon(
+                          icon: Icons.cloud_sync_rounded,
+                          color: CineoColors.primary),
+                      title: const Text('云端同步'),
+                      subtitle: const Text('绑定 Cineo Hub 并同步设备数据'),
+                      trailing: const Icon(Icons.chevron_right_rounded,
+                          color: CineoColors.textSecondary),
+                      onTap: () => Navigator.of(context).push(adaptivePageRoute(
+                        context,
+                        builder: (_) => HubSyncSettingsScreen(
+                          engine: widget.hubSyncEngine!,
+                          repository: widget.repository!,
+                        ),
+                      )),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                ],
                 if (_matches('媒体服务 tmdb 数据增强 海报 剧集 简介')) ...[
                   const _SettingsSectionLabel(title: '媒体服务'),
                   _SettingsPanel(
@@ -219,6 +251,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   bool get _hasMatches =>
+      (widget.hubSyncEngine != null && _matches('云端同步 Hub PIN 绑定 历史 收藏 站点')) ||
       _matches('媒体服务 tmdb 数据增强 海报 剧集 简介') ||
       _matches('缓存下载 下载设置 并发 后台 缓存路径 存储') ||
       _matches('播放体验 m3u8 M3U8 广告 过滤 代理 视频') ||
