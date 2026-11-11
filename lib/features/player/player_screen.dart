@@ -2487,7 +2487,6 @@ class _GestureIndicator extends StatelessWidget {
     final icon = type == 'brightness'
         ? Icons.brightness_6_rounded
         : Icons.volume_up_rounded;
-    final label = type == 'brightness' ? '亮度' : '音量';
 
     return Container(
       width: 80,
