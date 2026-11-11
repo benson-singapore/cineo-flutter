@@ -1073,6 +1073,8 @@ void main() {
 
     await tester.tap(find.text('正确剧集名'));
     await tester.pumpAndSettle();
+    await tester.tap(find.text('确认匹配'));
+    await tester.pumpAndSettle();
     expect(find.text('正确简介'), findsOneWidget);
     expect(find.text('正确剧集名'), findsOneWidget);
   });

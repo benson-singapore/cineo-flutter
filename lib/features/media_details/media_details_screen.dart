@@ -440,6 +440,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
             ? _tmdbDetails!.title
             : _media.title,
         initialSeason: _tmdbDetails?.matchedSeason,
+        initialYear: _media.year > 0 ? _media.year : null,
         initialType: _media.kind == MediaKind.series
             ? TmdbMediaType.tv
             : TmdbMediaType.movie,
@@ -1751,6 +1752,7 @@ class _ManualTmdbMatchDialog extends StatefulWidget {
   const _ManualTmdbMatchDialog({
     required this.initialQuery,
     required this.initialSeason,
+    required this.initialYear,
     required this.initialType,
     required this.onSearch,
     required this.onLoadDetails,
@@ -1758,6 +1760,7 @@ class _ManualTmdbMatchDialog extends StatefulWidget {
 
   final String initialQuery;
   final int? initialSeason;
+  final int? initialYear;
   final TmdbMediaType initialType;
   final Future<List<TmdbMediaMatch>> Function(
       String query, TmdbMediaType? type, int? year) onSearch;
@@ -1770,7 +1773,8 @@ class _ManualTmdbMatchDialog extends StatefulWidget {
 class _ManualTmdbMatchDialogState extends State<_ManualTmdbMatchDialog> {
   late final TextEditingController _queryController =
       TextEditingController(text: widget.initialQuery);
-  late final TextEditingController _yearController = TextEditingController();
+  late final TextEditingController _yearController =
+      TextEditingController(text: widget.initialYear?.toString() ?? '');
   late TmdbMediaType _type = widget.initialType;
   List<TmdbMediaMatch> _matches = const [];
   TmdbMediaMatch? _selectedMatch;
