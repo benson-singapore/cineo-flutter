@@ -123,6 +123,31 @@ void main() {
     expect(settings.errorMessage, isNull);
   });
 
+  test(
+      'cloud managed TMDB settings are secure, read-only, and restored locally',
+      () async {
+    secureData[TMDBSettings.tokenStorageKey] = 'local-token';
+    final settings = TMDBSettings();
+    await settings.initialize();
+
+    await settings.applyCloudSettings(
+      tmdbKey: 'cloud-token',
+      language: 'en-US',
+      includeAdult: true,
+    );
+    expect(settings.isCloudManaged, isTrue);
+    expect(settings.cloudLanguage, 'en-US');
+    expect(settings.cloudIncludeAdult, isTrue);
+    expect(secureData['cineo.hub.cloud_tmdb_key'], 'cloud-token');
+    expect(await settings.readTokenForRequest(), 'cloud-token');
+    await expectLater(settings.saveToken('override'), throwsStateError);
+    await expectLater(settings.clearToken(), throwsStateError);
+
+    await settings.clearCloudSettings();
+    expect(settings.isCloudManaged, isFalse);
+    expect(await settings.readTokenForRequest(), 'local-token');
+  });
+
   test('rejects a blank token', () async {
     final settings = TMDBSettings();
 

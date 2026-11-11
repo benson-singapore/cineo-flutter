@@ -8,6 +8,22 @@ import 'package:cineo_flutter/data/remote/tmdb_client.dart';
 void main() {
   const token = 'test-bearer-token';
 
+  test('uses cloud managed TMDB language and adult preference', () async {
+    late Uri uri;
+    final client = TmdbClient(
+      bearerToken: token,
+      language: 'en-US',
+      includeAdult: true,
+      fetcher: (requested, _) async {
+        uri = requested;
+        return const TmdbHttpResponse(statusCode: 200, body: '{"results":[]}');
+      },
+    );
+    await client.search('Example', type: TmdbMediaType.movie);
+    expect(uri.queryParameters['language'], 'en-US');
+    expect(uri.queryParameters['include_adult'], 'true');
+  });
+
   test('sends Bearer token and Chinese search parameters', () async {
     late Uri uri;
     late Map<String, String> headers;

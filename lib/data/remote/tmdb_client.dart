@@ -49,6 +49,8 @@ class TmdbClient {
     required String bearerToken,
     TmdbFetcher? fetcher,
     this.timeout = const Duration(seconds: 15),
+    this.language = 'zh-CN',
+    this.includeAdult = false,
     Uri? baseUri,
   })  : _bearerToken = bearerToken.trim(),
         _fetcher = fetcher ?? _defaultFetch,
@@ -70,6 +72,8 @@ class TmdbClient {
   final String _bearerToken;
   final TmdbFetcher _fetcher;
   final Duration timeout;
+  final String language;
+  final bool includeAdult;
   final Uri _baseUri;
 
   Future<List<TmdbMediaMatch>> search(
@@ -86,8 +90,8 @@ class TmdbClient {
             : 'search/multi';
     final payload = await _request(endpoint, <String, String>{
       'query': query,
-      'language': 'zh-CN',
-      'include_adult': 'false',
+      'language': language,
+      'include_adult': '$includeAdult',
       if (year != null && type == TmdbMediaType.movie) 'year': '$year',
       if (year != null && type == TmdbMediaType.tv)
         'first_air_date_year': '$year',
@@ -118,7 +122,7 @@ class TmdbClient {
     final path = match.mediaType == TmdbMediaType.tv
         ? 'tv/${match.id}'
         : 'movie/${match.id}';
-    final payload = await _request(path, const {'language': 'zh-CN'});
+    final payload = await _request(path, {'language': language});
     return _detailsFromMap(payload, match);
   }
 
@@ -126,8 +130,7 @@ class TmdbClient {
     final path = details.mediaType == TmdbMediaType.tv
         ? 'tv/${details.id}'
         : 'movie/${details.id}';
-    final creditsFuture =
-        _request('$path/credits', const {'language': 'zh-CN'});
+    final creditsFuture = _request('$path/credits', {'language': language});
     final seasonsFuture = details.mediaType == TmdbMediaType.tv
         ? Future.wait(
             details.seasons.map(
@@ -175,7 +178,7 @@ class TmdbClient {
     }
     final payload = await _request(
       'tv/$tvId/season/$seasonNumber',
-      const {'language': 'zh-CN'},
+      {'language': language},
     );
     return _seasonFromMap(payload, seasonNumber: seasonNumber);
   }

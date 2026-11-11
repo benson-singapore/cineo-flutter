@@ -83,7 +83,10 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
         const SizedBox(height: 20),
         _buildStatus(context),
         const SizedBox(height: 16),
-        _buildTokenPanel(context),
+        if (_settings.isCloudManaged)
+          _buildCloudManagedPanel(context)
+        else
+          _buildTokenPanel(context),
         if (_settings.isBusy) ...[
           const SizedBox(height: 16),
           const LinearProgressIndicator(),
@@ -94,6 +97,28 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
         ],
         _buildCacheSection(context),
       ],
+    );
+  }
+
+  Widget _buildCloudManagedPanel(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: CineoColors.surface,
+        borderRadius: BorderRadius.circular(28),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text('由云端管理', style: Theme.of(context).textTheme.titleMedium),
+          const SizedBox(height: 8),
+          Text('TMDB Key、语言和成人内容偏好由 Cineo Hub 下发。',
+              style: Theme.of(context).textTheme.bodyMedium),
+          const SizedBox(height: 12),
+          Text('语言：${_settings.cloudLanguage}'),
+          Text('成人内容：${_settings.cloudIncludeAdult ? '开启' : '关闭'}'),
+        ],
+      ),
     );
   }
 
@@ -366,7 +391,7 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
   }
 
   Widget _buildStatus(BuildContext context) {
-    final configured = _settings.configured;
+    final configured = _settings.configured || _settings.isCloudManaged;
     return Container(
       padding: const EdgeInsets.all(16),
       decoration: BoxDecoration(
@@ -392,7 +417,11 @@ class _TMDBSettingsScreenState extends State<TMDBSettingsScreen> {
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  configured ? 'TMDB Token 已安全保存' : '尚未保存 TMDB Token',
+                  _settings.isCloudManaged
+                      ? '由云端管理'
+                      : configured
+                          ? 'TMDB Token 已安全保存'
+                          : '尚未保存 TMDB Token',
                   style: Theme.of(context).textTheme.bodySmall,
                 ),
               ],
