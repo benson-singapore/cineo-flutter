@@ -2,8 +2,8 @@ SHELL := /bin/bash
 
 # 公开版本号；内部构建号单独维护。
 # 注：版本号更新时，使用 make version 或 make bump-* 命令会自动同步 README 中的版本 badge
-VERSION := 1.3.6
-BUILD_NUMBER := 13
+VERSION := 1.3.7
+BUILD_NUMBER := 14
 BRANCH ?= main
 
 .PHONY: help publish version bump-patch bump-minor bump-major signing-setup android ios build release sync-build clean
