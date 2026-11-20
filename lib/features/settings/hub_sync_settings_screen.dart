@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../data/hub/hub_sync_engine.dart';
 import '../../data/repositories/local_media_repository.dart';
@@ -226,6 +227,8 @@ class _HubSyncSettingsScreenState extends State<HubSyncSettingsScreen> {
             TextField(
                 controller: _pin,
                 keyboardType: TextInputType.number,
+                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                onChanged: (_) => setState(() {}),
                 maxLength: 8,
                 decoration: const InputDecoration(labelText: '8 位 PIN')),
             FilledButton(
