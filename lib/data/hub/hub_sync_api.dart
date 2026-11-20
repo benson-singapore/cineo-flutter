@@ -111,6 +111,12 @@ class HubSyncApi {
         'cursor': cursor,
         'limit': 500
       });
+  Future<Map<String, Object?>> inputSessions() =>
+      _request('GET', '/device/input-sessions');
+  Future<Map<String, Object?>> submitInput(String id, String text) => _request(
+      'POST', '/device/input-sessions/${Uri.encodeComponent(id)}/submit',
+      body: {'text': text});
+
   Future<Map<String, Object?>> settings() =>
       _request('GET', '/device/settings');
 

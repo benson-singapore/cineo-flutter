@@ -30,6 +30,7 @@ import 'features/media_details/media_details_screen.dart';
 import 'features/player/player_screen.dart';
 import 'features/profile/profile.dart';
 import 'features/search/search_screen.dart';
+import 'features/search/phone_search_assist.dart';
 import 'features/search/category_browse_screen.dart';
 import 'features/settings/adult_source_settings.dart';
 import 'features/settings/m3u8_filter_settings.dart';
@@ -143,18 +144,21 @@ class _CineoAppState extends State<CineoApp> with WidgetsBindingObserver {
       theme: buildCineoTheme(),
       home: AppLockGate(
         controller: _appLockController,
-        child: CineoShell(
-          repository: _repository,
-          appLockController: _appLockController,
-          adultSourceSettings: _adultSourceSettings,
-          m3u8FilterSettings: _m3u8FilterSettings,
-          tmdbSettings: _tmdbSettings,
-          tmdbMetadata: _tmdbMetadata,
-          tmdbCacheController: _tmdbCacheController,
-          updateService: _updateService,
-          downloadService: _downloadService,
-          hubSyncEngine: _hubSyncEngine,
-          hubSyncTriggers: _hubSyncTriggers,
+        child: PhoneSearchAssist(
+          credentials: _hubCredentials,
+          child: CineoShell(
+            repository: _repository,
+            appLockController: _appLockController,
+            adultSourceSettings: _adultSourceSettings,
+            m3u8FilterSettings: _m3u8FilterSettings,
+            tmdbSettings: _tmdbSettings,
+            tmdbMetadata: _tmdbMetadata,
+            tmdbCacheController: _tmdbCacheController,
+            updateService: _updateService,
+            downloadService: _downloadService,
+            hubSyncEngine: _hubSyncEngine,
+            hubSyncTriggers: _hubSyncTriggers,
+          ),
         ),
       ),
     );

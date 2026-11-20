@@ -7,6 +7,7 @@ import 'hub_sync_settings_screen.dart';
 import '../../data/repositories/local_media_repository.dart';
 import '../../data/download/download_service.dart';
 import '../app_lock/app_lock_controller.dart';
+import '../search/phone_search_assist.dart';
 import '../app_lock/pin_verification_dialog.dart';
 import 'adult_source_settings.dart';
 import 'm3u8_filter_settings.dart';
@@ -117,6 +118,26 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           repository: widget.repository!,
                         ),
                       )),
+                    ),
+                  ),
+                  const SizedBox(height: 28),
+                ],
+                if (widget.hubSyncEngine != null &&
+                    _matches('电视 协助输入 搜索 手动 检查')) ...[
+                  const _SettingsSectionLabel(title: '电视协助'),
+                  _SettingsPanel(
+                    child: ListTile(
+                      contentPadding: const EdgeInsets.fromLTRB(16, 9, 12, 9),
+                      leading: const _SettingsIcon(
+                        icon: Icons.keyboard_rounded,
+                        color: CineoColors.primary,
+                      ),
+                      title: const Text('电视协助输入'),
+                      subtitle: const Text('检查电视是否正在等待输入'),
+                      trailing: const Icon(Icons.chevron_right_rounded,
+                          color: CineoColors.textSecondary),
+                      onTap: () => showManualPhoneSearchAssist(
+                          context, widget.hubSyncEngine!.api),
                     ),
                   ),
                   const SizedBox(height: 28),
@@ -252,6 +273,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   bool get _hasMatches =>
       (widget.hubSyncEngine != null && _matches('云端同步 Hub PIN 绑定 历史 收藏 站点')) ||
+      (widget.hubSyncEngine != null && _matches('电视 协助输入 搜索 手动 检查')) ||
       _matches('媒体服务 tmdb 数据增强 海报 剧集 简介') ||
       _matches('缓存下载 下载设置 并发 后台 缓存路径 存储') ||
       _matches('播放体验 m3u8 M3U8 广告 过滤 代理 视频') ||
