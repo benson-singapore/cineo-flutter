@@ -101,6 +101,8 @@ class HubSyncApi {
           {String? trigger}) =>
       _request('POST', '/device/sync/push',
           body: {'items': items}, trigger: trigger);
+  Future<Map<String, Object?>> fillPosters(List<Map<String, Object?>> items) =>
+      _request('POST', '/device/sync/posters', body: {'items': items});
   Future<Map<String, Object?>> pull(int since, {String? trigger}) =>
       _request('GET', '/device/sync/pull?since=$since&limit=500',
           trigger: trigger);
