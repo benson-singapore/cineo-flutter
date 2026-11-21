@@ -320,24 +320,47 @@ class _HubSyncSettingsScreenState extends State<HubSyncSettingsScreen> {
                       if (value != null) _setInterval(value);
                     },
             ),
+            const SizedBox(height: 20),
+            Text('同步操作', style: Theme.of(context).textTheme.titleMedium),
+            const SizedBox(height: 6),
+            Text('推送全部按较新的数据为准。',
+                style: Theme.of(context).textTheme.bodyMedium?.copyWith(
+                    color: Theme.of(context).colorScheme.onSurfaceVariant)),
             const SizedBox(height: 12),
-            const Text('推送全部按较新的数据为准。'),
             FilledButton(
                 onPressed: _busy ? null : _pushAll, child: const Text('推送全部')),
+            const SizedBox(height: 10),
             OutlinedButton(
                 onPressed: _busy ? null : _clearConflicts,
                 child: Text('清理旧冲突操作（$_conflictCount）')),
-            if (_pushTotal > 0) ...[
-              LinearProgressIndicator(
-                  value: _pushTotal == 0 ? null : _pushSent / _pushTotal),
-              Text('已推送 $_pushSent/$_pushTotal'),
+            if (_pushTotal > 0 || _pushSummary != null) ...[
+              const SizedBox(height: 12),
+              if (_pushTotal > 0) ...[
+                LinearProgressIndicator(value: _pushSent / _pushTotal),
+                const SizedBox(height: 6),
+                Text('已推送 $_pushSent/$_pushTotal',
+                    style: Theme.of(context).textTheme.bodySmall),
+              ],
+              if (_pushSummary != null) ...[
+                if (_pushTotal > 0) const SizedBox(height: 6),
+                Text('最近推送：$_pushSummary',
+                    style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                        color: Theme.of(context).colorScheme.onSurfaceVariant)),
+              ],
             ],
-            if (_pushSummary != null) Text('最近推送：$_pushSummary'),
+            const SizedBox(height: 24),
             FilledButton.tonal(
                 onPressed: _busy ? null : _pullNow, child: const Text('立即拉取')),
-            if (_pullSummary != null) Text('最近拉取：$_pullSummary'),
+            if (_pullSummary != null) ...[
+              const SizedBox(height: 8),
+              Text('最近拉取：$_pullSummary',
+                  style: Theme.of(context).textTheme.bodySmall?.copyWith(
+                      color: Theme.of(context).colorScheme.onSurfaceVariant)),
+            ],
+            const SizedBox(height: 10),
             OutlinedButton(
                 onPressed: _busy ? null : _sync, child: const Text('推送并拉取')),
+            const SizedBox(height: 18),
             TextButton(
                 onPressed: _busy ? null : _unbind, child: const Text('解除本机绑定')),
           ],

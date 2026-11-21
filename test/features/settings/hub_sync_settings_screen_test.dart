@@ -1,10 +1,12 @@
 import 'dart:io';
+import 'dart:ui' as ui;
 
 import 'package:cineo_flutter/data/hub/hub_sync_api.dart';
 import 'package:cineo_flutter/data/hub/hub_sync_engine.dart';
 import 'package:cineo_flutter/data/repositories/local_media_repository.dart';
 import 'package:cineo_flutter/features/settings/hub_sync_settings_screen.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_secure_storage/test/test_flutter_secure_storage_platform.dart';
 // ignore: depend_on_referenced_packages
 import 'package:flutter_secure_storage_platform_interface/flutter_secure_storage_platform_interface.dart';
@@ -38,6 +40,51 @@ void main() {
     await repository.close();
     await directory.delete(recursive: true);
   });
+
+  for (final size in [const Size(320, 568), const Size(390, 844), const Size(600, 900)]) {
+    testWidgets('sync controls remain usable with long status at $size', (tester) async {
+      tester.view.physicalSize = size;
+      tester.view.devicePixelRatio = 1;
+      addTearDown(tester.view.resetPhysicalSize);
+      addTearDown(tester.view.resetDevicePixelRatio);
+      await tester.runAsync(() async {
+        await engine.api.credentials.save(hubUrl: 'https://hub.example.test', deviceId: 'device', token: 'token');
+        final db = await repository.hubDatabase;
+        await db.insert('hub_sync_state', {'state_key': 'last_error', 'value': '同步遇到问题，请检查网络设置后重试。' * 12});
+      });
+      const captureKey = Key('capture-sync-screen');
+      await tester.pumpWidget(MaterialApp(home: RepaintBoundary(key: captureKey, child: HubSyncSettingsScreen(engine: engine, repository: repository))));
+      await tester.runAsync(() async => Future<void>.delayed(const Duration(milliseconds: 100)));
+      await tester.pumpAndSettle();
+      final push = find.widgetWithText(FilledButton, '推送全部');
+      final clean = find.textContaining('清理旧冲突操作（');
+      final pushRect = tester.getRect(push);
+      final cleanRect = tester.getRect(find.ancestor(of: clean, matching: find.byType(OutlinedButton)).first);
+      expect(cleanRect.top - pushRect.bottom, greaterThanOrEqualTo(8));
+      await tester.ensureVisible(find.text('立即拉取'));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.text('推送并拉取'));
+      await tester.pumpAndSettle();
+      final boundary = tester.renderObject<RenderRepaintBoundary>(find.byKey(captureKey));
+      await tester.runAsync(() async {
+        final image = await boundary.toImage(pixelRatio: 1);
+        final bytes = await image.toByteData(format: ui.ImageByteFormat.png);
+        await File('/tmp/cineo-sync-${size.width.toInt()}x${size.height.toInt()}.png').writeAsBytes(bytes!.buffer.asUint8List());
+        image.dispose();
+      });
+      for (final label in ['推送全部', '立即拉取', '推送并拉取', '解除本机绑定']) {
+        final item = find.text(label);
+        await tester.ensureVisible(item);
+        await tester.pumpAndSettle();
+        expect(item, findsOneWidget);
+        expect(tester.takeException(), isNull);
+      }
+      await tester.ensureVisible(find.textContaining('同步遇到问题'));
+      await tester.pumpAndSettle();
+      expect(find.textContaining('同步遇到问题'), findsOneWidget);
+      expect(tester.takeException(), isNull);
+    });
+  }
 
   testWidgets('bind button follows the eight digit PIN input', (tester) async {
     await tester.pumpWidget(MaterialApp(
