@@ -908,6 +908,83 @@ void main() {
     expect(await db.query('hub_outbox'), hasLength(1));
   });
 
+  for (final scenario in ['deleted', 'pending', 'newer', 'unknown']) {
+    test(
+        'rebuild protects local episode data: $scenario',
+        () async {
+      final source = (await repository.sources()).single;
+      final key =
+          hubMediaKey(sourceKey: hubSourceKey(source.baseUrl), vodId: '42');
+      var pulls = 0;
+      final api = HubSyncApi(
+          credentials: await boundCredentials(),
+          client: MockClient((request) async {
+            if (request.url.path.endsWith('/pull')) {
+              if (++pulls > 1) return envelope(409, null, code: 40900);
+              return envelope(200, {
+                'items': [
+                  {
+                    'entity': 'history',
+                    'key': key,
+                    'updated_at': 1000,
+                    'deleted': false,
+                    'payload': {
+                      'title': '节目',
+                      'video': {'remoteId': '42'},
+                      'source_api': source.baseUrl,
+                      'line_name': 'A',
+                      'episode_title': '第1集',
+                      'cineo_index_base': 0,
+                      'episode_index': 0,
+                      'position_ms': 500,
+                      'duration_ms': 1000
+                    }
+                  }
+                ],
+                'next_seq': 1,
+                'generation': 1,
+                'has_more': false
+              });
+            }
+            if (request.url.path.endsWith('/rebuild'))
+              return envelope(200, {
+                'items': [],
+                'generation': 2,
+                'next_seq': 2,
+                'has_more': false
+              });
+            return envelope(200, {'preferences': {}, 'updated_at': 0});
+          }));
+      final engine = HubSyncEngine(repository: repository, api: api);
+      await engine.pullAndApply();
+      expect(await repository.watchHistory(), hasLength(1));
+      final db = await repository.hubDatabase;
+      expect(await db.query('progress'), hasLength(1));
+      if (scenario == 'newer') {
+        await db.update('progress', {'updated_at': 2000});
+      }
+      if (scenario == 'unknown') {
+        await db.update('progress', {'episode_id': 'legacy-episode'});
+      }
+      if (scenario == 'pending') {
+        await db.insert('hub_outbox', {
+          'entity': 'progress',
+          'record_key': '$key:A:0',
+          'updated_at': 2000,
+          'deleted': 0,
+          'payload_json': '{}',
+          'attempts': 0,
+          'next_attempt_at': 0
+        });
+      }
+      await engine.pullAndApply();
+      final retained = scenario != 'deleted';
+      expect(await repository.watchHistory(), hasLength(retained ? 1 : 0));
+      expect(await db.query('progress'), hasLength(retained ? 1 : 0));
+      expect(await db.query('hub_outbox'), hasLength(scenario == 'pending' ? 1 : 0));
+    });
+  }
+
   test('resync holds old outbox until the user rebuilds from local data',
       () async {
     var pullRequests = 0;

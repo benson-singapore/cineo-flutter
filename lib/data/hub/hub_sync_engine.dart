@@ -1018,6 +1018,7 @@ class HubSyncEngine {
               final raw = jsonDecode(row['value']! as String);
               if (raw is Map) {
                 final old = SyncEnvelope.fromJson(raw.cast<String, Object?>());
+                await _removeDerivedProgress(db, old);
                 await _applyMediaEntity(
                     db, old.copyWith(deleted: true, payload: null));
               }
@@ -1039,6 +1040,64 @@ class HubSyncEngine {
     }
     await _materializeRemoteMediaRecords(db);
     return rebuilt;
+  }
+
+  // History alone may have materialized an episode; only remove Hub-owned rows.
+  Future<void> _removeDerivedProgress(
+      DatabaseExecutor db, SyncEnvelope old) async {
+    if (old.deleted || !const {'history', 'progress'}.contains(old.entity)) {
+      return;
+    }
+    final parts = old.key.split(':');
+    if (parts.length != 2 && parts.length != 4) return;
+    final filmKey = parts.take(2).join(':');
+    final pending = await db.query('hub_outbox',
+        columns: ['record_key'], where: "entity IN ('history','progress')");
+    if (pending.any((row) {
+      final key = row['record_key'] as String;
+      return key == filmKey || key.startsWith('$filmKey:');
+    })) return;
+    final sourceIds = <String>{};
+    for (final source
+        in await db.query('sources', columns: ['id', 'base_url'])) {
+      try {
+        if (hubSourceKey(source['base_url'] as String) == parts[0]) {
+          sourceIds.add(source['id'] as String);
+        }
+      } on FormatException {
+        continue;
+      }
+    }
+    if (sourceIds.length != 1) return;
+    final rows = await db.query('media_snapshots',
+        columns: ['media_id'],
+        where: 'source_id=? AND remote_id=?',
+        whereArgs: [sourceIds.single, Uri.decodeComponent(parts[1])]);
+    if (rows.length != 1) return;
+    final mediaId = rows.single['media_id'] as String;
+    final payload = old.payload ?? const <String, Object?>{};
+    final line = payload['line_name'];
+    final index = payload['episode_index'];
+    if (payload['cineo_index_base'] == 0 &&
+        line is String &&
+        line.isNotEmpty &&
+        index is int &&
+        index >= 0) {
+      if (parts.length == 4 &&
+          (Uri.decodeComponent(parts[2]) != line ||
+              int.tryParse(parts[3]) != index)) return;
+      final episodeId = 'hub0:${syncEncode(line)}:$index';
+      await db.delete('progress',
+          where:
+              'media_id=? AND episode_id=? AND line_name=? AND episode_number=? AND updated_at<=?',
+          whereArgs: [mediaId, episodeId, line, index + 1, old.updatedAt]);
+    } else if (parts.length == 2 &&
+        payload['cineo_media_kind'] == MediaKind.movie.index) {
+      final movieKey = '$mediaId:hubmovie:${syncEncode(old.key)}';
+      await db.delete('progress',
+          where: 'progress_key=? AND updated_at<=?',
+          whereArgs: [movieKey, old.updatedAt]);
+    }
   }
 
   Future<void> _materializeRemoteMediaRecords(DatabaseExecutor db) async {
@@ -1194,6 +1253,13 @@ class HubSyncEngine {
       return;
     }
     if (item.deleted) {
+      final filmKey = item.key.split(':').take(2).join(':');
+      final pending = await db.query('hub_outbox',
+          columns: ['record_key'], where: "entity IN ('history','progress')");
+      if (pending.any((row) {
+        final key = row['record_key'] as String;
+        return key == filmKey || key.startsWith('$filmKey:');
+      })) return;
       // Only a four-part progress tombstone identifies a particular episode.
       // Legacy records with ambiguous bases and local option IDs are retained.
       if (item.entity == 'progress' && parts.length == 2) {
@@ -1401,6 +1467,9 @@ class HubSyncEngine {
                 (item.updatedAt == previous.updatedAt &&
                     previous.deleted &&
                     !item.deleted)) return;
+            if (item.deleted && !previous.deleted) {
+              await _removeDerivedProgress(db, previous);
+            }
           }
         } on FormatException {
           return;
