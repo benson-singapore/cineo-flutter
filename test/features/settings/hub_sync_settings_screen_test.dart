@@ -70,4 +70,53 @@ void main() {
     expect(tester.widget<TextField>(pin).controller!.text, '12345678');
     expect(enabled(), isTrue);
   });
+  testWidgets(
+      'conflict cleanup requires confirmation and preserves data on cancel',
+      (tester) async {
+    final db = await tester.runAsync(() async {
+      await engine.api.credentials.save(
+          hubUrl: 'https://hub.example.test',
+          deviceId: 'device',
+          token: 'token');
+      final db = await repository.hubDatabase;
+      await db.insert('hub_outbox', {
+        'entity': 'history',
+        'record_key': 'old',
+        'updated_at': 1,
+        'deleted': 0,
+        'payload_json': '{}',
+        'attempts': 0,
+        'next_attempt_at': 0
+      });
+      return db;
+    });
+    await tester.pumpWidget(MaterialApp(
+        home: HubSyncSettingsScreen(engine: engine, repository: repository)));
+    await tester.runAsync(
+        () async => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pumpAndSettle();
+    final button = find.text('清理旧冲突操作（1）');
+    await tester.ensureVisible(button);
+    await tester.tap(button);
+    await tester.runAsync(
+        () async => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pumpAndSettle();
+    expect(find.text('清理旧冲突操作？'), findsOneWidget);
+    await tester.tap(find.text('取消'));
+    await tester.pumpAndSettle();
+    final before = await tester.runAsync(() => db!.query('hub_outbox'));
+    expect(before, hasLength(1));
+    await tester.tap(button);
+    await tester.runAsync(
+        () async => Future<void>.delayed(const Duration(milliseconds: 100)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('确认清理'));
+    for (var i = 0; i < 10; i++) {
+      await tester.runAsync(
+          () async => Future<void>.delayed(const Duration(milliseconds: 50)));
+      await tester.pump(const Duration(milliseconds: 50));
+    }
+    final after = await tester.runAsync(() => db!.query('hub_outbox'));
+    expect(after, isEmpty);
+  });
 }

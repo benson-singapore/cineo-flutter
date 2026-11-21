@@ -21,6 +21,7 @@ class _HubSyncSettingsScreenState extends State<HubSyncSettingsScreen> {
   bool _revoked = false;
   bool _resyncPending = false;
   int _staleOutboxCount = 0;
+  int _conflictCount = 0;
   String? _lastSync;
   String? _error;
   int _progressInterval = 10;
@@ -51,6 +52,7 @@ class _HubSyncSettingsScreenState extends State<HubSyncSettingsScreen> {
     final state = {for (final row in rows) row['state_key']: row['value']};
     final time = int.tryParse(state['last_sync_at'] as String? ?? '');
     final staleOutboxCount = await widget.engine.staleOutboxCount;
+    final conflictCount = await widget.engine.clearableConflictCount;
     if (mounted) {
       setState(() {
         _progressInterval =
@@ -58,6 +60,7 @@ class _HubSyncSettingsScreenState extends State<HubSyncSettingsScreen> {
         _revoked = state['revoked'] == 'true';
         _resyncPending = state['resync_pending'] == 'true';
         _staleOutboxCount = staleOutboxCount;
+        _conflictCount = conflictCount;
         _lastSync = time == null
             ? null
             : DateTime.fromMillisecondsSinceEpoch(time)
@@ -154,6 +157,50 @@ class _HubSyncSettingsScreenState extends State<HubSyncSettingsScreen> {
       if (mounted) {
         await _load();
         setState(() => _busy = false);
+      }
+    }
+  }
+
+  Future<void> _clearConflicts() async {
+    final snapshot = await widget.engine.conflictSnapshot();
+    final count = snapshot.length;
+    if (!mounted) return;
+    if (count == 0) {
+      setState(() {
+        _conflictCount = 0;
+        _pushSummary = '没有可清理的旧冲突操作';
+      });
+      return;
+    }
+    final accepted = await showDialog<bool>(
+        context: context,
+        builder: (context) => AlertDialog(
+              title: const Text('清理旧冲突操作？'),
+              content: Text(
+                  '将从本机待同步队列删除 $count 条旧的、无法确认身份或冲突的操作，包含待删除操作。此操作无法撤销；本机观看记录和 Hub 数据不会在此步骤删除。'),
+              actions: [
+                TextButton(
+                    onPressed: () => Navigator.pop(context, false),
+                    child: const Text('取消')),
+                FilledButton(
+                    onPressed: () => Navigator.pop(context, true),
+                    child: const Text('确认清理'))
+              ],
+            ));
+    if (accepted != true || !mounted) return;
+    setState(() {
+      _busy = true;
+      _error = null;
+    });
+    try {
+      final removed = await widget.engine.clearConflictOutbox(snapshot);
+      if (mounted) setState(() => _pushSummary = '已清理 $removed 条旧冲突操作，可重新推送');
+    } catch (error) {
+      if (mounted) setState(() => _error = '清理失败：$error');
+    } finally {
+      if (mounted) {
+        await _load();
+        if (mounted) setState(() => _busy = false);
       }
     }
   }
@@ -260,7 +307,7 @@ class _HubSyncSettingsScreenState extends State<HubSyncSettingsScreen> {
                 ),
               ),
             Text('进度推送间隔', style: Theme.of(context).textTheme.titleMedium),
-            const Text('仅保存在本机，不同步到云端'),
+            const Text('此间隔设置仅保存在本机；播放进度会按间隔推送到云端。'),
             DropdownButton<int>(
               value: _progressInterval,
               items: const [5, 10, 15, 30, 60]
@@ -277,6 +324,9 @@ class _HubSyncSettingsScreenState extends State<HubSyncSettingsScreen> {
             const Text('推送全部按较新的数据为准。'),
             FilledButton(
                 onPressed: _busy ? null : _pushAll, child: const Text('推送全部')),
+            OutlinedButton(
+                onPressed: _busy ? null : _clearConflicts,
+                child: Text('清理旧冲突操作（$_conflictCount）')),
             if (_pushTotal > 0) ...[
               LinearProgressIndicator(
                   value: _pushTotal == 0 ? null : _pushSent / _pushTotal),
