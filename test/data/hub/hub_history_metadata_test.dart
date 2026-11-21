@@ -18,74 +18,102 @@ void main() {
     sqfliteFfiInit();
     databaseFactory = databaseFactoryFfi;
   });
-  test('pull restores TV metadata and repairs existing placeholder', () async {
-    final dir = await Directory.systemTemp.createTemp('hub_metadata_');
-    final repository = LocalMediaRepository(databasePath: '${dir.path}/db');
-    addTearDown(() async {
-      await repository.close();
-      await dir.delete(recursive: true);
-    });
-    FlutterSecureStoragePlatform.instance =
-        TestFlutterSecureStoragePlatform(<String, String>{});
-    final credentials = HubDeviceCredentials();
-    await credentials.save(
-        hubUrl: 'https://hub.example.test', deviceId: 'test', token: 'test');
-    final source = (await repository.sources()).single;
-    final key =
-        hubMediaKey(sourceKey: hubSourceKey(source.baseUrl), vodId: '42');
-    var pulls = 0;
-    final engine = HubSyncEngine(
-        repository: repository,
-        api: HubSyncApi(
-            credentials: credentials,
-            client: MockClient((request) async {
-              Object data;
-              if (request.url.path.endsWith('/pull')) {
-                pulls++;
-                data = {
-                  'items': pulls == 1
-                      ? [
-                          {
-                            'entity': 'history',
-                            'key': key,
-                            'updated_at': 1000,
-                            'deleted': false,
-                            'payload': {
-                              'video': {
-                                'title': '测试影片',
-                                'posterUrl': 'https://example.test/poster.jpg'
-                              },
-                              'position_ms': 1000,
-                              'duration_ms': 10000
+  for (final nestedYear in <Object?>['2025', null, '', 0, 'invalid']) {
+    test('pull restores TV metadata with nested year $nestedYear', () async {
+      final dir = await Directory.systemTemp.createTemp('hub_metadata_');
+      final repository = LocalMediaRepository(databasePath: '${dir.path}/db');
+      addTearDown(() async {
+        await repository.close();
+        await dir.delete(recursive: true);
+      });
+      FlutterSecureStoragePlatform.instance =
+          TestFlutterSecureStoragePlatform(<String, String>{});
+      final credentials = HubDeviceCredentials();
+      await credentials.save(
+          hubUrl: 'https://hub.example.test', deviceId: 'test', token: 'test');
+      final source = (await repository.sources()).single;
+      final key =
+          hubMediaKey(sourceKey: hubSourceKey(source.baseUrl), vodId: '42');
+      var pulls = 0;
+      final engine = HubSyncEngine(
+          repository: repository,
+          api: HubSyncApi(
+              credentials: credentials,
+              client: MockClient((request) async {
+                Object data;
+                if (request.url.path.endsWith('/pull')) {
+                  pulls++;
+                  data = {
+                    'items': pulls == 1
+                        ? [
+                            {
+                              'entity': 'history',
+                              'key': key,
+                              'updated_at': 1000,
+                              'deleted': false,
+                              'payload': {
+                                'year': 2025,
+                                'video': {
+                                  'title': '测试影片',
+                                  'year': nestedYear,
+                                  'category': '动作,悬疑',
+                                  'posterUrl': 'https://example.test/poster.jpg'
+                                },
+                                'position_ms': 1000,
+                                'duration_ms': 10000
+                              }
                             }
-                          }
-                        ]
-                      : [],
-                  'next_seq': 1,
-                  'generation': 1,
-                  'has_more': false
-                };
-              } else {
-                data = {'preferences': <String, Object>{}, 'tmdb_key': null};
-              }
-              return http.Response(
-                  jsonEncode({'code': 200, 'message': 'ok', 'data': data}), 200,
-                  headers: const {
-                    'content-type': 'application/json; charset=utf-8'
-                  });
-            })));
-    await engine.pullAndApply();
-    final history = await repository.watchHistory();
-    final media = (await repository.getById(history.single.mediaId))!;
-    expect(media.id, '${source.id}:42');
-    expect(media.title, '测试影片');
-    expect(media.posterUrl, 'https://example.test/poster.jpg');
-    final db = await repository.hubDatabase;
-    await db.update('media_snapshots', {'title': 'Hub 媒体', 'poster_url': ''},
-        where: 'media_id=?', whereArgs: [media.id]);
-    await engine.pullAndApply();
-    final repaired = (await repository.getById(media.id))!;
-    expect(repaired.title, '测试影片');
-    expect(repaired.posterUrl, 'https://example.test/poster.jpg');
-  });
+                          ]
+                        : [],
+                    'next_seq': 1,
+                    'generation': 1,
+                    'has_more': false
+                  };
+                } else {
+                  data = {'preferences': <String, Object>{}, 'tmdb_key': null};
+                }
+                return http.Response(
+                    jsonEncode({'code': 200, 'message': 'ok', 'data': data}),
+                    200,
+                    headers: const {
+                      'content-type': 'application/json; charset=utf-8'
+                    });
+              })));
+      await engine.pullAndApply();
+      final history = await repository.watchHistory();
+      final media = (await repository.getById(history.single.mediaId))!;
+      expect(media.id, '${source.id}:42');
+      expect(media.title, '测试影片');
+      expect(media.year, 2025);
+      expect(media.genres, ['动作', '悬疑']);
+      expect(media.category, '动作,悬疑');
+      expect(media.posterUrl, 'https://example.test/poster.jpg');
+      final db = await repository.hubDatabase;
+      await db.update(
+          'media_snapshots',
+          {
+            'title': 'Hub 媒体',
+            'poster_url': '',
+            'year': 0,
+            'category': '',
+            'genres_json': '[]'
+          },
+          where: 'media_id=?',
+          whereArgs: [media.id]);
+      await engine.pullAndApply();
+      final repaired = (await repository.getById(media.id))!;
+      expect(repaired.title, '测试影片');
+      expect(repaired.year, 2025);
+      expect(repaired.genres, ['动作', '悬疑']);
+      expect(repaired.posterUrl, 'https://example.test/poster.jpg');
+      await db.update('media_snapshots',
+          {'year': 2023, 'category': '本地分类', 'genres_json': '["本地分类"]'},
+          where: 'media_id=?', whereArgs: [media.id]);
+      await engine.pullAndApply();
+      final existing = (await repository.getById(media.id))!;
+      expect(existing.year, 2023);
+      expect(existing.category, '本地分类');
+      expect(existing.genres, ['本地分类']);
+    });
+  }
 }

@@ -140,7 +140,10 @@ class _MediaPosterCardState extends State<MediaPosterCard> {
                 Text(
                   widget.showDescription
                       ? widget.media.description
-                      : '${widget.media.year}  ·  ${widget.media.genres.take(2).join(' / ')}',
+                      : [
+                          if (widget.media.year > 0) '${widget.media.year}',
+                          ...widget.media.genres.take(2)
+                        ].join('  ·  '),
                   maxLines: widget.showDescription ? 2 : 1,
                   overflow: TextOverflow.ellipsis,
                   style: theme.textTheme.bodySmall?.copyWith(

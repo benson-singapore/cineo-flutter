@@ -1192,6 +1192,27 @@ class HubSyncEngine {
         : video['title']) as String?;
     final poster =
         video['posterUrl'] is String ? video['posterUrl'] as String : '';
+    final nestedYear = int.tryParse('${video['year']}') ?? 0;
+    final topLevelYear = int.tryParse('${payload['year']}') ?? 0;
+    final year = nestedYear > 0 ? nestedYear : topLevelYear;
+    final nestedCategory = video['category'];
+    final flatCategory = payload['category'];
+    final category =
+        (nestedCategory is String && nestedCategory.trim().isNotEmpty
+                ? nestedCategory
+                : flatCategory is String
+                    ? flatCategory
+                    : '')
+            .trim();
+    final genres = category
+        .split(RegExp(r'[,/， ]+'))
+        .where((value) => value.isNotEmpty)
+        .toList();
+    final inferredKind = category.isEmpty
+        ? null
+        : RegExp(r'剧|番|动漫|动画|综艺', caseSensitive: false).hasMatch(category)
+            ? MediaKind.series.index
+            : MediaKind.movie.index;
     if (existingSnapshots.isNotEmpty && !item.deleted) {
       final snapshot = existingSnapshots.first;
       final updates = <String, Object?>{};
@@ -1203,6 +1224,26 @@ class HubSyncEngine {
       if ((snapshot['poster_url'] as String? ?? '').isEmpty &&
           poster.trim().isNotEmpty) {
         updates['poster_url'] = poster;
+      }
+      if ((snapshot['year'] as int? ?? 0) <= 0 && year > 0) {
+        updates['year'] = year;
+      }
+      if ((snapshot['category'] as String? ?? '').trim().isEmpty &&
+          category.isNotEmpty) {
+        updates['category'] = category;
+        if (inferredKind != null && payload['cineo_media_kind'] == null) {
+          updates['kind'] = inferredKind;
+        }
+      }
+      try {
+        final existingGenres = jsonDecode(snapshot['genres_json'] as String);
+        if (existingGenres is List &&
+            existingGenres.isEmpty &&
+            genres.isNotEmpty) {
+          updates['genres_json'] = jsonEncode(genres);
+        }
+      } on FormatException {
+        // Keep malformed existing metadata rather than replacing it silently.
       }
       if (updates.isNotEmpty) {
         await db.update('media_snapshots', updates,
@@ -1216,22 +1257,23 @@ class HubSyncEngine {
             'media_id': mediaId,
             'title': title == null || title.trim().isEmpty ? 'Hub 媒体' : title,
             'description': '',
-            'year': 0,
+            'year': year > 0 ? year : 0,
             'kind': payload['cineo_media_kind'] == MediaKind.movie.index ||
                     payload['cineo_media_kind'] == MediaKind.series.index
                 ? payload['cineo_media_kind']
-                : lineName == null
-                    ? MediaKind.movie.index
-                    : MediaKind.series.index,
+                : inferredKind ??
+                    (lineName == null
+                        ? MediaKind.movie.index
+                        : MediaKind.series.index),
             'poster_url': poster,
             'backdrop_url': '',
-            'genres_json': '[]',
+            'genres_json': jsonEncode(genres),
             'rating': 0.0,
             'duration_ms': (payload['duration_ms'] as num?)?.toInt() ?? 0,
             'source_id': sourceId,
             'source_name': source['name'],
             'remote_id': vodId,
-            'category': payload['category'] as String? ?? '',
+            'category': category,
             'category_id': null,
             'updated_at': item.updatedAt,
           },
