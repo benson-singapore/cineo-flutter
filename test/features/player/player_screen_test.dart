@@ -91,6 +91,53 @@ void main() {
       expect(playbackEpisodeIndex(episodes, 'missing'), 0);
     });
 
+    test(
+        'source episode numbers preserve missing playlist entries and reject ambiguous identities',
+        () {
+      const first = PlaybackOption(
+          id: 'site:42:0:0',
+          sourceId: 'site',
+          label: 'A · 第1集',
+          quality: 'A',
+          url: 'a');
+      const second = PlaybackOption(
+          id: 'site:42:0:2',
+          sourceId: 'site',
+          label: 'A · 第2集',
+          quality: 'A',
+          url: 'b');
+      const duplicate = PlaybackOption(
+          id: 'site:42:1:0',
+          sourceId: 'site',
+          label: 'A · 特别篇',
+          quality: 'A',
+          url: 'c');
+      const media = MediaItem(
+          id: 'site:42',
+          sourceId: 'site',
+          remoteId: '42',
+          title: '剧集',
+          description: '',
+          year: 2026,
+          kind: MediaKind.series,
+          posterUrl: '',
+          backdropUrl: '',
+          genres: [],
+          rating: 0,
+          duration: Duration.zero,
+          playbackOptions: [first, second]);
+      expect(sourceEpisodeNumber(media, first), 1);
+      expect(sourceEpisodeNumber(media, second), 3);
+      expect(
+          sourceEpisodeNumber(
+              media.copyWith(playbackOptions: [first, second, duplicate]),
+              second),
+          isNull);
+      expect(sourceEpisodeNumber(media.copyWith(sourceId: 'other'), second),
+          isNull);
+      expect(sourceEpisodeNumber(media, option('unknown', '第2集')), isNull);
+    });
+
     test('exposes the supported playback speed choices', () {
       expect(supportedPlaybackSpeeds, [0.5, 0.75, 1, 1.25, 1.5, 2]);
     });

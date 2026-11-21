@@ -123,6 +123,7 @@ class WatchProgress {
     required this.updatedAt,
     this.episodeId,
     this.episodeLabel,
+    this.lineName,
     this.episodeNumber,
     this.episodeCount,
     this.isHidden = false,
@@ -131,6 +132,7 @@ class WatchProgress {
   final String mediaId;
   final String? episodeId;
   final String? episodeLabel;
+  final String? lineName;
   final int? episodeNumber;
   final int? episodeCount;
   final Duration position;
@@ -148,6 +150,7 @@ class WatchProgress {
     String? mediaId,
     String? episodeId,
     String? episodeLabel,
+    String? lineName,
     int? episodeNumber,
     int? episodeCount,
     Duration? position,
@@ -159,6 +162,7 @@ class WatchProgress {
       mediaId: mediaId ?? this.mediaId,
       episodeId: episodeId ?? this.episodeId,
       episodeLabel: episodeLabel ?? this.episodeLabel,
+      lineName: lineName ?? this.lineName,
       episodeNumber: episodeNumber ?? this.episodeNumber,
       episodeCount: episodeCount ?? this.episodeCount,
       position: position ?? this.position,

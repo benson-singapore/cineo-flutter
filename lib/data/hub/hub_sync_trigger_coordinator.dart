@@ -8,7 +8,6 @@ class HubSyncTriggerCoordinator {
     required Future<void> Function(MediaItem media, bool favorite) pushFavorite,
     required Future<void> Function(MediaItem media, WatchProgress progress)
         pushProgress,
-    required Future<void> Function() pushOutbox,
     required int Function() intervalSeconds,
     DateTime Function()? now,
     Timer Function(Duration, void Function())? createTimer,
@@ -18,7 +17,6 @@ class HubSyncTriggerCoordinator {
     this.favoriteDebounce = const Duration(seconds: 2),
   })  : _pushFavorite = pushFavorite,
         _pushProgress = pushProgress,
-        _pushOutbox = pushOutbox,
         _intervalSeconds = intervalSeconds,
         _now = now ?? DateTime.now,
         _createTimer = createTimer ?? Timer.new,
@@ -29,7 +27,6 @@ class HubSyncTriggerCoordinator {
 
   final Future<void> Function(MediaItem, bool) _pushFavorite;
   final Future<void> Function(MediaItem, WatchProgress) _pushProgress;
-  final Future<void> Function() _pushOutbox;
   final int Function() _intervalSeconds;
   final DateTime Function() _now;
   final Timer Function(Duration, void Function()) _createTimer;
@@ -66,8 +63,10 @@ class HubSyncTriggerCoordinator {
   }
 
   void onLifecycleBackgrounded() {
-    if (!_disposed) {
-      unawaited(_dispatch(_pushOutbox).catchError((Object _) {}));
+    final current = _currentProgress;
+    if (!_disposed && current != null) {
+      unawaited(
+          flushProgress(current.$2, current.$3).catchError((Object _) {}));
     }
   }
 

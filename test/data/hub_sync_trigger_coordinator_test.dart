@@ -109,11 +109,6 @@ void main() {
           pending.add(future);
           return future;
         },
-        pushOutbox: () {
-          final future = engine.pushOutbox(trigger: 'auto_progress');
-          pending.add(future);
-          return future;
-        },
         intervalSeconds: () => 5,
         now: now,
         dispatch: (operation) => Zone.root.run<Future<void>>(operation),
@@ -139,7 +134,8 @@ void main() {
     triggers.dispose();
   });
 
-  test('resume does not pull while background only pushes outbox', () async {
+  test('background only pushes current progress and retains unrelated records',
+      () async {
     final db = await repository.hubDatabase;
     await db.insert('hub_outbox', {
       'entity': 'favorite',
@@ -156,12 +152,19 @@ void main() {
           DateTime.fromMillisecondsSinceEpoch(async.elapsed.inMilliseconds));
       triggers.onLifecycleResumed();
       async.flushMicrotasks();
+      triggers.trackProgress(media, progress);
       triggers.onLifecycleBackgrounded();
     });
     await Future.wait(pending);
     expect(requests, hasLength(1));
     expect(requests.single.url.path, '/api/v1/device/sync/push');
     expect(requests.single.headers['x-sync-trigger'], 'auto_progress');
+    expect((jsonDecode(requests.single.body) as Map)['items'].single['entity'],
+        'progress');
+    expect(
+        await db.query('hub_outbox',
+            where: 'record_key=?', whereArgs: ['background']),
+        hasLength(1));
     triggers.dispose();
   });
 
@@ -215,6 +218,7 @@ void main() {
     final progressA1 = progress.copyWith(
       episodeId: 'episode-1',
       episodeLabel: 'Episode A1',
+      lineName: 'Line A',
       episodeNumber: 1,
       position: const Duration(seconds: 10),
     );
@@ -244,7 +248,7 @@ void main() {
     expect(requests.single.url.path, '/api/v1/device/sync/push');
     expect(requests.single.headers['x-sync-trigger'], 'auto_progress');
     final item = (jsonDecode(requests.single.body) as Map)['items'].single;
-    expect(item['payload']['line_name'], 'Episode A1');
+    expect(item['payload']['line_name'], 'Line A');
     expect(item['payload']['position_ms'], 35000);
     triggers.dispose();
   });

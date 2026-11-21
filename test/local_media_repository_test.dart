@@ -462,6 +462,7 @@ void main() {
       mediaId: media.id,
       episodeId: 'source-a:42:0:2',
       episodeLabel: '第3集',
+      lineName: '线路一',
       episodeNumber: 3,
       episodeCount: 12,
       position: const Duration(minutes: 12),
@@ -482,6 +483,7 @@ void main() {
     expect(history, hasLength(1));
     expect(history.single.episodeId, 'source-a:42:0:2');
     expect(history.single.episodeLabel, '第3集');
+    expect(history.single.lineName, '线路一');
     expect(history.single.episodeNumber, 3);
     expect(history.single.episodeCount, 12);
   });

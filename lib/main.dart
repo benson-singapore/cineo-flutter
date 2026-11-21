@@ -28,6 +28,7 @@ import 'features/home/home_screen.dart';
 import 'features/library/library_screen.dart';
 import 'features/media_details/media_details_screen.dart';
 import 'features/player/player_screen.dart';
+import 'features/playback/resume_matching.dart';
 import 'features/profile/profile.dart';
 import 'features/search/search_screen.dart';
 import 'features/search/phone_search_assist.dart';
@@ -95,7 +96,6 @@ class _CineoAppState extends State<CineoApp> with WidgetsBindingObserver {
   late final _hubSyncTriggers = HubSyncTriggerCoordinator(
     pushFavorite: _hubSyncEngine.queueFavorite,
     pushProgress: _hubSyncEngine.pushProgress,
-    pushOutbox: () => _hubSyncEngine.pushOutbox(trigger: 'auto_progress'),
     intervalSeconds: () => 10,
   );
 
@@ -501,7 +501,8 @@ class _CineoShellState extends State<CineoShell> {
             _queueFavoriteChange(favoriteMedia, isFavorite);
             unawaited(_refresh());
           },
-          onPlay: _openPlayer,
+          onPlay: (item, option) =>
+              _openPlayer(item, option, originalMedia: media),
           onLoadTmdbDetails:
               widget.tmdbSettings.configured ? _loadTmdbDetails : null,
           onLoadTmdbEnrichment:
@@ -544,8 +545,9 @@ class _CineoShellState extends State<CineoShell> {
       includeAdult: _includeAdultHistory,
     );
     PlaybackOption? selectedOption;
-    for (final entry in history) {
-      if (entry.mediaId != resolvedMedia.id || entry.episodeId == null) {
+    for (final entry
+        in matchResumeHistory(resolvedMedia, history, original: media)) {
+      if (entry.episodeId == null) {
         continue;
       }
       for (final option in resolvedMedia.playbackOptions) {
@@ -564,7 +566,7 @@ class _CineoShellState extends State<CineoShell> {
       );
       return;
     }
-    await _openPlayer(resolvedMedia, selectedOption);
+    await _openPlayer(resolvedMedia, selectedOption, originalMedia: media);
   }
 
   Future<TmdbMediaDetails?> _loadTmdbPreview(MediaItem media) async {
@@ -693,17 +695,19 @@ class _CineoShellState extends State<CineoShell> {
     MediaItem media,
     PlaybackOption option, {
     String? localTaskId,
+    MediaItem? originalMedia,
   }) async {
     final history = await widget.repository.watchHistory(
       includeAdult: _includeAdultHistory,
     );
-    final mediaHistory = history
-        .where((entry) => entry.mediaId == media.id)
-        .toList(growable: false);
-    final episodePositions = <String, Duration>{
-      for (final entry in mediaHistory)
-        if (entry.episodeId != null) entry.episodeId!: entry.position,
-    };
+    final mediaHistory =
+        matchResumeHistory(media, history, original: originalMedia);
+    final episodePositions = <String, Duration>{};
+    for (final entry in mediaHistory) {
+      if (entry.episodeId != null) {
+        episodePositions.putIfAbsent(entry.episodeId!, () => entry.position);
+      }
+    }
     final moviePosition = mediaHistory
         .where((entry) => entry.episodeId == null)
         .firstOrNull

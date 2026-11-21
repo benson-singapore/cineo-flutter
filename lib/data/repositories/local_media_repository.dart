@@ -52,7 +52,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     final database = await openDatabase(
       resolvedPath,
-      version: 15,
+      version: 16,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -66,6 +66,7 @@ class LocalMediaRepository implements MediaRepository {
             media_id TEXT NOT NULL,
             episode_id TEXT,
             episode_label TEXT,
+            line_name TEXT,
             episode_number INTEGER,
             episode_count INTEGER,
             position_ms INTEGER NOT NULL,
@@ -203,6 +204,14 @@ class LocalMediaRepository implements MediaRepository {
           }
         }
         if (oldVersion < 15) await _createHubTables(database);
+        if (oldVersion < 16) {
+          final columns =
+              await database.rawQuery('PRAGMA table_info(progress)');
+          if (!columns.any((column) => column['name'] == 'line_name')) {
+            await database
+                .execute('ALTER TABLE progress ADD COLUMN line_name TEXT');
+          }
+        }
       },
     );
     // A previous build may have recorded version 9 without creating the
@@ -420,6 +429,7 @@ class LocalMediaRepository implements MediaRepository {
         'media_id': progress.mediaId,
         'episode_id': progress.episodeId,
         'episode_label': progress.episodeLabel,
+        'line_name': progress.lineName,
         'episode_number': progress.episodeNumber,
         'episode_count': progress.episodeCount,
         'position_ms': progress.position.inMilliseconds,
@@ -465,6 +475,7 @@ class LocalMediaRepository implements MediaRepository {
             'media_id': current.id,
             'episode_id': episodeId,
             'episode_label': row['episode_label'],
+            'line_name': row['line_name'],
             'episode_number': row['episode_number'],
             'episode_count': row['episode_count'],
             'position_ms': row['position_ms'],
@@ -2088,6 +2099,7 @@ class LocalMediaRepository implements MediaRepository {
       mediaId: row['media_id'] as String,
       episodeId: row['episode_id'] as String?,
       episodeLabel: row['episode_label'] as String?,
+      lineName: row['line_name'] as String?,
       episodeNumber: _safeParseIntNullable(row['episode_number']),
       episodeCount: _safeParseIntNullable(row['episode_count']),
       position: Duration(milliseconds: _safeParseInt(row['position_ms'])),

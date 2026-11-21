@@ -112,6 +112,76 @@ void main() {
     );
   }
 
+  testWidgets('resolves old media history after asynchronous details load',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    const option = PlaybackOption(
+        id: 'site:42:1:0',
+        sourceId: 'site',
+        label: 'B · 第1集',
+        url: 'https://example.test/b.m3u8',
+        quality: 'B');
+    MediaItem item(String id,
+            {List<PlaybackOption> options = const [],
+            List<Episode> episodes = const []}) =>
+        MediaItem(
+            id: id,
+            sourceId: 'site',
+            remoteId: '42',
+            title: '测试',
+            description: '',
+            year: 2026,
+            kind: MediaKind.series,
+            posterUrl: '',
+            backdropUrl: '',
+            genres: const [],
+            rating: 0,
+            duration: const Duration(minutes: 40),
+            playbackOptions: options,
+            episodes: episodes);
+    final resolved = item('site:42', options: [
+      option
+    ], episodes: const [
+      Episode(
+          id: 'site:42:1:0',
+          title: '第1集',
+          season: 1,
+          number: 1,
+          playbackOption: option)
+    ]);
+    final details = Completer<MediaItem?>();
+    PlaybackOption? played;
+    await tester.pumpWidget(MaterialApp(
+        theme: buildCineoTheme(),
+        home: MediaDetailsScreen(
+          media: item('hub:old:42'),
+          favorite: false,
+          onFavoriteChanged: (_, __) {},
+          onPlay: (_, value) {
+            played = value;
+          },
+          onLoadMediaDetails: (_) => details.future,
+          onLoadWatchHistory: () async => [
+            WatchProgress(
+                mediaId: 'hub:old:42',
+                episodeId: 'hub0:B:0',
+                lineName: 'B',
+                episodeNumber: 1,
+                position: const Duration(minutes: 6),
+                duration: const Duration(minutes: 20),
+                updatedAt: DateTime(2026))
+          ],
+        )));
+    await tester.pump();
+    details.complete(resolved);
+    await tester.pumpAndSettle();
+    expect(find.text('继续播放'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('primary-play-button')));
+    await tester.pump();
+    expect(played?.id, option.id);
+  });
+
   testWidgets('shows play and resumes the latest unfinished episode',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));

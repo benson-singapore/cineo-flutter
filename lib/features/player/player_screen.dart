@@ -67,6 +67,40 @@ int playbackEpisodeIndex(List<PlaybackOption> episodes, String optionId) {
   return index < 0 ? 0 : index;
 }
 
+/// Source episode numbers preserve gaps in the original MacCMS playlist.
+/// Return null when the source or line cannot be identified unambiguously.
+int? sourceEpisodeNumber(MediaItem media, PlaybackOption option) {
+  final source = media.sourceId;
+  final remote = media.remoteId;
+  if (source == null ||
+      source.isEmpty ||
+      remote == null ||
+      remote.isEmpty ||
+      option.sourceId != source ||
+      option.quality.trim().isEmpty) return null;
+  final prefix = '$source:$remote:';
+  final groups = <String>{};
+  int? result;
+  var matches = 0;
+  for (final candidate
+      in media.playbackOptions.where((o) => o.quality == option.quality)) {
+    if (candidate.sourceId != source || !candidate.id.startsWith(prefix)) {
+      return null;
+    }
+    final parts = RegExp(r'^(\d+):(\d+)$')
+        .firstMatch(candidate.id.substring(prefix.length));
+    if (parts == null) return null;
+    groups.add(parts.group(1)!);
+    if (candidate.id == option.id) {
+      matches++;
+      final index = int.tryParse(parts.group(2)!);
+      if (index == null) return null;
+      result = index + 1;
+    }
+  }
+  return groups.length == 1 && matches == 1 ? result : null;
+}
+
 String playbackUrlForOption(
   PlaybackOption option,
   M3u8FilterConfig? filterConfig,
@@ -735,7 +769,10 @@ class _PlayerScreenState extends State<PlayerScreen>
       mediaId: _media.id,
       episodeId: option.id,
       episodeLabel: episodeDisplayLabel(option),
-      episodeNumber: _currentEpisodeIndex + 1,
+      lineName: option.quality.trim().isEmpty ? null : option.quality,
+      episodeNumber: _media.kind == MediaKind.series
+          ? sourceEpisodeNumber(_media, option)
+          : _currentEpisodeIndex + 1,
       episodeCount: _episodes.length,
       position: controller.value.position,
       duration: controller.value.duration,

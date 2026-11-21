@@ -12,6 +12,7 @@ import '../../data/download/download_service.dart';
 import '../../shared/widgets/media_image.dart';
 import '../download/download_screen.dart';
 import 'episode_library_screen.dart';
+import '../playback/resume_matching.dart';
 import '../settings/m3u8_filter_settings.dart';
 
 class MediaDetailsScreen extends StatefulWidget {
@@ -217,10 +218,11 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
   }
 
   WatchProgress? get _latestWatchProgress {
-    final matching = _watchHistory
-        .where((entry) => entry.mediaId == _media.id && !entry.isComplete)
-        .toList()
-      ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
+    final matching =
+        matchResumeHistory(_media, _watchHistory, original: widget.media)
+            .where((entry) => !entry.isComplete)
+            .toList()
+          ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
     return matching.firstOrNull;
   }
 
@@ -240,11 +242,10 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       if (episode.playbackOption != null) episode.playbackOption!.id,
       episode.id,
     ];
-    final matching = _watchHistory
-        .where((entry) =>
-            entry.mediaId == _media.id &&
-            entry.episodeId != null &&
-            ids.contains(entry.episodeId))
+    final matching = matchResumeHistory(_media, _watchHistory,
+            original: widget.media)
+        .where(
+            (entry) => entry.episodeId != null && ids.contains(entry.episodeId))
         .toList()
       ..sort((left, right) => right.updatedAt.compareTo(left.updatedAt));
     return matching.firstOrNull;
