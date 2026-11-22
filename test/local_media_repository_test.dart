@@ -86,6 +86,61 @@ void main() {
     expect(sources.single.isDefault, isTrue);
   });
 
+  test('detail preserves missing status but clears explicitly empty status',
+      () async {
+    var detailHasEmptyStatus = false;
+    const source = MediaSource(
+        id: 'status-source',
+        name: '测试源',
+        type: MediaSourceType.macCmsApi,
+        baseUrl: 'https://example.test/vod');
+    final client = MacCmsClient(
+        fetcher: (uri) async => jsonEncode({
+              'list': [
+                {
+                  'vod_id': 42,
+                  'vod_name': '示例剧',
+                  if (uri.queryParameters['ac'] != 'detail')
+                    'vod_remarks': '更新至12集',
+                  if (uri.queryParameters['ac'] == 'detail' &&
+                      detailHasEmptyStatus)
+                    'vod_remarks': '',
+                }
+              ],
+            }));
+    await repository.close();
+    repository = LocalMediaRepository(
+        databasePath: '${tempDirectory.path}/cineo.db', macCmsClient: client);
+    await repository.saveSource(source);
+    final listItem = (await client.list(source)).single;
+    expect(listItem.coverStatus, '更新至12集');
+    await repository.setFavorite(listItem, true);
+    final missing = (await repository.loadDetails(listItem))!;
+    expect(missing.coverStatus, '更新至12集');
+    expect(missing.coverStatusKnown, isTrue);
+    await repository.setFavorite(missing, true);
+    expect((await repository.getById(listItem.id))!.coverStatus, '更新至12集');
+    final partial = listItem.copyWith(coverStatus: '', coverStatusKnown: false);
+    expect((await repository.loadDetails(partial))!.coverStatus, '更新至12集');
+    detailHasEmptyStatus = true;
+    final cleared = (await repository.loadDetails(listItem))!;
+    expect(cleared.coverStatus, '');
+    expect(cleared.coverStatusKnown, isTrue);
+    await repository.setFavorite(cleared, true);
+    expect((await repository.getById(listItem.id))!.coverStatus, '');
+  });
+
+  test('retains last known cover status when a partial snapshot is saved',
+      () async {
+    await repository.setFavorite(media.copyWith(coverStatus: '更新至12集'), true);
+    await repository.setFavorite(media, true);
+    expect((await repository.getById(media.id))?.coverStatus, '更新至12集');
+    await repository.setFavorite(media.copyWith(coverStatus: '全24集 完结'), true);
+    expect((await repository.getById(media.id))?.coverStatus, '全24集 完结');
+    await repository.setFavorite(media.copyWith(coverStatus: ''), true);
+    expect((await repository.getById(media.id))?.coverStatus, '');
+  });
+
   test('persists a display snapshot when a remote item is favorited', () async {
     await repository.setFavorite(media, true);
 

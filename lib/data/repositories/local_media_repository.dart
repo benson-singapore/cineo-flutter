@@ -52,7 +52,7 @@ class LocalMediaRepository implements MediaRepository {
         path.join(await getDatabasesPath(), 'cineo_local_media.db');
     final database = await openDatabase(
       resolvedPath,
-      version: 16,
+      version: 17,
       onCreate: (database, version) async {
         await database.execute('''
           CREATE TABLE favorites (
@@ -201,6 +201,14 @@ class LocalMediaRepository implements MediaRepository {
             await database.execute(
               'ALTER TABLE progress ADD COLUMN is_hidden INTEGER NOT NULL DEFAULT 0',
             );
+          }
+        }
+        if (oldVersion < 17) {
+          final columns =
+              await database.rawQuery('PRAGMA table_info(media_snapshots)');
+          if (!columns.any((column) => column['name'] == 'cover_status')) {
+            await database.execute(
+                "ALTER TABLE media_snapshots ADD COLUMN cover_status TEXT NOT NULL DEFAULT ''");
           }
         }
         if (oldVersion < 15) await _createHubTables(database);
@@ -1382,14 +1390,24 @@ class LocalMediaRepository implements MediaRepository {
         categoryIds.contains(item.categoryId);
   }
 
+  Future<MediaItem?> _savedSnapshot(String id) async {
+    final rows = await (await _db).query('media_snapshots',
+        where: 'media_id = ?', whereArgs: [id], limit: 1);
+    return rows.isEmpty ? null : _mediaFromSnapshotRow(rows.single);
+  }
+
   @override
   Future<MediaItem?> loadDetails(MediaItem item) async {
     if (item.sourceId == null || item.remoteId == null) return item;
     final sourceRows = await (await _db).query('sources',
         where: 'id = ?', whereArgs: [item.sourceId], limit: 1);
     if (sourceRows.isEmpty) return item;
-    return _macCmsClient.detail(
+    final detail = await _macCmsClient.detail(
         _sourceFromRow(sourceRows.single), item.remoteId!);
+    if (detail == null || detail.coverStatusKnown) return detail;
+    final previous =
+        item.coverStatusKnown ? item : await _savedSnapshot(detail.id);
+    return detail.withCoverStatusFrom(previous);
   }
 
   /// Resolves the most recently selected source for this title. Preferences
@@ -1422,8 +1440,13 @@ class LocalMediaRepository implements MediaRepository {
     }
 
     try {
-      return await _macCmsClient.detail(
+      final detail = await _macCmsClient.detail(
           source, rows.single['remote_id'] as String);
+      if (detail == null || detail.coverStatusKnown) return detail;
+      final previous = detail.id == media.id && media.coverStatusKnown
+          ? media
+          : await _savedSnapshot(detail.id);
+      return detail.withCoverStatusFrom(previous);
     } catch (_) {
       return null;
     }
@@ -1791,6 +1814,7 @@ class LocalMediaRepository implements MediaRepository {
         remote_id TEXT,
         category TEXT,
         category_id TEXT,
+        cover_status TEXT NOT NULL DEFAULT '',
         updated_at INTEGER NOT NULL
       )
     ''');
@@ -1983,8 +2007,20 @@ class LocalMediaRepository implements MediaRepository {
   Future<void> _saveMediaSnapshot(
     MediaItem media, {
     required DatabaseExecutor database,
-  }) {
-    return database.insert(
+  }) async {
+    final previous = !media.coverStatusKnown
+        ? await database.query('media_snapshots',
+            columns: ['cover_status'],
+            where: 'media_id = ?',
+            whereArgs: [media.id],
+            limit: 1)
+        : <Map<String, Object?>>[];
+    final coverStatus = media.coverStatusKnown
+        ? media.coverStatus
+        : (previous.isEmpty
+            ? ''
+            : previous.single['cover_status'] as String? ?? '');
+    await database.insert(
       'media_snapshots',
       {
         'media_id': media.id,
@@ -2002,6 +2038,7 @@ class LocalMediaRepository implements MediaRepository {
         'remote_id': media.remoteId,
         'category': media.category,
         'category_id': media.categoryId,
+        'cover_status': coverStatus,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       conflictAlgorithm: ConflictAlgorithm.replace,
@@ -2091,6 +2128,8 @@ class LocalMediaRepository implements MediaRepository {
       remoteId: row['remote_id'] as String?,
       category: row['category'] as String?,
       categoryId: row['category_id'] as String?,
+      coverStatus: row['cover_status'] as String? ?? '',
+      coverStatusKnown: true,
     );
   }
 

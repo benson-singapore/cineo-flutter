@@ -353,7 +353,7 @@ class _MediaDetailsScreenState extends State<MediaDetailsScreen> {
       if (!mounted) return;
 
       setState(() {
-        _media = resolvedMedia;
+        _media = resolvedMedia.withCoverStatusFrom(_media);
         _applyResumeSelection();
         if (_selectedSourceName == null && _sourceOptions.isNotEmpty) {
           _selectedSourceName = _lineName(_sourceOptions.first);

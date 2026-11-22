@@ -30,6 +30,7 @@ void main() {
             'vod_content': '<p>简介&nbsp;&amp; 内容</p><script>忽略</script>',
             'vod_year': '2025',
             'vod_score': '8.6',
+            'vod_remarks': '全24集 完结',
             'type_name': '电视剧',
           },
         ],
@@ -44,8 +45,43 @@ void main() {
     expect(items, hasLength(1));
     expect(items.single.id, 'family:42');
     expect(items.single.remoteId, '42');
+    expect(items.single.rating, 8.6);
+    expect(items.single.coverStatus, '全24集 完结');
     expect(items.single.description, '简介 & 内容');
     expect(items.single.posterUrl, 'https://media.example.test/poster.jpg');
+  });
+
+  test(
+      'cover status uses supplied remarks, serial or total and handles missing values',
+      () async {
+    final client = MacCmsClient(
+        fetcher: (_) async => jsonEncode({
+              'list': [
+                {'vod_id': 1, 'vod_name': 'a', 'vod_serial': '5'},
+                {'vod_id': 2, 'vod_name': 'b', 'vod_total': 24},
+                {
+                  'vod_id': 3,
+                  'vod_name': 'c',
+                  'vod_remarks': 'HD',
+                  'vod_serial': '0',
+                  'vod_score': '0.0'
+                },
+                {'vod_id': 4, 'vod_name': 'd'},
+                {'vod_id': 5, 'vod_name': 'e', 'vod_isend': 1, 'vod_total': 24},
+                {
+                  'vod_id': 6,
+                  'vod_name': 'f',
+                  'vod_isend': 1,
+                  'vod_remarks': '更新至3集'
+                },
+              ]
+            }));
+    final items = await client.list(source);
+    expect(items.map((item) => item.coverStatus),
+        ['更新至5集', '共24集', '', '', '共24集 · 完结', '更新至3集']);
+    expect(items[2].rating, 0);
+    expect(items[2].coverStatusKnown, isTrue);
+    expect(items[3].coverStatusKnown, isFalse);
   });
 
   test('listPage sends category and page and parses pagination metadata',

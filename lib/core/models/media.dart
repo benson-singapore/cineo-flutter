@@ -55,6 +55,8 @@ class MediaItem {
     this.remoteId,
     this.category,
     this.categoryId,
+    this.coverStatus = '',
+    this.coverStatusKnown = false,
   });
 
   final String id;
@@ -74,6 +76,19 @@ class MediaItem {
   final String? remoteId;
   final String? category;
   final String? categoryId;
+  final String coverStatus;
+
+  /// Whether the source supplied a complete status observation.
+  final bool coverStatusKnown;
+
+  /// Keep status only when both objects describe the same source item.
+  MediaItem withCoverStatusFrom(MediaItem? previous) {
+    if (coverStatusKnown ||
+        previous == null ||
+        previous.id != id ||
+        !previous.coverStatusKnown) return this;
+    return copyWith(coverStatus: previous.coverStatus, coverStatusKnown: true);
+  }
 
   MediaItem copyWith({
     String? title,
@@ -92,6 +107,8 @@ class MediaItem {
     String? remoteId,
     String? category,
     String? categoryId,
+    String? coverStatus,
+    bool? coverStatusKnown,
   }) {
     return MediaItem(
       id: id,
@@ -111,6 +128,9 @@ class MediaItem {
       remoteId: remoteId ?? this.remoteId,
       category: category ?? this.category,
       categoryId: categoryId ?? this.categoryId,
+      coverStatus: coverStatus ?? this.coverStatus,
+      coverStatusKnown: coverStatusKnown ??
+          (coverStatus != null ? true : this.coverStatusKnown),
     );
   }
 }

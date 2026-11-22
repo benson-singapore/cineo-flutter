@@ -112,6 +112,34 @@ void main() {
     );
   }
 
+  testWidgets(
+      'details preserves omitted status and honors explicit empty status',
+      (tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 1400));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final initial = buildSeries().copyWith(coverStatus: '更新至12集');
+    for (final known in [false, true]) {
+      MediaItem? saved;
+      final detail = initial.copyWith(coverStatus: '', coverStatusKnown: known);
+      await tester.pumpWidget(MaterialApp(
+        key: ValueKey(known),
+        theme: buildCineoTheme(),
+        home: MediaDetailsScreen(
+          media: initial,
+          favorite: false,
+          onFavoriteChanged: (item, _) => saved = item,
+          onPlay: (_, __) {},
+          onLoadMediaDetails: (_) async => detail,
+        ),
+      ));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(find.byTooltip('收藏'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byTooltip('收藏'));
+      expect(saved?.coverStatus, known ? '' : '更新至12集');
+    }
+  });
+
   testWidgets('resolves old media history after asynchronous details load',
       (tester) async {
     await tester.binding.setSurfaceSize(const Size(800, 1400));

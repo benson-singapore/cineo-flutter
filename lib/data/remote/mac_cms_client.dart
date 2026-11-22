@@ -428,12 +428,39 @@ class MacCmsClient {
               .where((value) => value.isNotEmpty)
               .toList(),
       rating: _double(item['vod_score']),
+      coverStatus: _coverStatus(item),
+      coverStatusKnown: const [
+        'vod_remarks',
+        'vod_serial',
+        'vod_total',
+        'vod_isend'
+      ].any(item.containsKey),
       duration: const Duration(minutes: 45),
       category: typeName,
       categoryId: _string(item['type_id']),
       playbackOptions: playback.options,
       episodes: playback.episodes,
     );
+  }
+
+  String _coverStatus(Map<String, Object?> item) {
+    final remarks = _string(item['vod_remarks']).trim();
+    final complete = _string(item['vod_isend']).trim() == '1';
+    if (RegExp(r'\d+\s*[集话期]|完结|完結|更新|连载|連載').hasMatch(remarks)) {
+      if (complete && !RegExp(r'完结|完結|更新|连载|連載').hasMatch(remarks)) {
+        return '$remarks · 完结';
+      }
+      return remarks;
+    }
+    final serial = int.tryParse(_string(item['vod_serial']).trim());
+    if (serial != null && serial > 0) {
+      return complete ? '$serial集 · 完结' : '更新至$serial集';
+    }
+    final total = int.tryParse(_string(item['vod_total']).trim());
+    if (total != null && total > 0) {
+      return complete ? '共$total集 · 完结' : '共$total集';
+    }
+    return complete ? '完结' : '';
   }
 
   _PlaybackData _playback(Map<String, Object?> item, MediaSource source) {
